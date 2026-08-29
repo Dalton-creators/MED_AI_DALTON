@@ -22,8 +22,16 @@ async function boot(){
     showApp();
     await loadSubjects();
     navigate("dashboard");
-  }catch{
-    showAuth();
+  }catch(err){
+    $("#auth-screen").classList.remove("hidden");
+    $(".auth-card").innerHTML = `
+      <div class="brand-lockup">
+        <div class="brand-mark">M+</div>
+        <div><h1>MED AI DALTON</h1><p>Entrenamiento médico inteligente</p></div>
+      </div>
+      <div class="notice" style="margin-top:24px">
+        No se pudo abrir tu perfil personal. ${escapeHtml(err.message)}
+      </div>`;
   }
 }
 
@@ -64,10 +72,7 @@ function bindShell(){
     $(".sidebar").classList.remove("open");
   });
   $("#menu-btn").addEventListener("click",()=>$(".sidebar").classList.toggle("open"));
-  $("#logout-btn").addEventListener("click",async()=>{
-    await api("/api/auth/logout",{method:"POST"}).catch(()=>{});
-    location.reload();
-  });
+  $("#logout-btn").addEventListener("click",()=>location.reload());
   $("#quick-study").addEventListener("click",()=>navigate("study"));
   $("#user-chip").addEventListener("click",()=>navigate("profile"));
   $("#global-search").addEventListener("input",debounce(searchGlobal,250));

@@ -33,10 +33,9 @@ export default {
         return login(request, env);
       }
 
-      // Protected routes
-      const auth = await requireAuth(request, env);
-      if (!auth.ok) return auth.response;
-      const user = auth.user;
+      // Personal single-user mode:
+      // no login screen; every device uses the same personal MED AI profile in D1.
+      const user = await ensurePersonalUser(env);
 
       if (url.pathname === "/api/auth/logout" && request.method === "POST") {
         return logout(request, env, user);
@@ -152,6 +151,49 @@ export default {
     }
   }
 };
+
+
+async function ensurePersonalUser(env) {
+  const userId = "med_ai_personal_dalton";
+  const email = "personal@med-ai.local";
+  const now = new Date().toISOString();
+
+  let user = await env.DB.prepare(
+    "SELECT id,email,status FROM users WHERE id=? LIMIT 1"
+  ).bind(userId).first();
+
+  if (!user) {
+    await env.DB.batch([
+      env.DB.prepare(`
+        INSERT OR IGNORE INTO users
+        (id,email,password_hash,password_salt,password_algorithm,password_iterations,email_verified,status,created_at,updated_at)
+        VALUES (?,?,'NOT_USED','NOT_USED','PERSONAL_MODE',1,1,'active',?,?)
+      `).bind(userId,email,now,now),
+
+      env.DB.prepare(`
+        INSERT OR IGNORE INTO profiles
+        (user_id,full_name,target_specialty,country,timezone,preferred_language,created_at,updated_at)
+        VALUES (?,'Dalton','Medicina Interna','Guatemala','America/Guatemala','es',?,?)
+      `).bind(userId,now,now),
+
+      env.DB.prepare(`
+        INSERT OR IGNORE INTO user_preferences
+        (user_id,created_at,updated_at)
+        VALUES (?,?,?)
+      `).bind(userId,now,now),
+
+      env.DB.prepare(`
+        INSERT OR IGNORE INTO study_resume_state
+        (user_id,route,progress_percent,context_json,sync_version,updated_at)
+        VALUES (?,'/',0,'{}',1,?)
+      `).bind(userId,now)
+    ]);
+
+    user = { id:userId, email, status:"active" };
+  }
+
+  return user;
+}
 
 // -------------------- AUTH --------------------
 
@@ -286,22 +328,7 @@ async function requireAuth(request, env) {
 }
 
 async function logout(request, env, user) {
-  const token = parseCookie(request.headers.get("cookie") || "", "medai_session");
-  if (token) {
-    const tokenHash = await sha256(token);
-    await env.DB.prepare("UPDATE sessions SET revoked_at=? WHERE token_hash=? AND user_id=?")
-      .bind(new Date().toISOString(), tokenHash, user.id).run();
-  }
-  const secure = new URL(request.url).protocol === "https:";
-  const cookie = [
-    "medai_session=",
-    "HttpOnly",
-    "Path=/",
-    "SameSite=Lax",
-    secure ? "Secure" : "",
-    "Max-Age=0"
-  ].filter(Boolean).join("; ");
-  return json({ ok: true }, 200, { "set-cookie": cookie });
+  return json({ ok: true, personal_mode: true });
 }
 
 async function changePassword(request, env, user) {
