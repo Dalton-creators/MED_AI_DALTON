@@ -805,27 +805,34 @@ async function recordExam(request, env, user) {
   return json({ok:true,id});
 }
 
-// -------------------- OPENAI --------------------
+// -------------------- CLOUDFLARE WORKERS AI --------------------
+
+const DEFAULT_TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const DEFAULT_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
 async function aiChat(request, env, user) {
   ensureAI(env);
   const body = await readJson(request);
   const message = cleanText(body.message, 12000);
   if (!message) return json({ error: "Escribe un mensaje." }, 400);
+
   const mode = cleanText(body.mode,80) || "tutor";
   let conversationId = body.conversation_id || crypto.randomUUID();
   const now = new Date().toISOString();
 
-  const existing = await env.DB.prepare("SELECT id FROM ai_conversations WHERE id=? AND user_id=?")
-    .bind(conversationId,user.id).first();
+  const existing = await env.DB.prepare(
+    "SELECT id FROM ai_conversations WHERE id=? AND user_id=?"
+  ).bind(conversationId,user.id).first();
+
   if (!existing) {
     await env.DB.prepare(`
-      INSERT INTO ai_conversations (id,user_id,mode,title,subject_id,topic_id,context_json,archived,last_message_at,created_at,updated_at)
+      INSERT INTO ai_conversations
+      (id,user_id,mode,title,subject_id,topic_id,context_json,archived,last_message_at,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,0,?,?,?)
     `).bind(
       conversationId,user.id,mode,cleanText(body.title,180)||humanMode(mode),
-      nullable(body.subject_id),nullable(body.topic_id),JSON.stringify(body.context||{}),
-      now,now,now
+      nullable(body.subject_id),nullable(body.topic_id),
+      JSON.stringify(body.context||{}),now,now,now
     ).run();
   }
 
@@ -834,37 +841,60 @@ async function aiChat(request, env, user) {
     WHERE conversation_id=? AND user_id=? AND role IN ('user','assistant')
     ORDER BY datetime(created_at) DESC LIMIT 12
   `).bind(conversationId,user.id).all();
+
   const history = [...(historyRows.results||[])].reverse();
+  const messages = [
+    { role:"system", content:medicalInstructions(mode) },
+    ...history.map(x => ({ role:x.role, content:x.content })),
+    { role:"user", content:message }
+  ];
 
-  const input = history.map(x => ({ role:x.role, content:x.content }));
-  input.push({ role:"user", content:message });
-
-  const response = await callOpenAI(env,{
-    instructions: medicalInstructions(mode),
-    input,
-    max_output_tokens: 3500
+  const response = await callCloudflareAI(env, {
+    messages,
+    max_tokens: 2600,
+    temperature: 0.35
   });
-  const answer = extractOpenAIText(response) || "No pude generar una respuesta en este momento.";
+
+  const answer = extractCloudflareText(response) ||
+    "No pude generar una respuesta en este momento.";
 
   await env.DB.batch([
     env.DB.prepare(`
-      INSERT INTO ai_messages (id,user_id,conversation_id,role,content,content_json,model,created_at)
+      INSERT INTO ai_messages
+      (id,user_id,conversation_id,role,content,content_json,model,created_at)
       VALUES (?,?,?,'user',?,'{}',NULL,?)
-    `).bind(crypto.randomUUID(),user.id,conversationId,message,now),
+    `).bind(
+      crypto.randomUUID(),user.id,conversationId,message,now
+    ),
+
     env.DB.prepare(`
-      INSERT INTO ai_messages (id,user_id,conversation_id,role,content,content_json,model,tokens_input,tokens_output,created_at)
+      INSERT INTO ai_messages
+      (id,user_id,conversation_id,role,content,content_json,model,tokens_input,tokens_output,created_at)
       VALUES (?,?,?,'assistant',?,'{}',?,?,?,?)
     `).bind(
       crypto.randomUUID(),user.id,conversationId,answer,
-      response.model||env.OPENAI_MODEL||"gpt-5.6-terra",
-      Number(response.usage?.input_tokens||0),Number(response.usage?.output_tokens||0),
+      response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
+      Number(response.usage?.prompt_tokens || response.usage?.input_tokens || 0),
+      Number(response.usage?.completion_tokens || response.usage?.output_tokens || 0),
       new Date().toISOString()
     ),
-    env.DB.prepare("UPDATE ai_conversations SET last_message_at=?,updated_at=? WHERE id=? AND user_id=?")
-      .bind(new Date().toISOString(),new Date().toISOString(),conversationId,user.id)
+
+    env.DB.prepare(`
+      UPDATE ai_conversations
+      SET last_message_at=?,updated_at=?
+      WHERE id=? AND user_id=?
+    `).bind(
+      new Date().toISOString(),new Date().toISOString(),
+      conversationId,user.id
+    )
   ]);
 
-  return json({ answer, conversation_id: conversationId, model: response.model });
+  return json({
+    answer,
+    conversation_id:conversationId,
+    model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
+    provider:"Cloudflare Workers AI"
+  });
 }
 
 async function aiExam(request, env, user) {
@@ -877,100 +907,201 @@ async function aiExam(request, env, user) {
 
   const prompt = `Genera ${count} preguntas de selección múltiple en español para ${subject}, tema ${topic}, dificultad ${difficulty}/10.
 Cada pregunta debe tener exactamente 4 opciones plausibles, una sola correcta y explicación educativa.
-Devuelve EXCLUSIVAMENTE JSON válido, sin markdown, con esta forma:
+Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, con esta forma:
 {"questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]}`;
 
-  const response = await callOpenAI(env,{
-    instructions:"Eres un examinador médico riguroso. El contenido es educativo. Produce datos clínicamente coherentes y evita ambigüedades.",
-    input:prompt,
-    max_output_tokens:7000
+  const response = await callCloudflareAI(env,{
+    messages:[
+      {
+        role:"system",
+        content:"Eres un examinador médico riguroso. El contenido es educativo. Produce preguntas clínicamente coherentes, sin ambigüedades y en español."
+      },
+      {role:"user",content:prompt}
+    ],
+    max_tokens: 5000,
+    temperature: 0.25
   });
-  const text = extractOpenAIText(response);
+
+  const text = extractCloudflareText(response);
   const parsed = parseJsonLoose(text);
-  if (!parsed?.questions?.length) return json({error:"La IA no devolvió un examen estructurado. Inténtalo de nuevo."},502);
+
+  if (!parsed?.questions?.length) {
+    return json({
+      error:"La IA no devolvió un examen estructurado. Inténtalo de nuevo."
+    },502);
+  }
+
   const questions = parsed.questions.slice(0,count).map((q,i)=>({
-    id:`ai_${Date.now()}_${i}`,
+    id:`cf_${Date.now()}_${i}`,
     stem:String(q.stem||""),
     options:Array.isArray(q.options)?q.options.slice(0,4).map(String):[],
     correctIndex:clamp(Number(q.correctIndex||0),0,3),
     explanation:String(q.explanation||"")
   })).filter(q=>q.stem && q.options.length===4);
-  return json({questions, model:response.model});
+
+  return json({
+    questions,
+    model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
+    provider:"Cloudflare Workers AI"
+  });
 }
 
 async function aiFlashcards(request, env, user) {
   ensureAI(env);
-  const body=await readJson(request);
-  const count=clamp(Math.round(Number(body.count||10)),3,30);
-  const topic=cleanText(body.topic,200)||"Medicina";
-  const prompt=`Crea ${count} flashcards médicas de alto rendimiento sobre "${topic}".
-Devuelve SOLO JSON válido sin markdown:
+  const body = await readJson(request);
+  const count = clamp(Math.round(Number(body.count||10)),3,30);
+  const topic = cleanText(body.topic,200)||"Medicina";
+
+  const prompt = `Crea ${count} flashcards médicas de alto rendimiento sobre "${topic}".
+Devuelve SOLO JSON válido sin markdown ni explicaciones fuera del JSON:
 {"cards":[{"front":"pregunta o concepto","back":"respuesta clara y precisa","hint":"pista breve"}]}
 Prioriza comprensión clínica, fisiopatología, diagnóstico, tratamiento y perlas de examen según corresponda.`;
-  const response=await callOpenAI(env,{instructions:"Eres tutor de medicina y diseñador de repetición espaciada.",input:prompt,max_output_tokens:5000});
-  const parsed=parseJsonLoose(extractOpenAIText(response));
-  if(!parsed?.cards?.length) return json({error:"No se pudieron generar flashcards estructuradas."},502);
-  return json({cards:parsed.cards.slice(0,count),model:response.model});
+
+  const response = await callCloudflareAI(env,{
+    messages:[
+      {
+        role:"system",
+        content:"Eres tutor de medicina y diseñador experto de repetición espaciada. Responde en español."
+      },
+      {role:"user",content:prompt}
+    ],
+    max_tokens:3500,
+    temperature:0.3
+  });
+
+  const parsed = parseJsonLoose(extractCloudflareText(response));
+
+  if(!parsed?.cards?.length) {
+    return json({error:"No se pudieron generar flashcards estructuradas."},502);
+  }
+
+  return json({
+    cards:parsed.cards.slice(0,count),
+    model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
+    provider:"Cloudflare Workers AI"
+  });
 }
 
 async function aiVision(request, env, user) {
   ensureAI(env);
-  const body=await readJson(request);
-  const dataUrl=String(body.image_data_url||"");
-  const prompt=cleanText(body.prompt,5000)||"Analiza esta imagen con fines educativos médicos.";
-  const mode=cleanText(body.mode,80)||"vision";
-  if(!dataUrl.startsWith("data:image/")) return json({error:"Imagen inválida."},400);
-  if(dataUrl.length>7_500_000) return json({error:"La imagen es demasiado grande."},413);
+  const body = await readJson(request);
+  const dataUrl = String(body.image_data_url||"");
+  const prompt = cleanText(body.prompt,5000) ||
+    "Analiza esta imagen con fines educativos médicos.";
+  const mode = cleanText(body.mode,80)||"vision";
 
-  const response=await callOpenAI(env,{
-    instructions:medicalInstructions(mode),
-    input:[{
-      role:"user",
-      content:[
-        {type:"input_text",text:prompt},
-        {type:"input_image",image_url:dataUrl}
-      ]
-    }],
-    max_output_tokens:3500
-  });
-  return json({answer:extractOpenAIText(response),model:response.model});
-}
-
-async function callOpenAI(env, payload) {
-  const res = await fetch("https://api.openai.com/v1/responses",{
-    method:"POST",
-    headers:{
-      "authorization":`Bearer ${env.OPENAI_API_KEY}`,
-      "content-type":"application/json"
-    },
-    body:JSON.stringify({
-      model:env.OPENAI_MODEL || "gpt-5.6-terra",
-      reasoning:{effort:"medium"},
-      ...payload
-    })
-  });
-  const data=await res.json();
-  if(!res.ok) {
-    console.error("OPENAI_ERROR",JSON.stringify(data));
-    throw new Error(data?.error?.message||"Error al comunicarse con la IA.");
+  if(!dataUrl.startsWith("data:image/")) {
+    return json({error:"Imagen inválida."},400);
   }
-  return data;
+  if(dataUrl.length>7_500_000) {
+    return json({error:"La imagen es demasiado grande."},413);
+  }
+
+  const model = env.CLOUDFLARE_VISION_MODEL || DEFAULT_VISION_MODEL;
+
+  try {
+    const response = await env.AI.run(model,{
+      messages:[
+        {role:"system",content:medicalInstructions(mode)},
+        {
+          role:"user",
+          content:[
+            {
+              type:"image_url",
+              image_url:{url:dataUrl}
+            },
+            {
+              type:"text",
+              text:prompt
+            }
+          ]
+        }
+      ],
+      max_tokens:2400,
+      temperature:0.2,
+      chat_template_kwargs:{enable_thinking:false}
+    });
+
+    response.__model = model;
+
+    return json({
+      answer:extractCloudflareText(response) ||
+        "No pude interpretar la imagen.",
+      model,
+      provider:"Cloudflare Workers AI"
+    });
+  } catch(err) {
+    console.error("CLOUDFLARE_VISION_ERROR",err?.stack||err);
+    return json({
+      error:"No se pudo analizar la imagen con Workers AI.",
+      detail:env.ENVIRONMENT==="development" ? String(err?.message||err) : undefined
+    },500);
+  }
 }
 
-function ensureAI(env){
-  if(!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY todavía no está configurada como Secret de Cloudflare.");
-}
+async function callCloudflareAI(env, options) {
+  ensureAI(env);
+  const model = env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL;
 
-function extractOpenAIText(data){
-  if(typeof data?.output_text==="string") return data.output_text;
-  const parts=[];
-  for(const item of data?.output||[]){
-    for(const c of item?.content||[]){
-      if(typeof c?.text==="string") parts.push(c.text);
-      else if(typeof c?.output_text==="string") parts.push(c.output_text);
+  try {
+    const response = await env.AI.run(model,{
+      messages:options.messages,
+      max_tokens:options.max_tokens || 2500,
+      temperature:options.temperature ?? 0.3,
+      chat_template_kwargs:{
+        enable_thinking:false
+      }
+    });
+
+    if (response && typeof response === "object") {
+      response.__model = model;
     }
+
+    return response;
+  } catch(err) {
+    console.error("CLOUDFLARE_AI_ERROR",err?.stack||err);
+    throw new Error(
+      "Workers AI no pudo responder. Si superaste la asignación gratuita diaria, vuelve a intentarlo cuando se reinicie el límite."
+    );
   }
-  return parts.join("\n").trim();
+}
+
+function ensureAI(env) {
+  if(!env.AI) {
+    throw new Error(
+      "El binding AI de Cloudflare todavía no está configurado."
+    );
+  }
+}
+
+function extractCloudflareText(data) {
+  if(!data) return "";
+
+  if(typeof data.response === "string") {
+    return data.response.trim();
+  }
+
+  if(typeof data.result?.response === "string") {
+    return data.result.response.trim();
+  }
+
+  const choice = data.choices?.[0];
+  if(typeof choice?.message?.content === "string") {
+    return choice.message.content.trim();
+  }
+
+  if(Array.isArray(choice?.message?.content)) {
+    return choice.message.content
+      .map(x => typeof x === "string" ? x : (x?.text || ""))
+      .join("\n")
+      .trim();
+  }
+
+  if(typeof data.output_text === "string") {
+    return data.output_text.trim();
+  }
+
+  return "";
 }
 
 function medicalInstructions(mode){
