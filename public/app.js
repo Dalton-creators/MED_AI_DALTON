@@ -355,41 +355,66 @@ async function finishExam(){
 async function renderFlashcards(){
   const data=await api("/api/flashcards?due=1");state.dueCards=data.flashcards||[];state.cardIndex=0;state.showingBack=false;
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">REPETICIÓN ESPACIADA</div><h2>Flashcards</h2><p>Refuerza lo importante con tarjetas claras y más agradables para estudiar.</p></div><button id="generate-cards" class="primary-btn">Generar con IA</button></div>
+    <div class="page-head"><div><div class="eyebrow">REPETICIÓN ESPACIADA</div><h2>Flashcards enfocadas</h2><p>Ahora MED AI separa la materia del tema para evitar mezclar contenidos.</p></div><button id="generate-cards" class="primary-btn">Generar flashcards</button></div>
+    <div class="card" style="margin-bottom:16px"><div class="info-box"><strong>Para mejores tarjetas:</strong> elige la materia y escribe un tema concreto. Por ejemplo: <em>Anatomía → huesos del cráneo</em>, en lugar de escribir solamente “Anatomía”.</div></div>
     <div id="flash-area"></div>
     <div class="card" id="card-generator" style="margin-top:16px">
+      <div class="eyebrow" style="margin-bottom:12px">CREAR NUEVO BLOQUE DE FLASHCARDS</div>
       <div class="grid two">
-        <div class="field"><label>Tema</label><input id="card-topic" placeholder="Ej. glomerulopatías"></div>
+        <div class="field"><label>Materia</label><select id="card-subject">${subjectOptions()}</select></div>
+        <div class="field"><label>Tema específico</label><input id="card-topic" placeholder="Ej. huesos del cráneo, ciclo de Krebs, potencial de acción"></div>
+        <div class="field"><label>Nivel</label><select id="card-level"><option>Primeros años</option><option>Ciencias básicas</option><option>Clínico</option><option>Internado</option><option>Médico general</option><option>Residencia</option></select></div>
+        <div class="field"><label>Enfoque</label><select id="card-focus"><option value="fundamentos">Fundamentos esenciales</option><option value="definiciones y relaciones">Definiciones y relaciones</option><option value="memorización exacta">Memorización exacta</option><option value="aplicación clínica dentro del tema">Aplicación clínica dentro del tema</option><option value="preguntas tipo examen sin salir del tema">Tipo examen</option></select></div>
         <div class="field"><label>Cantidad</label><select id="card-count"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
       </div>
+      <div class="info-box">La IA recibirá un alcance estricto: <strong>Materia + Tema + Nivel + Enfoque</strong>. Esto reduce muchísimo las mezclas entre contenidos.</div>
     </div>`;
+  if(state.currentSubject) $("#card-subject").value=state.currentSubject.id;
   $("#generate-cards").onclick=generateCardsAI;
   renderCurrentCard();
 }
 function renderCurrentCard(){
   const area=$("#flash-area");if(!area)return;
-  if(!state.dueCards.length){area.innerHTML=`<div class="card empty">No tienes tarjetas pendientes. Genera nuevas flashcards con IA o vuelve más tarde.</div>`;return}
+  if(!state.dueCards.length){area.innerHTML=`<div class="card empty">No tienes tarjetas pendientes. Crea un bloque nuevo con materia y tema específico.</div>`;return}
   const c=state.dueCards[state.cardIndex%state.dueCards.length];
-  area.innerHTML=`<div class="card flashcard-stage"><div>
-    <div class="flashcard" id="flip-card">${state.showingBack?`<div class="back">${escapeHtml(c.back)}</div>`:`<div><div class="eyebrow">FRENTE</div><h2>${escapeHtml(c.front)}</h2><p style="color:var(--muted)">Toca para mostrar respuesta</p></div>`}</div>
-    ${state.showingBack?`<div class="grade-row" style="margin-top:14px">${[["0","Otra vez"],["2","Difícil"],["4","Bien"],["5","Fácil"]].map(([g,t])=>`<button class="grade-btn" data-grade="${g}">${t}</button>`).join("")}</div>`:""}
+  let tags=[];try{tags=JSON.parse(c.tags_json||"[]")}catch{}
+  const tagLine=tags.length?`<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:12px">${tags.slice(0,4).map(t=>`<span class="badge">${escapeHtml(t)}</span>`).join("")}</div>`:"";
+  area.innerHTML=`<div class="card flashcard-stage"><div style="width:100%">
+    ${tagLine}
+    <div class="flashcard" id="flip-card">${state.showingBack?`<div class="back">${escapeHtml(c.back)}</div>`:`<div><div class="eyebrow">FRENTE</div><h2>${escapeHtml(c.front)}</h2><p style="color:var(--text-soft)">Toca para mostrar respuesta</p></div>`}</div>
+    <div class="grade-row" style="margin-top:14px">
+      ${state.showingBack?[["0","Otra vez"],["2","Difícil"],["4","Bien"],["5","Fácil"]].map(([g,t])=>`<button class="grade-btn" data-grade="${g}">${t}</button>`).join(""):""}
+      <button id="discard-card" class="grade-btn" style="color:var(--danger)">Descartar tarjeta</button>
+    </div>
   </div></div>`;
   $("#flip-card").onclick=()=>{state.showingBack=true;renderCurrentCard()};
-  $$(".grade-btn").forEach(b=>b.onclick=async e=>{
+  $$(".grade-btn[data-grade]").forEach(b=>b.onclick=async e=>{
     e.stopPropagation();await api("/api/flashcards/review",{method:"POST",body:{flashcard_id:c.id,grade:Number(b.dataset.grade)}}).catch(()=>{});
     state.dueCards.splice(state.cardIndex%state.dueCards.length,1);state.cardIndex=0;state.showingBack=false;renderCurrentCard();
   });
+  $("#discard-card").onclick=async e=>{
+    e.stopPropagation();
+    try{await api(`/api/flashcards?id=${encodeURIComponent(c.id)}`,{method:"DELETE"});state.dueCards.splice(state.cardIndex%state.dueCards.length,1);state.cardIndex=0;state.showingBack=false;toast("Tarjeta descartada.");renderCurrentCard()}catch(err){toast(err.message,true)}
+  };
 }
 async function generateCardsAI(){
-  const topic=$("#card-topic").value.trim();if(!topic)return toast("Escribe un tema.",true);
-  const btn=$("#generate-cards");btn.disabled=true;
+  const subjectId=$("#card-subject").value;
+  const subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
+  const topic=$("#card-topic").value.trim();
+  const level=$("#card-level").value;
+  const focus=$("#card-focus").value;
+  if(topic.length<3)return toast("Escribe un tema específico, por ejemplo: huesos del cráneo.",true);
+  const btn=$("#generate-cards");btn.disabled=true;btn.textContent="Generando tarjetas enfocadas...";
   try{
-    const d=await api("/api/ai/flashcards",{method:"POST",body:{topic,count:Number($("#card-count").value)}});
+    const d=await api("/api/ai/flashcards",{method:"POST",body:{subject,topic,level,focus,count:Number($("#card-count").value)}});
     for(const c of d.cards){
-      await api("/api/flashcards",{method:"POST",body:{front:c.front,back:c.back,hint:c.hint,source_type:"ai"}});
+      await api("/api/flashcards",{method:"POST",body:{
+        front:c.front,back:c.back,hint:c.hint,source_type:"ai_focused",
+        tags:[subject,topic,level],metadata:{subject,topic,level,focus,provider:d.provider,model:d.model}
+      }});
     }
-    toast(`${d.cards.length} flashcards creadas.`);await renderFlashcards();
-  }catch(err){toast(err.message,true)}finally{btn.disabled=false}
+    toast(`${d.cards.length} flashcards enfocadas creadas sobre ${topic}.`);await renderFlashcards();
+  }catch(err){toast(err.message,true)}finally{btn.disabled=false;btn.textContent="Generar flashcards"}
 }
 
 async function renderLibrary(){

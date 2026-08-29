@@ -85,6 +85,10 @@ export default {
         return createFlashcard(request, env, user);
       }
 
+      if (url.pathname === "/api/flashcards" && request.method === "DELETE") {
+        return deleteFlashcard(url, env, user);
+      }
+
       if (url.pathname === "/api/flashcards/review" && request.method === "POST") {
         return reviewFlashcard(request, env, user);
       }
@@ -584,6 +588,14 @@ async function createFlashcard(request, env, user) {
   return json({ ok: true, id }, 201);
 }
 
+async function deleteFlashcard(url, env, user) {
+  const id = url.searchParams.get("id");
+  if (!id) return json({ error: "Falta id de flashcard." }, 400);
+  await env.DB.prepare("DELETE FROM flashcards WHERE id=? AND user_id=?")
+    .bind(id, user.id).run();
+  return json({ ok:true });
+}
+
 async function reviewFlashcard(request, env, user) {
   const body = await readJson(request);
   const grade = clamp(Math.round(Number(body.grade)), 0, 5);
@@ -949,24 +961,49 @@ Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, co
 async function aiFlashcards(request, env, user) {
   ensureAI(env);
   const body = await readJson(request);
-  const count = clamp(Math.round(Number(body.count||10)),3,30);
-  const topic = cleanText(body.topic,200)||"Medicina";
+  const count = clamp(Math.round(Number(body.count||10)),3,20);
+  const subject = cleanText(body.subject,120)||"Medicina";
+  const topic = cleanText(body.topic,220);
+  const level = cleanText(body.level,80)||"Primeros años";
+  const focus = cleanText(body.focus,120)||"fundamentos";
 
-  const prompt = `Crea ${count} flashcards médicas de alto rendimiento sobre "${topic}".
-Devuelve SOLO JSON válido sin markdown ni explicaciones fuera del JSON:
-{"cards":[{"front":"pregunta o concepto","back":"respuesta clara y precisa","hint":"pista breve"}]}
-Prioriza comprensión clínica, fisiopatología, diagnóstico, tratamiento y perlas de examen según corresponda.`;
+  if (!topic || topic.length < 3) {
+    return json({error:"Escribe un tema específico para las flashcards."},400);
+  }
+
+  const prompt = `Crea exactamente ${count} flashcards médicas en español.
+
+ALCANCE ESTRICTO:
+- Materia: ${subject}
+- Tema específico: ${topic}
+- Nivel del estudiante: ${level}
+- Enfoque: ${focus}
+
+REGLAS OBLIGATORIAS:
+1. TODAS las tarjetas deben pertenecer directamente a la materia "${subject}" y al tema "${topic}".
+2. NO mezcles otros temas, sistemas, enfermedades o materias salvo que sean indispensables para comprender directamente "${topic}". Si una relación externa no es indispensable, omítela.
+3. Cada tarjeta debe evaluar UNA sola idea. No combines varias preguntas en una tarjeta.
+4. La pregunta del frente debe ser inequívoca y poder responderse sin contexto adicional.
+5. El reverso debe ser breve, preciso y educativo: idealmente 1 a 3 oraciones.
+6. Evita preguntas vagas como "¿Qué sabes de...?" o listas gigantes.
+7. No inventes datos. Si no estás seguro de un detalle, no lo incluyas.
+8. Para nivel ${level}, usa solo la profundidad apropiada.
+9. No conviertas automáticamente un tema básico en tratamiento clínico si el enfoque no lo pide.
+10. Antes de responder, verifica internamente que ninguna tarjeta se salga del tema "${topic}".
+
+Devuelve SOLO JSON válido, sin markdown ni texto fuera del JSON:
+{"cards":[{"front":"pregunta clara","back":"respuesta precisa","hint":"pista breve"}]}`;
 
   const response = await callCloudflareAI(env,{
     messages:[
       {
         role:"system",
-        content:"Eres tutor de medicina y diseñador experto de repetición espaciada. Responde en español."
+        content:`Eres un diseñador experto de flashcards médicas de repetición espaciada. Tu prioridad es la fidelidad temática: nunca mezcles contenido ajeno al tema solicitado. Mantén cada tarjeta atómica, clara, correcta y apropiada para el nivel indicado.`
       },
       {role:"user",content:prompt}
     ],
-    max_tokens:1700,
-    temperature:0.3
+    max_tokens:2200,
+    temperature:0.12
   });
 
   const parsed = parseJsonLoose(extractCloudflareText(response));
@@ -975,8 +1012,24 @@ Prioriza comprensión clínica, fisiopatología, diagnóstico, tratamiento y per
     return json({error:"No se pudieron generar flashcards estructuradas."},502);
   }
 
+  const cards = parsed.cards.slice(0,count)
+    .map(c=>({
+      front:cleanText(c.front,1600),
+      back:cleanText(c.back,3200),
+      hint:cleanText(c.hint,700)
+    }))
+    .filter(c=>c.front && c.back);
+
+  if (!cards.length) {
+    return json({error:"La IA no generó tarjetas válidas para ese tema."},502);
+  }
+
   return json({
-    cards:parsed.cards.slice(0,count),
+    cards,
+    subject,
+    topic,
+    level,
+    focus,
     model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
     provider:"Cloudflare Workers AI"
   });
