@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-visual-v5";
+const CACHE = "med-ai-dalton-visual-v6-signature";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=5.0.0",
-  "/app.js?v=5.0.0",
+  "/styles.css?v=6.0.0",
+  "/app.js?v=6.0.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

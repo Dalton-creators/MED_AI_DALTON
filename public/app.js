@@ -115,54 +115,73 @@ async function renderDashboard(){
   const d=await api("/api/dashboard");
   const hours=(Number(d.metrics?.study_seconds||0)/3600).toFixed(1);
   const name=d.profile?.full_name||state.user?.email?.split("@")[0]||"Doctor";
+  const resumeTitle=d.resume?.topic_name||d.resume?.subject_name||"Elige tu siguiente tema";
+  const resumeSub=d.resume?.lesson_title||"Tu progreso se sincroniza en todos tus dispositivos.";
+  const progress=Math.round(Number(d.resume?.progress_percent||0));
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">TU CENTRO DE ENTRENAMIENTO</div><h2>Buenos días, ${escapeHtml(firstName(name))}</h2><p>Una plataforma clara, tranquila y organizada para estudiar medicina todos los días.</p></div></div>
-    <div class="hero-grid">
-      <div class="card hero-card">
-        <div class="eyebrow">CONTINUAR DONDE LO DEJASTE</div>
-        <h2 style="font-size:26px;margin:8px 0 8px">${escapeHtml(d.resume?.topic_name||d.resume?.subject_name||"Elige tu siguiente tema")}</h2>
-        <p>${escapeHtml(d.resume?.lesson_title||"Tu progreso se sincroniza entre computadora, iPhone, Android, iPad y tablet.")}</p>
-        <div class="progress" style="margin-top:14px"><i style="width:${Number(d.resume?.progress_percent||0)}%"></i></div>
+    <section class="dashboard-intro">
+      <div>
+        <div class="eyebrow">MED AI · CENTRO DE ENTRENAMIENTO</div>
+        <h2>Buenos días, ${escapeHtml(firstName(name))}</h2>
+        <p>Tu espacio médico personal para estudiar, practicar y medir tu progreso sin distracciones.</p>
+      </div>
+      <div class="dashboard-status">
+        <span><i></i> Perfil sincronizado</span>
+        <b>${d.profile?.total_xp||0} XP</b>
+      </div>
+    </section>
+
+    <section class="command-grid">
+      <article class="resume-card">
+        <div class="resume-glow"></div>
+        <div class="resume-top">
+          <span class="resume-kicker">CONTINUAR ESTUDIO</span>
+          <span class="resume-percent">${progress}%</span>
+        </div>
+        <h1>${escapeHtml(resumeTitle)}</h1>
+        <p>${escapeHtml(resumeSub)}</p>
+        <div class="progress premium-progress"><i style="width:${progress}%"></i></div>
         <div class="hero-actions">
-          <button id="continue-btn" class="primary-btn">Continuar estudiando</button>
-          <button id="open-tutor-btn" class="secondary-btn">Abrir Tutor IA</button>
-          <button id="open-exam-btn" class="secondary-btn">Hacer examen</button>
+          <button id="continue-btn" class="primary-btn hero-primary">Continuar estudiando</button>
+          <button id="open-tutor-btn" class="secondary-btn">Tutor IA</button>
+          <button id="open-exam-btn" class="secondary-btn">Examen rápido</button>
         </div>
-        <div class="hero-note">Avance actual: ${Math.round(Number(d.resume?.progress_percent||0))}%</div>
-      </div>
-      <div class="card">
-        <div class="eyebrow">RESUMEN RÁPIDO</div>
-        <div class="list" style="margin-top:12px">
-          <div class="list-item"><div class="grow"><strong>Flashcards pendientes</strong><span>Tarjetas listas para repasar hoy</span></div><span class="badge">${d.dueFlashcards}</span></div>
-          <div class="list-item"><div class="grow"><strong>Precisión general</strong><span>Rendimiento en tus preguntas</span></div><span class="badge">${d.accuracy}%</span></div>
-          <div class="list-item"><div class="grow"><strong>Tiempo estudiado</strong><span>Tiempo acumulado</span></div><span class="badge">${hours} h</span></div>
-          <div class="list-item"><div class="grow"><strong>XP y nivel</strong><span>Progreso de entrenamiento</span></div><span class="badge">${d.profile?.total_xp||0} XP</span></div>
-        </div>
-      </div>
-    </div>
-    <div class="grid stats4" style="margin-top:16px">
-      ${metric("Precisión general",`${d.accuracy}%`,`Preguntas respondidas: ${d.questionsAnswered}`,"◔")}
-      ${metric("Flashcards hoy",d.dueFlashcards,"Pendientes de repaso","▱")}
-      ${metric("Tiempo estudiado",`${hours} h`,`Acumulado`,`◷`)}
-      ${metric("Nivel médico",d.profile?.current_medical_level||1,`${d.profile?.total_xp||0} XP`,`✦`)}
-    </div>
-    <h3 class="section-title">Módulos recomendados</h3>
-    <div class="grid three">
-      ${modeCard("Tutor IA","Explicaciones adaptativas, más ordenadas y fáciles de estudiar.","tutor","✦")}
+      </article>
+
+      <aside class="today-card">
+        <div class="today-head"><div><span class="eyebrow">HOY</span><h3>Resumen de estudio</h3></div><div class="pulse-orb">✦</div></div>
+        <div class="today-stat"><div><strong>${d.dueFlashcards}</strong><span>Flashcards pendientes</span></div><em>Repasar</em></div>
+        <div class="today-stat"><div><strong>${d.accuracy}%</strong><span>Precisión general</span></div><em>${d.questionsAnswered} preguntas</em></div>
+        <div class="today-stat"><div><strong>${hours} h</strong><span>Tiempo estudiado</span></div><em>Acumulado</em></div>
+        <div class="today-stat"><div><strong>Nivel ${d.profile?.current_medical_level||1}</strong><span>Progreso médico</span></div><em>${d.profile?.total_xp||0} XP</em></div>
+      </aside>
+    </section>
+
+    <section class="quick-strip">
+      <button class="quick-tile" data-view="tutor"><span>✦</span><div><strong>Tutor IA</strong><small>Pregunta y aprende</small></div><b>→</b></button>
+      <button class="quick-tile" data-view="patient"><span>♙</span><div><strong>Paciente virtual</strong><small>Simulación clínica</small></div><b>→</b></button>
+      <button class="quick-tile" data-view="flashcards"><span>▱</span><div><strong>Flashcards</strong><small>Repaso inteligente</small></div><b>→</b></button>
+      <button class="quick-tile" data-view="exams"><span>✓</span><div><strong>Exámenes</strong><small>Evalúa tu dominio</small></div><b>→</b></button>
+    </section>
+
+    <div class="section-heading"><div><span class="eyebrow">ENTRENAMIENTO</span><h3>Módulos recomendados</h3></div><span class="section-caption">Elige cómo quieres entrenar hoy</span></div>
+    <div class="grid three module-grid">
+      ${modeCard("Tutor IA","Explicaciones adaptativas y estudio guiado.","tutor","✦")}
       ${modeCard("Paciente virtual","Anamnesis, examen, pruebas y plan clínico.","patient","♙")}
       ${modeCard("Grand Rounds","Casos complejos de Medicina Interna.","grand_rounds","◆")}
       ${modeCard("Examen IA","Preguntas nuevas con retroalimentación clara.","exams","✓")}
       ${modeCard("Flashcards","Repetición espaciada de lo importante.","flashcards","▱")}
       ${modeCard("Emergencias","Decisiones clínicas bajo presión.","emergency","⚡")}
     </div>
-    <div class="grid two" style="margin-top:16px">
-      <div class="card"><h3>Actividad reciente</h3>${listRecent(d.recentTopics)}</div>
-      <div class="card"><h3>Próximas fechas</h3>${listDeadlinesCompact(d.deadlines)}</div>
+
+    <div class="grid two dashboard-bottom">
+      <div class="card"><div class="card-title-row"><div><span class="eyebrow">HISTORIAL</span><h3>Actividad reciente</h3></div><span class="soft-chip">Últimos temas</span></div>${listRecent(d.recentTopics)}</div>
+      <div class="card"><div class="card-title-row"><div><span class="eyebrow">AGENDA</span><h3>Próximas fechas</h3></div><span class="soft-chip">Plan de estudio</span></div>${listDeadlinesCompact(d.deadlines)}</div>
     </div>`;
   $("#continue-btn").onclick=()=>navigate(d.resume?.mode||"study");
   $("#open-tutor-btn").onclick=()=>navigate("tutor");
   $("#open-exam-btn").onclick=()=>navigate("exams");
-  $$(".mode-card").forEach(c=>c.onclick=()=>navigate(c.dataset.view));
+  $$(".mode-card,.quick-tile").forEach(c=>c.onclick=()=>navigate(c.dataset.view));
 }
 
 async function renderStudy(){
