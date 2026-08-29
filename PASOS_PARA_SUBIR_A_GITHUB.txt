@@ -1,0 +1,23 @@
+MED AI DALTON — SIGUIENTE PASO
+
+1. Extrae este ZIP.
+2. En GitHub abre el repositorio:
+   Dalton-creators / MED_AI_DALTON
+3. Pulsa "uploading an existing file" / "Add file > Upload files".
+4. Sube TODO el contenido extraído conservando las carpetas:
+   - src
+   - public
+   - package.json
+   - wrangler.jsonc
+   - .gitignore
+   - README.md
+5. Commit changes.
+
+IMPORTANTE:
+- NO subas ninguna OpenAI API key.
+- El `wrangler.jsonc` ya contiene el ID de tu D1 `med_ai_dalton_db`.
+- Después de subir los archivos, vuelve a Cloudflare y ejecuta/deja configurado
+  el deploy `npx wrangler deploy`.
+
+La IA aún requiere configurar OPENAI_API_KEY como Secret en Cloudflare.
+
