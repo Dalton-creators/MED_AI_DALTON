@@ -37,32 +37,26 @@ async function boot(){
 }
 
 function bindAuth(){
+  // MED AI funciona en modo personal sin pantalla de login.
+  // Si en el futuro vuelven a existir formularios de acceso, este bloque
+  // puede activarlos sin impedir el arranque de la aplicación.
+  const loginForm=$("#login-form");
+  const registerForm=$("#register-form");
+  if(!loginForm || !registerForm) return;
+
   $$(".auth-tab").forEach(btn=>btn.addEventListener("click",()=>{
     $$(".auth-tab").forEach(x=>x.classList.remove("active"));btn.classList.add("active");
     const register=btn.dataset.authTab==="register";
-    $("#login-form").classList.toggle("hidden",register);
-    $("#register-form").classList.toggle("hidden",!register);
-    $("#auth-message").textContent="";
+    loginForm.classList.toggle("hidden",register);
+    registerForm.classList.toggle("hidden",!register);
+    const msg=$("#auth-message"); if(msg) msg.textContent="";
   }));
 
-  $("#login-form").addEventListener("submit",async e=>{
-    e.preventDefault(); setAuthMessage("Entrando...",false);
-    try{
-      await api("/api/auth/login",{method:"POST",body:{
-        email:$("#login-email").value,password:$("#login-password").value
-      }});
-      const me=await api("/api/me");state.user=me.user;showApp();await loadSubjects();navigate("dashboard");
-    }catch(err){setAuthMessage(err.message,true)}
+  loginForm.addEventListener("submit",async e=>{
+    e.preventDefault();
   });
-
-  $("#register-form").addEventListener("submit",async e=>{
-    e.preventDefault();setAuthMessage("Creando tu perfil médico...",false);
-    try{
-      await api("/api/auth/register",{method:"POST",body:{
-        fullName:$("#register-name").value,email:$("#register-email").value,password:$("#register-password").value
-      }});
-      const me=await api("/api/me");state.user=me.user;showApp();await loadSubjects();navigate("dashboard");
-    }catch(err){setAuthMessage(err.message,true)}
+  registerForm.addEventListener("submit",async e=>{
+    e.preventDefault();
   });
 }
 
@@ -561,7 +555,7 @@ async function searchGlobal(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=3.1.0").catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=3.2.0").catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
