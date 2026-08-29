@@ -238,24 +238,103 @@ async function sendChat(mode){
   const subjectId=$("#ai-subject")?.value||state.currentSubject?.id||null;
   const subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
   const level=$("#ai-level")?.value||"Clínico";
-  const thinking=appendMessage("ai","Preparando respuesta...");
+  const thinking=appendMessage("ai","Conectando con MED AI...");
   thinking.classList.add("loading");
   $("#send-chat").disabled=true;
-  const stages=["Analizando tu pregunta...","Organizando la explicación...","Redactando respuesta..."];
-  let stageIndex=0;
-  const ticker=setInterval(()=>{stageIndex=(stageIndex+1)%stages.length;thinking.textContent=stages[stageIndex]},850);
+
   try{
-    const d=await api("/api/ai/chat",{method:"POST",body:{
-      mode,message:`Nivel del estudiante: ${level}. Materia: ${subject}. Responde de forma clara, ordenada y concisa.
+    const response=await fetch("/api/ai/chat/stream",{
+      method:"POST",
+      credentials:"include",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({
+        mode,
+        message:`Nivel del estudiante: ${level}. Materia: ${subject}.
 
 ${message}`,
-      conversation_id:state.chatConversation,subject_id:subjectId,topic_id:state.currentTopic?.id||null,
-      title:`${modeConfig(mode).title} — ${subject}`
-    }});
-    state.chatConversation=d.conversation_id;thinking.classList.remove("loading");thinking.textContent=d.answer;
+        conversation_id:state.chatConversation,
+        subject_id:subjectId,
+        topic_id:state.currentTopic?.id||null,
+        title:`${modeConfig(mode).title} — ${subject}`
+      })
+    });
+
+    if(!response.ok){
+      const errorData=await response.json().catch(()=>({}));
+      throw new Error(errorData.error||`Error ${response.status}`);
+    }
+
+    state.chatConversation=response.headers.get("x-medai-conversation-id")||state.chatConversation;
+    const speedMode=response.headers.get("x-medai-speed-mode")||"advanced";
+    const model=response.headers.get("x-medai-model")||"Workers AI";
+
+    thinking.classList.remove("loading");
+    thinking.textContent="";
+    thinking.title=speedMode==="fast"?`Respuesta rápida · ${model}`:`Razonamiento avanzado · ${model}`;
+
+    const reader=response.body.getReader();
+    const decoder=new TextDecoder();
+    let sseBuffer="";
+    let answer="";
+    let gotFirstToken=false;
+
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      sseBuffer+=decoder.decode(value,{stream:true});
+      const lines=sseBuffer.split(/\r?\n/);
+      sseBuffer=lines.pop()||"";
+
+      for(const line of lines){
+        const trimmed=line.trim();
+        if(!trimmed.startsWith("data:"))continue;
+        const payload=trimmed.slice(5).trim();
+        if(!payload||payload==="[DONE]")continue;
+        try{
+          const obj=JSON.parse(payload);
+          const piece=extractStreamPieceClient(obj);
+          if(piece){
+            answer=smartAppendClient(answer,piece);
+            thinking.textContent=answer;
+            if(!gotFirstToken){
+              gotFirstToken=true;
+              thinking.classList.add("streaming");
+            }
+            $("#messages").scrollTop=$("#messages").scrollHeight;
+          }
+        }catch{}
+      }
+    }
+
+    if(!answer.trim()) thinking.textContent="No pude generar una respuesta en este momento.";
+    thinking.classList.remove("streaming");
     await saveResume({route:`/${mode}`,subject_id:subjectId,topic_id:state.currentTopic?.id||null,mode,progress_percent:0,context:{subject,level}});
-  }catch(err){thinking.classList.remove("loading");thinking.textContent=`Error: ${err.message}`}
-  finally{clearInterval(ticker);$("#send-chat").disabled=false;input.focus()}
+  }catch(err){
+    thinking.classList.remove("loading","streaming");
+    thinking.textContent=`Error: ${err.message}`;
+  }finally{
+    $("#send-chat").disabled=false;input.focus();
+  }
+}
+
+function extractStreamPieceClient(obj){
+  if(!obj)return"";
+  if(typeof obj.response==="string")return obj.response;
+  if(typeof obj.text==="string")return obj.text;
+  if(typeof obj.token==="string")return obj.token;
+  const delta=obj.choices?.[0]?.delta?.content;
+  if(typeof delta==="string")return delta;
+  const content=obj.choices?.[0]?.message?.content;
+  if(typeof content==="string")return content;
+  return"";
+}
+
+function smartAppendClient(current,piece){
+  if(!piece)return current;
+  if(!current)return piece;
+  if(piece.startsWith(current))return piece;
+  if(current.endsWith(piece))return current;
+  return current+piece;
 }
 
 async function renderVisionStudio(mode){
@@ -555,7 +634,7 @@ async function searchGlobal(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=3.2.0").catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=4.0.0").catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }

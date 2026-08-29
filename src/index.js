@@ -129,6 +129,10 @@ export default {
         return recordExam(request, env, user);
       }
 
+      if (url.pathname === "/api/ai/chat/stream" && request.method === "POST") {
+        return aiChatStream(request, env, user, ctx);
+      }
+
       if (url.pathname === "/api/ai/chat" && request.method === "POST") {
         return aiChat(request, env, user);
       }
@@ -820,7 +824,185 @@ async function recordExam(request, env, user) {
 // -------------------- CLOUDFLARE WORKERS AI --------------------
 
 const DEFAULT_TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const DEFAULT_FAST_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const DEFAULT_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+
+async function aiChatStream(request, env, user, ctx) {
+  ensureAI(env);
+  const body = await readJson(request);
+  const message = cleanText(body.message, 12000);
+  if (!message) return json({ error: "Escribe un mensaje." }, 400);
+
+  const mode = cleanText(body.mode,80) || "tutor";
+  const conversationId = body.conversation_id || crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const existing = await env.DB.prepare(
+    "SELECT id FROM ai_conversations WHERE id=? AND user_id=?"
+  ).bind(conversationId,user.id).first();
+
+  if (!existing) {
+    await env.DB.prepare(`
+      INSERT INTO ai_conversations
+      (id,user_id,mode,title,subject_id,topic_id,context_json,archived,last_message_at,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,0,?,?,?)
+    `).bind(
+      conversationId,user.id,mode,cleanText(body.title,180)||humanMode(mode),
+      nullable(body.subject_id),nullable(body.topic_id),
+      JSON.stringify(body.context||{}),now,now,now
+    ).run();
+  }
+
+  // Keep only the latest 6 messages: less prompt processing = faster first token.
+  const historyRows = await env.DB.prepare(`
+    SELECT role,content FROM ai_messages
+    WHERE conversation_id=? AND user_id=? AND role IN ('user','assistant')
+    ORDER BY datetime(created_at) DESC LIMIT 6
+  `).bind(conversationId,user.id).all();
+
+  const history = [...(historyRows.results||[])].reverse();
+  const messages = [
+    { role:"system", content:medicalInstructions(mode) + "\nSé claro y directo. Empieza por la respuesta esencial y amplía solo lo necesario." },
+    ...history.map(x => ({ role:x.role, content:x.content })),
+    { role:"user", content:message }
+  ];
+
+  const model = selectChatModel(mode, message);
+  const maxTokens = model === DEFAULT_FAST_MODEL ? 950 : 1450;
+
+  // Save the user message before inference so conversation continuity is safe.
+  await env.DB.prepare(`
+    INSERT INTO ai_messages
+    (id,user_id,conversation_id,role,content,content_json,model,created_at)
+    VALUES (?,?,?,'user',?,'{}',NULL,?)
+  `).bind(crypto.randomUUID(),user.id,conversationId,message,now).run();
+
+  let aiStream;
+  try {
+    aiStream = await env.AI.run(model, {
+      messages,
+      max_tokens:maxTokens,
+      temperature:0.28,
+      stream:true,
+      chat_template_kwargs:{ enable_thinking:false }
+    });
+  } catch(err) {
+    console.error("CLOUDFLARE_AI_STREAM_START_ERROR",err?.stack||err);
+    return json({
+      error:"Workers AI no pudo iniciar la respuesta. Inténtalo de nuevo en unos segundos."
+    },500);
+  }
+
+  const [clientStream, archiveStream] = aiStream.tee();
+  ctx.waitUntil(saveStreamedAssistantMessage(
+    archiveStream, env, user.id, conversationId, model
+  ));
+
+  return new Response(clientStream, {
+    status:200,
+    headers:{
+      "content-type":"text/event-stream; charset=utf-8",
+      "cache-control":"no-cache, no-store",
+      "x-accel-buffering":"no",
+      "x-medai-conversation-id":conversationId,
+      "x-medai-model":model,
+      "x-medai-speed-mode":model === DEFAULT_FAST_MODEL ? "fast" : "advanced"
+    }
+  });
+}
+
+function selectChatModel(mode, message) {
+  const advancedModes = new Set([
+    "patient","grand_rounds","emergency","osce","differential","ward_round"
+  ]);
+  if (advancedModes.has(mode)) return DEFAULT_TEXT_MODEL;
+
+  const complex = /diagn[oó]stic|diferencial|fisiopatolog|tratamiento|manejo|sepsis|shock|gasometr|electrolit|interacci[oó]n|contraindic|complicaci[oó]n|caso cl[ií]nico|internista|\bR[123]\b|urgencia|emergencia|interpretaci[oó]n|razonamiento cl[ií]nico/i;
+  if (complex.test(message)) return DEFAULT_TEXT_MODEL;
+
+  // Definitions, basic explanations, anatomy, memorization and ordinary study use the fast model.
+  return DEFAULT_FAST_MODEL;
+}
+
+async function saveStreamedAssistantMessage(stream, env, userId, conversationId, model) {
+  try {
+    const answer = await collectTextFromSSE(stream);
+    if (!answer.trim()) return;
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(`
+        INSERT INTO ai_messages
+        (id,user_id,conversation_id,role,content,content_json,model,created_at)
+        VALUES (?,?,?,'assistant',?,'{}',?,?)
+      `).bind(crypto.randomUUID(),userId,conversationId,answer,model,now),
+      env.DB.prepare(`
+        UPDATE ai_conversations SET last_message_at=?,updated_at=?
+        WHERE id=? AND user_id=?
+      `).bind(now,now,conversationId,userId)
+    ]);
+  } catch(err) {
+    console.error("STREAM_ARCHIVE_ERROR",err?.stack||err);
+  }
+}
+
+async function collectTextFromSSE(stream) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = "";
+
+  while (true) {
+    const {done,value} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value,{stream:true});
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const obj = JSON.parse(payload);
+        const piece = extractStreamPiece(obj);
+        if (piece) answer = smartAppend(answer,piece);
+      } catch {}
+    }
+  }
+
+  if (buffer.trim().startsWith("data:")) {
+    const payload = buffer.trim().slice(5).trim();
+    if (payload && payload !== "[DONE]") {
+      try {
+        const obj = JSON.parse(payload);
+        const piece = extractStreamPiece(obj);
+        if (piece) answer = smartAppend(answer,piece);
+      } catch {}
+    }
+  }
+  return answer;
+}
+
+function extractStreamPiece(obj) {
+  if (!obj) return "";
+  if (typeof obj.response === "string") return obj.response;
+  if (typeof obj.text === "string") return obj.text;
+  if (typeof obj.token === "string") return obj.token;
+  const delta = obj.choices?.[0]?.delta?.content;
+  if (typeof delta === "string") return delta;
+  const message = obj.choices?.[0]?.message?.content;
+  if (typeof message === "string") return message;
+  return "";
+}
+
+function smartAppend(current, piece) {
+  if (!piece) return current;
+  if (!current) return piece;
+  // Handles both true deltas and providers that occasionally emit cumulative text.
+  if (piece.startsWith(current)) return piece;
+  if (current.endsWith(piece)) return current;
+  return current + piece;
+}
 
 async function aiChat(request, env, user) {
   ensureAI(env);
@@ -923,6 +1105,7 @@ Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, co
 {"questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]}`;
 
   const response = await callCloudflareAI(env,{
+    model: difficulty >= 7 ? DEFAULT_TEXT_MODEL : DEFAULT_FAST_MODEL,
     messages:[
       {
         role:"system",
@@ -930,8 +1113,8 @@ Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, co
       },
       {role:"user",content:prompt}
     ],
-    max_tokens: 3600,
-    temperature: 0.25
+    max_tokens: count <= 10 ? 2400 : 3300,
+    temperature: 0.22
   });
 
   const text = extractCloudflareText(response);
@@ -995,6 +1178,7 @@ Devuelve SOLO JSON válido, sin markdown ni texto fuera del JSON:
 {"cards":[{"front":"pregunta clara","back":"respuesta precisa","hint":"pista breve"}]}`;
 
   const response = await callCloudflareAI(env,{
+    model:DEFAULT_FAST_MODEL,
     messages:[
       {
         role:"system",
@@ -1002,8 +1186,8 @@ Devuelve SOLO JSON válido, sin markdown ni texto fuera del JSON:
       },
       {role:"user",content:prompt}
     ],
-    max_tokens:2200,
-    temperature:0.12
+    max_tokens: count <= 10 ? 1500 : 2100,
+    temperature:0.10
   });
 
   const parsed = parseJsonLoose(extractCloudflareText(response));
@@ -1094,7 +1278,7 @@ async function aiVision(request, env, user) {
 
 async function callCloudflareAI(env, options) {
   ensureAI(env);
-  const model = env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL;
+  const model = options.model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL;
 
   try {
     const response = await env.AI.run(model,{
