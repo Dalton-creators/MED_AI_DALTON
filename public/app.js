@@ -11,6 +11,7 @@ const root = $("#view-root");
 document.addEventListener("DOMContentLoaded", boot);
 
 async function boot(){
+  applySavedTheme();
   bindAuth();
   bindShell();
   setupPWA();
@@ -75,6 +76,7 @@ function bindShell(){
   $("#logout-btn").addEventListener("click",()=>location.reload());
   $("#quick-study").addEventListener("click",()=>navigate("study"));
   $("#user-chip").addEventListener("click",()=>navigate("profile"));
+  $("#theme-toggle")?.addEventListener("click",toggleTheme);
   $("#global-search").addEventListener("input",debounce(searchGlobal,250));
   document.addEventListener("click",e=>{
     if(!e.target.closest(".global-search")) $("#search-results").classList.add("hidden");
@@ -521,6 +523,29 @@ function modeConfig(mode){
     ecg:{kicker:"ELECTROCARDIOGRAFÍA",title:"ECG",subtitle:"Interpretación sistemática y correlación clínica.",welcome:"Sube un ECG educativo y primero intenta interpretarlo. Luego te daré retroalimentación.",placeholder:"Esta es mi interpretación: ritmo..., frecuencia..., eje... ¿qué me falta?"},
     radiology:{kicker:"IMAGENOLOGÍA",title:"Radiología",subtitle:"Describe antes de diagnosticar.",welcome:"Sube una imagen educativa y escribe tu interpretación. Te guiaré sistemáticamente.",placeholder:"Describe hallazgos, diagnóstico probable y diferenciales."}
   }[mode]||{kicker:"MED AI",title:"Entrenamiento",subtitle:"",welcome:"Empecemos.",placeholder:"Escribe aquí..."};
+}
+
+
+function applySavedTheme(){
+  const saved=localStorage.getItem("medai_theme");
+  const prefersLight=window.matchMedia?.("(prefers-color-scheme: light)")?.matches;
+  const theme=saved || (prefersLight?"light":"dark");
+  document.documentElement.dataset.theme=theme;
+  updateThemeButton(theme);
+}
+function toggleTheme(){
+  const current=document.documentElement.dataset.theme||"dark";
+  const next=current==="dark"?"light":"dark";
+  document.documentElement.dataset.theme=next;
+  localStorage.setItem("medai_theme",next);
+  updateThemeButton(next);
+}
+function updateThemeButton(theme){
+  const btn=$("#theme-toggle");
+  if(!btn)return;
+  btn.textContent=theme==="dark"?"☀":"☾";
+  btn.title=theme==="dark"?"Usar modo claro suave":"Usar modo oscuro suave";
+  btn.setAttribute("aria-label",btn.title);
 }
 
 // -------------------- PWA / SEARCH / OFFLINE --------------------

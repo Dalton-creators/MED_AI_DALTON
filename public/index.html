@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
+  <meta name="theme-color" content="#111923">
   <meta name="description" content="MED AI DALTON — plataforma personal de entrenamiento médico con IA.">
   <title>MED AI DALTON</title>
   <link rel="manifest" href="/manifest.webmanifest">
@@ -17,92 +17,86 @@
     <div class="auth-backdrop"></div>
     <div class="auth-card">
       <div class="brand-lockup">
-        <div class="brand-mark">M+</div>
-        <div>
-          <h1>MED AI DALTON</h1>
-          <p>Entrenamiento médico inteligente</p>
-        </div>
+        <div class="brand-mark"><span>M</span><b>+</b></div>
+        <div><h1>MED AI DALTON</h1><p>Entrenamiento médico inteligente</p></div>
       </div>
-      <div class="notice" style="margin-top:24px">Cargando tu espacio personal…</div>
+      <div class="loading-line"><i></i></div>
+      <p class="auth-loading">Preparando tu espacio personal…</p>
     </div>
   </section>
 
   <div id="app-shell" class="app-shell hidden">
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark small">M+</div>
-        <div>
-          <strong>MED AI</strong>
-          <span>DALTON</span>
-        </div>
+        <div class="brand-mark small"><span>M</span><b>+</b></div>
+        <div class="brand-copy"><strong>MED AI</strong><span>DALTON</span></div>
       </div>
 
-      <div class="sidebar-status card-soft">
-        <div class="mini-label">MODO DE ESTUDIO</div>
-        <strong>Perfil personal sincronizado</strong>
-        <span>Tus avances se guardan automáticamente en todos tus dispositivos.</span>
+      <div class="sidebar-profile">
+        <div class="profile-dot"></div>
+        <div><strong>Espacio personal</strong><span>Progreso sincronizado</span></div>
       </div>
 
       <nav id="main-nav" class="main-nav">
         <div class="nav-group">
-          <div class="nav-group-title">Principal</div>
-          <button data-view="dashboard" class="nav-item active"><span>⌂</span>Inicio</button>
-          <button data-view="study" class="nav-item"><span>▤</span>Estudiar</button>
-          <button data-view="tutor" class="nav-item"><span>✦</span>Tutor IA</button>
-          <button data-view="library" class="nav-item"><span>▥</span>Biblioteca</button>
+          <div class="nav-group-title">Estudio</div>
+          <button data-view="dashboard" class="nav-item active"><span>⌂</span><em>Inicio</em></button>
+          <button data-view="study" class="nav-item"><span>▤</span><em>Estudiar</em></button>
+          <button data-view="tutor" class="nav-item"><span>✦</span><em>Tutor IA</em></button>
+          <button data-view="exams" class="nav-item"><span>✓</span><em>Exámenes</em></button>
+          <button data-view="flashcards" class="nav-item"><span>▱</span><em>Flashcards</em></button>
         </div>
 
         <div class="nav-group">
-          <div class="nav-group-title">Simulación clínica</div>
-          <button data-view="patient" class="nav-item"><span>♙</span>Paciente virtual</button>
-          <button data-view="grand_rounds" class="nav-item"><span>◆</span>Grand Rounds</button>
-          <button data-view="emergency" class="nav-item"><span>⚡</span>Emergencias</button>
-          <button data-view="osce" class="nav-item"><span>◎</span>OSCE</button>
+          <div class="nav-group-title">Clínica</div>
+          <button data-view="patient" class="nav-item"><span>♙</span><em>Paciente virtual</em></button>
+          <button data-view="grand_rounds" class="nav-item"><span>◆</span><em>Grand Rounds</em></button>
+          <button data-view="emergency" class="nav-item"><span>⚡</span><em>Emergencias</em></button>
+          <button data-view="osce" class="nav-item"><span>◎</span><em>OSCE</em></button>
         </div>
 
         <div class="nav-group">
-          <div class="nav-group-title">Diagnóstico y práctica</div>
-          <button data-view="exams" class="nav-item"><span>✓</span>Exámenes</button>
-          <button data-view="flashcards" class="nav-item"><span>▱</span>Flashcards</button>
-          <button data-view="ecg" class="nav-item"><span>⌁</span>ECG</button>
-          <button data-view="radiology" class="nav-item"><span>◫</span>Radiología</button>
-          <button data-view="laboratory" class="nav-item"><span>⚗</span>Laboratorios</button>
-          <button data-view="pharmacology" class="nav-item"><span>✚</span>Farmacología</button>
+          <div class="nav-group-title">Interpretación</div>
+          <button data-view="ecg" class="nav-item"><span>⌁</span><em>ECG</em></button>
+          <button data-view="radiology" class="nav-item"><span>◫</span><em>Radiología</em></button>
+          <button data-view="laboratory" class="nav-item"><span>⚗</span><em>Laboratorios</em></button>
+          <button data-view="pharmacology" class="nav-item"><span>✚</span><em>Farmacología</em></button>
         </div>
 
         <div class="nav-group">
           <div class="nav-group-title">Organización</div>
-          <button data-view="mistakes" class="nav-item"><span>!</span>Errores</button>
-          <button data-view="plan" class="nav-item"><span>□</span>Plan de estudio</button>
-          <button data-view="stats" class="nav-item"><span>⌇</span>Estadísticas</button>
-          <button data-view="profile" class="nav-item"><span>○</span>Perfil</button>
+          <button data-view="library" class="nav-item"><span>▥</span><em>Biblioteca</em></button>
+          <button data-view="mistakes" class="nav-item"><span>!</span><em>Errores</em></button>
+          <button data-view="plan" class="nav-item"><span>□</span><em>Plan de estudio</em></button>
+          <button data-view="stats" class="nav-item"><span>⌇</span><em>Estadísticas</em></button>
+          <button data-view="profile" class="nav-item"><span>○</span><em>Perfil</em></button>
         </div>
       </nav>
 
       <div class="sidebar-bottom">
-        <button id="install-btn" class="ghost-btn hidden">Instalar aplicación</button>
-        <button id="logout-btn" class="ghost-btn">Actualizar aplicación</button>
+        <button id="install-btn" class="sidebar-action hidden"><span>↓</span> Instalar aplicación</button>
+        <button id="logout-btn" class="sidebar-action"><span>↻</span> Actualizar aplicación</button>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div class="topbar-left">
-          <button id="menu-btn" class="icon-btn mobile-only">☰</button>
-          <div>
-            <div class="topbar-label">PLATAFORMA PERSONAL DE ESTUDIO</div>
-            <h1 class="topbar-title">MED AI DALTON</h1>
-          </div>
+        <div class="topbar-start">
+          <button id="menu-btn" class="icon-btn mobile-only" aria-label="Abrir menú">☰</button>
+          <div class="page-identity"><span>MED AI DALTON</span><small>Plataforma personal de estudio médico</small></div>
         </div>
 
         <div class="global-search">
-          <span>⌕</span><input id="global-search" placeholder="Buscar tema, lección o apunte...">
+          <span class="search-icon">⌕</span>
+          <input id="global-search" placeholder="Buscar tema, lección o apunte...">
+          <kbd>Ctrl K</kbd>
           <div id="search-results" class="search-results hidden"></div>
         </div>
 
         <div class="top-actions">
-          <span id="sync-badge" class="sync-badge">● Sincronizado</span>
-          <button id="quick-study" class="primary-btn">Continuar estudio</button>
+          <span id="sync-badge" class="sync-badge"><i></i> Sincronizado</span>
+          <button id="theme-toggle" class="icon-btn theme-toggle" title="Cambiar tema">☀</button>
+          <button id="quick-study" class="primary-btn compact">Continuar</button>
           <button id="user-chip" class="user-chip">D</button>
         </div>
       </header>
