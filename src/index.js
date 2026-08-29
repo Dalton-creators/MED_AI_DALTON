@@ -839,7 +839,7 @@ async function aiChat(request, env, user) {
   const historyRows = await env.DB.prepare(`
     SELECT role,content FROM ai_messages
     WHERE conversation_id=? AND user_id=? AND role IN ('user','assistant')
-    ORDER BY datetime(created_at) DESC LIMIT 12
+    ORDER BY datetime(created_at) DESC LIMIT 8
   `).bind(conversationId,user.id).all();
 
   const history = [...(historyRows.results||[])].reverse();
@@ -851,7 +851,7 @@ async function aiChat(request, env, user) {
 
   const response = await callCloudflareAI(env, {
     messages,
-    max_tokens: 2600,
+    max_tokens: 1600,
     temperature: 0.35
   });
 
@@ -918,7 +918,7 @@ Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, co
       },
       {role:"user",content:prompt}
     ],
-    max_tokens: 5000,
+    max_tokens: 3600,
     temperature: 0.25
   });
 
@@ -965,7 +965,7 @@ Prioriza comprensión clínica, fisiopatología, diagnóstico, tratamiento y per
       },
       {role:"user",content:prompt}
     ],
-    max_tokens:3500,
+    max_tokens:1700,
     temperature:0.3
   });
 
@@ -1017,7 +1017,7 @@ async function aiVision(request, env, user) {
           ]
         }
       ],
-      max_tokens:2400,
+      max_tokens:1700,
       temperature:0.2,
       chat_template_kwargs:{enable_thinking:false}
     });

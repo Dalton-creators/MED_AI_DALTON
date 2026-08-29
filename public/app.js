@@ -120,29 +120,43 @@ async function renderDashboard(){
   const hours=(Number(d.metrics?.study_seconds||0)/3600).toFixed(1);
   const name=d.profile?.full_name||state.user?.email?.split("@")[0]||"Doctor";
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">TU CENTRO DE ENTRENAMIENTO</div><h2>Buenos días, ${escapeHtml(firstName(name))}</h2><p>Continúa construyendo criterio clínico todos los días.</p></div></div>
-    <div class="card resume-card">
-      <div class="grow">
+    <div class="page-head"><div><div class="eyebrow">TU CENTRO DE ENTRENAMIENTO</div><h2>Buenos días, ${escapeHtml(firstName(name))}</h2><p>Una plataforma clara, tranquila y organizada para estudiar medicina todos los días.</p></div></div>
+    <div class="hero-grid">
+      <div class="card hero-card">
         <div class="eyebrow">CONTINUAR DONDE LO DEJASTE</div>
-        <h3>${escapeHtml(d.resume?.topic_name||d.resume?.subject_name||"Elige tu próximo tema")}</h3>
-        <p style="color:var(--muted);margin:4px 0 12px">${escapeHtml(d.resume?.lesson_title||"Tu progreso se sincroniza entre todos tus dispositivos.")}</p>
-        <div class="progress"><i style="width:${Number(d.resume?.progress_percent||0)}%"></i></div>
+        <h2 style="font-size:26px;margin:8px 0 8px">${escapeHtml(d.resume?.topic_name||d.resume?.subject_name||"Elige tu siguiente tema")}</h2>
+        <p>${escapeHtml(d.resume?.lesson_title||"Tu progreso se sincroniza entre computadora, iPhone, Android, iPad y tablet.")}</p>
+        <div class="progress" style="margin-top:14px"><i style="width:${Number(d.resume?.progress_percent||0)}%"></i></div>
+        <div class="hero-actions">
+          <button id="continue-btn" class="primary-btn">Continuar estudiando</button>
+          <button id="open-tutor-btn" class="secondary-btn">Abrir Tutor IA</button>
+          <button id="open-exam-btn" class="secondary-btn">Hacer examen</button>
+        </div>
+        <div class="hero-note">Avance actual: ${Math.round(Number(d.resume?.progress_percent||0))}%</div>
       </div>
-      <button id="continue-btn" class="primary-btn">Continuar estudiando</button>
+      <div class="card">
+        <div class="eyebrow">RESUMEN RÁPIDO</div>
+        <div class="list" style="margin-top:12px">
+          <div class="list-item"><div class="grow"><strong>Flashcards pendientes</strong><span>Tarjetas listas para repasar hoy</span></div><span class="badge">${d.dueFlashcards}</span></div>
+          <div class="list-item"><div class="grow"><strong>Precisión general</strong><span>Rendimiento en tus preguntas</span></div><span class="badge">${d.accuracy}%</span></div>
+          <div class="list-item"><div class="grow"><strong>Tiempo estudiado</strong><span>Tiempo acumulado</span></div><span class="badge">${hours} h</span></div>
+          <div class="list-item"><div class="grow"><strong>XP y nivel</strong><span>Progreso de entrenamiento</span></div><span class="badge">${d.profile?.total_xp||0} XP</span></div>
+        </div>
+      </div>
     </div>
     <div class="grid stats4" style="margin-top:16px">
-      ${metric("Precisión general",`${d.accuracy}%`,"Preguntas respondidas: "+d.questionsAnswered)}
-      ${metric("Flashcards hoy",d.dueFlashcards,"Pendientes de repaso")}
-      ${metric("Tiempo estudiado",`${hours} h`,"Acumulado")}
-      ${metric("Nivel médico",d.profile?.current_medical_level||1,`${d.profile?.total_xp||0} XP`)}
+      ${metric("Precisión general",`${d.accuracy}%`,`Preguntas respondidas: ${d.questionsAnswered}`,"◔")}
+      ${metric("Flashcards hoy",d.dueFlashcards,"Pendientes de repaso","▱")}
+      ${metric("Tiempo estudiado",`${hours} h`,`Acumulado`,`◷`)}
+      ${metric("Nivel médico",d.profile?.current_medical_level||1,`${d.profile?.total_xp||0} XP`,`✦`)}
     </div>
-    <h3 class="section-title">Entrenamiento recomendado</h3>
+    <h3 class="section-title">Módulos recomendados</h3>
     <div class="grid three">
-      ${modeCard("Tutor IA","Explicaciones adaptativas y modo socrático.","tutor","✦")}
-      ${modeCard("Paciente virtual","Anamnesis, examen, pruebas y plan.","patient","♙")}
+      ${modeCard("Tutor IA","Explicaciones adaptativas, más ordenadas y fáciles de estudiar.","tutor","✦")}
+      ${modeCard("Paciente virtual","Anamnesis, examen, pruebas y plan clínico.","patient","♙")}
       ${modeCard("Grand Rounds","Casos complejos de Medicina Interna.","grand_rounds","◆")}
-      ${modeCard("Examen IA","Banco dinámico y retroalimentación.","exams","✓")}
-      ${modeCard("Repaso inteligente","Repetición espaciada de lo que olvidas.","flashcards","▱")}
+      ${modeCard("Examen IA","Preguntas nuevas con retroalimentación clara.","exams","✓")}
+      ${modeCard("Flashcards","Repetición espaciada de lo importante.","flashcards","▱")}
       ${modeCard("Emergencias","Decisiones clínicas bajo presión.","emergency","⚡")}
     </div>
     <div class="grid two" style="margin-top:16px">
@@ -150,12 +164,15 @@ async function renderDashboard(){
       <div class="card"><h3>Próximas fechas</h3>${listDeadlinesCompact(d.deadlines)}</div>
     </div>`;
   $("#continue-btn").onclick=()=>navigate(d.resume?.mode||"study");
+  $("#open-tutor-btn").onclick=()=>navigate("tutor");
+  $("#open-exam-btn").onclick=()=>navigate("exams");
   $$(".mode-card").forEach(c=>c.onclick=()=>navigate(c.dataset.view));
 }
 
 async function renderStudy(){
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">CURRÍCULO MÉDICO</div><h2>Estudiar</h2><p>Desde ciencias básicas hasta entrenamiento de Medicina Interna.</p></div></div>
+    <div class="page-head"><div><div class="eyebrow">CURRÍCULO MÉDICO</div><h2>Estudiar</h2><p>Explora tus materias en un entorno ordenado y fácil de leer. Puedes abrir un tema o entrar directamente al Tutor IA.</p></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="info-box">Consejo: abre una materia, selecciona un tema y MED AI recordará tu ruta para que continúes luego desde cualquier dispositivo.</div></div>
     <div class="grid three" id="subject-grid">
       ${state.subjects.map(subjectCard).join("")}
     </div>
@@ -167,10 +184,12 @@ async function openSubject(id){
   const data=await api(`/api/topics?subject_id=${encodeURIComponent(id)}`);
   const section=$("#topic-section");
   section.innerHTML=`
-    <h3 class="section-title">${escapeHtml(s.name)} — temas</h3>
-    ${data.topics.length?`<div class="topic-grid">${data.topics.map(t=>`<button class="topic-btn" data-id="${t.id}"><strong>${escapeHtml(t.name)}</strong><span>${escapeHtml(t.description||"Abrir entrenamiento")}</span></button>`).join("")}</div>`:
-    `<div class="card empty">Esta materia ya forma parte del currículo. Puedes estudiarla ahora con el Tutor IA aunque sus subtemas específicos todavía no estén precargados.</div>`}
-    <div style="margin-top:14px"><button id="study-subject-ai" class="primary-btn">Estudiar ${escapeHtml(s.name)} con IA</button></div>`;
+    <div class="section-stack">
+      <h3 class="section-title">${escapeHtml(s.name)} — temas</h3>
+      ${data.topics.length?`<div class="topic-grid">${data.topics.map(t=>`<button class="topic-btn" data-id="${t.id}"><strong>${escapeHtml(t.name)}</strong><span>${escapeHtml(t.description||"Abrir entrenamiento")}</span></button>`).join("")}</div>`:
+      `<div class="card empty">Esta materia ya forma parte del currículo. Puedes estudiarla ahora con el Tutor IA aunque sus subtemas específicos todavía no estén precargados.</div>`}
+      <div><button id="study-subject-ai" class="primary-btn">Estudiar ${escapeHtml(s.name)} con IA</button></div>
+    </div>`;
   $$(".topic-btn",section).forEach(btn=>btn.onclick=()=>{
     state.currentTopic=data.topics.find(x=>x.id===btn.dataset.id);
     saveResume({route:"/study",subject_id:s.id,topic_id:state.currentTopic.id,mode:"tutor",progress_percent:0,context:{subject:s.name,topic:state.currentTopic.name}});
@@ -198,6 +217,7 @@ async function renderAIStudio(mode){
       </div>
       <div class="side-tools">
         <div class="card">
+          <div class="eyebrow" style="margin-bottom:10px">CONFIGURACIÓN DE LA SESIÓN</div>
           <div class="field"><label>Materia</label><select id="ai-subject">${subjectOptions()}</select></div>
           <div class="field"><label>Nivel</label><select id="ai-level">
             <option>Primeros años</option><option>Ciencias básicas</option><option>Clínico</option>
@@ -205,6 +225,7 @@ async function renderAIStudio(mode){
           </select></div>
           <button id="new-chat" class="ghost-btn wide">Nueva sesión</button>
         </div>
+        <div class="info-box">Para que responda más rápido, procura hacer preguntas concretas. Ejemplo: “Explícame insuficiencia cardíaca en pasos” o “Hazme 5 preguntas de nefrología”.</div>
         <div class="notice">Entrenamiento educativo. En pacientes reales, verifica recomendaciones con fuentes clínicas actuales y supervisión profesional.</div>
       </div>
     </div>`;
@@ -221,18 +242,24 @@ async function sendChat(mode){
   const subjectId=$("#ai-subject")?.value||state.currentSubject?.id||null;
   const subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
   const level=$("#ai-level")?.value||"Clínico";
-  const thinking=appendMessage("ai","Analizando...");
+  const thinking=appendMessage("ai","Preparando respuesta...");
+  thinking.classList.add("loading");
   $("#send-chat").disabled=true;
+  const stages=["Analizando tu pregunta...","Organizando la explicación...","Redactando respuesta..."];
+  let stageIndex=0;
+  const ticker=setInterval(()=>{stageIndex=(stageIndex+1)%stages.length;thinking.textContent=stages[stageIndex]},850);
   try{
     const d=await api("/api/ai/chat",{method:"POST",body:{
-      mode,message:`Nivel del estudiante: ${level}. Materia: ${subject}.\n\n${message}`,
+      mode,message:`Nivel del estudiante: ${level}. Materia: ${subject}. Responde de forma clara, ordenada y concisa.
+
+${message}`,
       conversation_id:state.chatConversation,subject_id:subjectId,topic_id:state.currentTopic?.id||null,
       title:`${modeConfig(mode).title} — ${subject}`
     }});
-    state.chatConversation=d.conversation_id;thinking.textContent=d.answer;
+    state.chatConversation=d.conversation_id;thinking.classList.remove("loading");thinking.textContent=d.answer;
     await saveResume({route:`/${mode}`,subject_id:subjectId,topic_id:state.currentTopic?.id||null,mode,progress_percent:0,context:{subject,level}});
-  }catch(err){thinking.textContent=`Error: ${err.message}`}
-  finally{$("#send-chat").disabled=false;input.focus()}
+  }catch(err){thinking.classList.remove("loading");thinking.textContent=`Error: ${err.message}`}
+  finally{clearInterval(ticker);$("#send-chat").disabled=false;input.focus()}
 }
 
 async function renderVisionStudio(mode){
@@ -250,7 +277,7 @@ async function renderVisionStudio(mode){
         <div class="field" style="margin-top:16px"><label>Tu interpretación / pregunta</label><textarea id="vision-prompt" placeholder="${escapeHtml(cfg.placeholder)}"></textarea></div>
         <button id="vision-send" class="primary-btn wide">Analizar con tutor IA</button>
       </div>
-      <div class="card"><h3>Retroalimentación</h3><div id="vision-answer" class="message ai" style="max-width:100%">${escapeHtml(cfg.welcome)}</div></div>
+      <div class="card"><h3>Retroalimentación</h3><div id="vision-answer" class="message ai" style="max-width:100%">${escapeHtml(cfg.welcome)}</div><div class="info-box" style="margin-top:12px">Escribe primero tu interpretación y luego pide corrección. Así aprenderás mucho más.</div></div>
     </div>`;
   $("#vision-file").onchange=async e=>{
     const file=e.target.files[0];if(!file)return;
@@ -259,7 +286,7 @@ async function renderVisionStudio(mode){
   };
   $("#vision-send").onclick=async()=>{
     if(!state.visionDataUrl)return toast("Primero selecciona una imagen.",true);
-    const btn=$("#vision-send");btn.disabled=true;$("#vision-answer").textContent="Analizando...";
+    const btn=$("#vision-send");btn.disabled=true;$("#vision-answer").textContent="Analizando imagen...";
     try{
       const d=await api("/api/ai/vision",{method:"POST",body:{mode,image_data_url:state.visionDataUrl,prompt:$("#vision-prompt").value||cfg.placeholder}});
       $("#vision-answer").textContent=d.answer;
@@ -269,7 +296,8 @@ async function renderVisionStudio(mode){
 
 async function renderExams(){
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">EVALUACIÓN ADAPTATIVA</div><h2>Exámenes IA</h2><p>Genera preguntas nuevas y recibe explicación de cada error.</p></div></div>
+    <div class="page-head"><div><div class="eyebrow">EVALUACIÓN ADAPTATIVA</div><h2>Exámenes IA</h2><p>Genera preguntas nuevas, en un formato limpio y con retroalimentación clara.</p></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="info-box">Si quieres más rapidez, usa 5 o 10 preguntas. Si quieres más profundidad, usa 15 o 20.</div></div>
     <div class="grid two">
       <div class="card">
         <div class="field"><label>Materia</label><select id="exam-subject">${subjectOptions()}</select></div>
@@ -284,7 +312,7 @@ async function renderExams(){
   $("#generate-exam").onclick=generateExam;
 }
 async function generateExam(){
-  const btn=$("#generate-exam");btn.disabled=true;$("#exam-area").innerHTML=`<div class="card empty">Generando examen médico...</div>`;
+  const btn=$("#generate-exam");btn.disabled=true;$("#exam-area").innerHTML=`<div class="card empty">Generando examen médico... esto puede tardar unos segundos.</div>`;
   const subjectId=$("#exam-subject").value,subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
   const topic=$("#exam-topic").value.trim()||"general";
   try{
@@ -327,7 +355,7 @@ async function finishExam(){
 async function renderFlashcards(){
   const data=await api("/api/flashcards?due=1");state.dueCards=data.flashcards||[];state.cardIndex=0;state.showingBack=false;
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">REPETICIÓN ESPACIADA</div><h2>Flashcards</h2><p>Refuerza exactamente lo que estás a punto de olvidar.</p></div><button id="generate-cards" class="primary-btn">Generar con IA</button></div>
+    <div class="page-head"><div><div class="eyebrow">REPETICIÓN ESPACIADA</div><h2>Flashcards</h2><p>Refuerza lo importante con tarjetas claras y más agradables para estudiar.</p></div><button id="generate-cards" class="primary-btn">Generar con IA</button></div>
     <div id="flash-area"></div>
     <div class="card" id="card-generator" style="margin-top:16px">
       <div class="grid two">
@@ -367,7 +395,7 @@ async function generateCardsAI(){
 async function renderLibrary(){
   const notes=await api("/api/notes");
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">BIBLIOTECA PERSONAL</div><h2>Apuntes y documentos</h2><p>Tus notas quedan sincronizadas con tu perfil.</p></div></div>
+    <div class="page-head"><div><div class="eyebrow">BIBLIOTECA PERSONAL</div><h2>Apuntes y documentos</h2><p>Un espacio limpio y ordenado para guardar tus notas importantes.</p></div></div>
     <div class="grid two">
       <div class="card">
         <h3>Nuevo apunte</h3>
@@ -394,7 +422,7 @@ async function renderMistakes(){
 
 async function renderPlan(){
   const [d]=await Promise.all([api("/api/deadlines")]);
-  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">PLANIFICADOR</div><h2>Plan de estudio</h2><p>Registra parciales, finales y objetivos para priorizar tus sesiones.</p></div></div>
+  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">PLANIFICADOR</div><h2>Plan de estudio</h2><p>Registra parciales, finales y objetivos en una vista más clara y organizada.</p></div></div>
   <div class="grid two">
     <div class="card"><h3>Nueva fecha importante</h3>
       <div class="field"><label>Título</label><input id="deadline-title" placeholder="Parcial de fisiología"></div>
@@ -414,7 +442,7 @@ async function renderPlan(){
 async function renderStats(){
   const d=await api("/api/stats");const daily=[...(d.daily||[])].reverse();
   const max=Math.max(1,...daily.map(x=>Number(x.study_seconds||0)));
-  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">ANALÍTICA DE APRENDIZAJE</div><h2>Estadísticas</h2><p>Tu progreso medido en actividad y dominio.</p></div></div>
+  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">ANALÍTICA DE APRENDIZAJE</div><h2>Estadísticas</h2><p>Tu progreso medido con una vista más limpia y fácil de entender.</p></div></div>
   <div class="grid stats4">
     ${metric("Preguntas",d.totals?.questions||0,"Respondidas")}
     ${metric("Casos",d.totals?.cases||0,"Completados")}
@@ -429,7 +457,7 @@ async function renderStats(){
 
 async function renderProfile(){
   const d=await api("/api/me"),u=d.user;
-  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">PERFIL MÉDICO</div><h2>Mi perfil</h2><p>Esta identidad acompaña tu progreso en todos tus dispositivos.</p></div></div>
+  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">PERFIL MÉDICO</div><h2>Mi perfil</h2><p>Tu información académica y de estudio sincronizada en todos tus dispositivos.</p></div></div>
   <div class="grid two">
     <div class="card">
       ${profileField("Nombre","pf-name",u.full_name||"")}
@@ -522,9 +550,9 @@ function getDeviceId(){let id=localStorage.getItem("medai_device");if(!id){id=cr
 
 // -------------------- UI HELPERS --------------------
 
-function metric(label,value,sub){return `<div class="card"><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${escapeHtml(String(value))}</div><div class="metric-sub">${escapeHtml(sub)}</div></div>`}
-function modeCard(title,p,view,icon){return `<div class="card mode-card" data-view="${view}"><div style="font-size:24px">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(p)}</p></div>`}
-function subjectCard(s){return `<div class="card subject-card" data-id="${s.id}"><div class="category">${escapeHtml(s.category||"Medicina")}</div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Abrir materia y comenzar entrenamiento.")}</p></div>`}
+function metric(label,value,sub,icon="◦"){return `<div class="card metric-card"><div class="metric-icon">${icon}</div><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${escapeHtml(String(value))}</div><div class="metric-sub">${escapeHtml(sub)}</div></div>`}
+function modeCard(title,p,view,icon){return `<div class="card mode-card" data-view="${view}"><div class="metric-icon">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(p)}</p></div>`}
+function subjectCard(s){return `<div class="card subject-card" data-id="${s.id}"><div class="category">${escapeHtml(s.category||"Medicina")}</div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Abrir materia y comenzar entrenamiento.")}</p><span class="badge" style="margin-top:10px">Abrir materia</span></div>`}
 function subjectOptions(includeBlank=false){return `${includeBlank?'<option value="">Sin especificar</option>':""}${state.subjects.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}`}
 function listRecent(items){return items?.length?`<div class="list">${items.map(x=>`<div class="list-item"><div class="grow"><strong>${escapeHtml(x.topic_name)}</strong><span>${escapeHtml(x.subject_name)}</span></div><span class="badge">${Math.round(x.mastery||0)}%</span></div>`).join("")}</div>`:`<div class="empty">Tu actividad aparecerá aquí.</div>`}
 function listDeadlinesCompact(items){return items?.length?`<div class="list">${items.map(x=>`<div class="list-item"><div class="grow"><strong>${escapeHtml(x.title)}</strong><span>${formatDate(x.due_at)}</span></div><span class="badge">P${x.importance}</span></div>`).join("")}</div>`:`<div class="empty">No hay fechas pendientes.</div>`}
