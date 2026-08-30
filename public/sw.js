@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v12-2-chatgpt-style";
+const CACHE = "med-ai-dalton-v13-1-hybrid-progress";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=12.2.0",
-  "/app.js?v=12.2.0",
+  "/styles.css?v=13.1.0",
+  "/app.js?v=13.1.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

@@ -6,6 +6,8 @@ const JSON_HEADERS = {
 const SESSION_DAYS = 30;
 const PASSWORD_ITERATIONS = 210000;
 
+const COURSE_PATHS = {"ANAT":["Orientación anatómica, planos y términos","Osteología y articulaciones","Músculo y biomecánica básica","Tórax","Abdomen","Pelvis y periné","Miembro superior","Miembro inferior","Cabeza y cuello","Neuroanatomía e integración"],"HIST":["Microscopía y organización celular","Epitelios","Tejido conectivo","Cartílago y hueso","Tejido muscular","Tejido nervioso","Sangre y hematopoyesis","Histología de órganos y sistemas"],"EMBR":["Gametogénesis","Fecundación e implantación","Semanas 2 y 3: disco embrionario y gastrulación","Plegamiento corporal y derivados germinales","Placenta y membranas fetales","Organogénesis cardiovascular","Desarrollo del sistema nervioso","Desarrollo gastrointestinal y respiratorio","Desarrollo urogenital","Malformaciones y principios de teratología"],"FISIO":["Homeostasis, membrana y transporte","Potencial de membrana, nervio y músculo","Fisiología cardiovascular","Fisiología respiratoria","Fisiología renal","Equilibrio ácido-base","Fisiología gastrointestinal","Fisiología endocrina","Fisiología reproductiva","Integración, ejercicio y termorregulación"],"BIOQ":["Biomoléculas y agua","Enzimas y cinética","Bioenergética y ATP","Metabolismo de carbohidratos","Metabolismo de lípidos","Aminoácidos y proteínas","Nucleótidos","Replicación, transcripción y traducción","Integración metabólica","Nutrición y bioquímica clínica"],"GEN":["ADN, cromosomas y ciclo celular","Herencia mendeliana","Pedigrí y riesgo genético","Alteraciones cromosómicas","Genética molecular","Herencia multifactorial","Genética de poblaciones","Pruebas genéticas y consejo genético","Genómica y medicina de precisión"],"INMUNO":["Inmunidad innata","Antígenos y presentación por MHC","Linfocitos T","Linfocitos B y anticuerpos","Complemento y citocinas","Hipersensibilidad","Autoinmunidad","Inmunodeficiencias","Vacunas e inmunización","Trasplante e inmunología clínica"],"MICRO":["Principios de microbiología y diagnóstico","Bacteriología general","Bacterias grampositivas","Bacterias gramnegativas","Virología","Micología","Antimicrobianos y resistencia","Infecciones por síndromes","Prevención y control de infecciones"],"PARA":["Conceptos y ciclos parasitarios","Protozoos intestinales","Protozoos sanguíneos y tisulares","Nematodos","Cestodos","Trematodos","Diagnóstico parasitológico","Prevención y tratamiento antiparasitario"],"FARMA":["Farmacocinética","Farmacodinamia","Sistema nervioso autónomo","Farmacología cardiovascular","Fármacos renales y diuréticos","Farmacología endocrina","Sistema nervioso central","Antimicrobianos","Antiinflamatorios e inmunomoduladores","Oncología farmacológica","Toxicología e interacciones"],"PATO":["Lesión y adaptación celular","Inflamación aguda y crónica","Reparación y cicatrización","Trastornos hemodinámicos y trombosis","Patología inmunológica","Neoplasia","Patología genética","Patología cardiovascular y respiratoria","Patología gastrointestinal, renal y endocrina","Integración anatomopatológica"],"EPI":["Frecuencia de enfermedad y medidas de efecto","Diseños de estudio","Sesgos y confusión","Pruebas diagnósticas","Tamizaje","Estadística descriptiva","Probabilidad e inferencia","Intervalos de confianza y pruebas de hipótesis","Lectura crítica y medicina basada en evidencia","Salud pública y prevención"],"SEMIO":["Entrevista clínica y comunicación","Signos vitales y examen general","Semiología cardiovascular","Semiología respiratoria","Semiología abdominal","Semiología neurológica","Semiología musculoesquelética","Piel y faneras","Aparato genitourinario","Integración de historia y examen físico"],"MI":["Razonamiento clínico y lista de problemas","Cardiología","Neumología","Nefrología y ácido-base","Gastroenterología y hepatología","Endocrinología","Hematología y oncología","Enfermedades infecciosas","Reumatología","Geriatría y multimorbilidad","Paciente crítico y urgencias del internista"],"PED":["Crecimiento y desarrollo","Neonatología","Nutrición pediátrica","Enfermedades respiratorias","Gastroenterología pediátrica","Infecciones y vacunas","Cardiología pediátrica","Neurología pediátrica","Urgencias pediátricas","Adolescencia y prevención"],"CIR":["Principios quirúrgicos y seguridad","Evaluación preoperatoria","Líquidos, electrolitos y nutrición","Heridas e infección quirúrgica","Trauma","Abdomen agudo","Cirugía gastrointestinal","Cirugía vascular","Mama, tiroides y cirugía endocrina","Complicaciones postoperatorias"],"GINOBS":["Ciclo menstrual y fisiología reproductiva","Anticoncepción","Sangrado uterino anormal","Infecciones ginecológicas","Infertilidad","Control prenatal","Trabajo de parto y parto","Emergencias obstétricas","Puerperio","Oncología ginecológica"],"PSIQ":["Entrevista psiquiátrica y examen mental","Psicofarmacología básica","Trastornos depresivos y bipolares","Ansiedad y trauma","Psicosis","Uso de sustancias","Trastornos de personalidad","Sueño y conducta alimentaria","Psiquiatría de urgencias"],"NEURO":["Examen neurológico y localización","Cefaleas","Epilepsia","Enfermedad cerebrovascular","Trastornos del movimiento","Enfermedades desmielinizantes","Neuropatías y enfermedad neuromuscular","Demencias","Urgencias neurológicas"],"DERM":["Lesiones elementales y examen dermatológico","Dermatitis y eccemas","Infecciones cutáneas","Acné y trastornos foliculares","Psoriasis","Enfermedades autoinmunes","Tumores cutáneos","Urgencias dermatológicas"],"OFT":["Anatomía y examen ocular","Ojo rojo","Refracción y agudeza visual","Catarata y glaucoma","Retina","Neurooftalmología","Trauma ocular","Urgencias oftalmológicas"],"ORL":["Examen de oído y audición","Otitis y patología del oído","Vértigo","Nariz y senos paranasales","Faringe y laringe","Vía aérea","Masas cervicales","Urgencias ORL"],"TRAUMA":["Evaluación musculoesquelética","Principios de fracturas","Articulaciones y lesiones deportivas","Miembro superior","Miembro inferior","Columna vertebral","Ortopedia pediátrica","Urgencias traumatológicas"],"EMERG":["ABCDE y evaluación inicial","Reanimación y paro cardiorrespiratorio","Shock","Dolor torácico","Disnea aguda","Emergencias neurológicas","Sepsis","Trauma","Intoxicaciones","Emergencias metabólicas"],"CRIT":["Fundamentos de UCI","Vía aérea y ventilación mecánica","Shock y monitorización hemodinámica","Sepsis y falla multiorgánica","Lesión renal aguda y soporte renal","Neurocrítico","Sedación, analgesia y delirium","Nutrición en el paciente crítico","Ética y toma de decisiones en UCI"],"FAM":["Prevención y promoción de salud","Consulta de atención primaria","Hipertensión y riesgo cardiovascular","Diabetes y obesidad","Problemas agudos frecuentes","Salud de la mujer","Niñez y adolescencia","Adulto mayor","Salud mental en atención primaria","Medicina comunitaria"],"MATH":["Aritmética y proporciones","Álgebra","Ecuaciones e inecuaciones","Funciones y gráficas","Geometría","Trigonometría","Geometría analítica","Límites y continuidad","Derivadas","Integrales","Probabilidad y estadística","Vectores y matrices","Ecuaciones diferenciales"],"PHYS":["Unidades, medición y vectores","Cinemática","Leyes de Newton","Trabajo y energía","Cantidad de movimiento","Rotación y torque","Fluidos","Termodinámica","Ondas y sonido","Electricidad","Magnetismo","Óptica","Relatividad","Física cuántica y moderna"],"ASTRO":["Esfera celeste y coordenadas","Gravedad y órbitas","Sistema Solar","El Sol","Propiedades de las estrellas","Evolución estelar","Exoplanetas","Vía Láctea","Galaxias","Cosmología","Telescopios y observación","Astrobiología"],"LANG":["A1 · Primer contacto y supervivencia","A1 · Rutinas y comunicación básica","A2 · Vida cotidiana y descripciones","A2 · Pasado, futuro y situaciones prácticas","B1 · Conversación independiente","B1 · Comprensión y producción extendida","B2 · Argumentación y precisión","B2 · Comprensión de contenido complejo","C1 · Comunicación académica y profesional","C1 · Matices y fluidez","C2 · Precisión, registro y estilo","C2 · Dominio funcional avanzado"]};
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -63,6 +65,22 @@ export default {
 
       if (url.pathname === "/api/topics" && request.method === "GET") {
         return topics(url, env);
+      }
+
+      if (url.pathname === "/api/course" && request.method === "GET") {
+        return getCourse(url, env, user);
+      }
+
+      if (url.pathname === "/api/lesson-progress" && request.method === "PUT") {
+        return putLessonProgress(request, env, user);
+      }
+
+      if (url.pathname === "/api/course-note" && request.method === "GET") {
+        return getCourseNote(url, env, user);
+      }
+
+      if (url.pathname === "/api/course-note" && request.method === "PUT") {
+        return putCourseNote(request, env, user);
       }
 
       if (url.pathname === "/api/resume" && request.method === "GET") {
@@ -504,9 +522,132 @@ async function topics(url, env) {
   if (!subjectId) return json({ error: "Falta subject_id." }, 400);
   const rows = await env.DB.prepare(`
     SELECT id,subject_id,parent_topic_id,slug,name,description,difficulty_min,difficulty_max,estimated_minutes,sort_order
-    FROM topics WHERE active=1 AND subject_id=? ORDER BY sort_order,name
+    FROM topics WHERE active=1 AND subject_id=? AND id NOT LIKE 'course_%' ORDER BY sort_order,name
   `).bind(subjectId).all();
   return json({ topics: rows.results || [] });
+}
+
+function courseLanguageKey(value){
+  const allowed={"en-US":"en","fr-FR":"fr","pt-BR":"pt","it-IT":"it","de-DE":"de","ja-JP":"ja","ko-KR":"ko","zh-CN":"zh"};
+  return allowed[value]||"en";
+}
+
+function coursePrefix(subjectCode, language){
+  return subjectCode==="LANG"?`course_LANG_${courseLanguageKey(language)}`:`course_${subjectCode}`;
+}
+
+async function ensureSubjectCourse(env, subject, language){
+  const names=COURSE_PATHS[subject.code]||[];
+  if(!names.length) return;
+  const prefix=coursePrefix(subject.code,language);
+  const now=new Date().toISOString();
+  const statements=[];
+  names.forEach((name,index)=>{
+    const n=String(index+1).padStart(2,"0");
+    const topicId=`${prefix}_${n}`;
+    const lessonId=`lesson_${prefix}_${n}`;
+    const difficulty=Math.max(1,Math.min(10,Math.ceil((index+1)/names.length*10)));
+    const summary=`Lección guiada ${index+1} de ${names.length}. Avanza desde los fundamentos hasta la aplicación de ${name}.`;
+    const objectives=[`Comprender los fundamentos de ${name}.`,`Explicar los conceptos clave con tus propias palabras.`,`Aplicar ${name} en preguntas, problemas o escenarios apropiados al nivel.`];
+    statements.push(env.DB.prepare(`INSERT OR IGNORE INTO topics (id,subject_id,parent_topic_id,slug,name,description,difficulty_min,difficulty_max,estimated_minutes,sort_order,active,created_at,updated_at) VALUES (?,?,NULL,?,?,?, ?, ?,35,?,1,?,?)`).bind(topicId,subject.id,`${subject.code.toLowerCase()}-curso-${n}`,name,summary,difficulty,difficulty,1000+index,now,now));
+    statements.push(env.DB.prepare(`INSERT OR IGNORE INTO lessons (id,topic_id,title,summary,content_md,learning_objectives_json,clinical_pearls_json,common_errors_json,source_references_json,estimated_minutes,difficulty,version,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,35,?,1,1,?,?)`).bind(lessonId,topicId,`${n} · ${name}`,summary,"Lección guiada por MED AI.",JSON.stringify(objectives),"[]","[]","[]",difficulty,now,now));
+  });
+  await env.DB.batch(statements);
+}
+
+async function getCourse(url, env, user){
+  const subjectId=url.searchParams.get("subject_id");
+  const language=url.searchParams.get("language")||"en-US";
+  if(!subjectId) return json({error:"Falta subject_id."},400);
+  const subject=await env.DB.prepare("SELECT id,code,name,description,category,icon FROM subjects WHERE id=? AND active=1").bind(subjectId).first();
+  if(!subject) return json({error:"Materia no encontrada."},404);
+  await ensureSubjectCourse(env,subject,language);
+  const prefix=coursePrefix(subject.code,language);
+  const rows=await env.DB.prepare(`
+    SELECT t.id AS topic_id,t.name AS topic_name,t.description,t.difficulty_min,t.estimated_minutes,t.sort_order,
+           l.id AS lesson_id,l.title AS lesson_title,l.summary,l.learning_objectives_json,l.difficulty,
+           COALESCE(p.progress_percent,0) AS progress_percent,COALESCE(p.completed,0) AS completed,
+           p.started_at,p.completed_at,p.last_studied_at,p.last_position_json
+    FROM topics t
+    JOIN lessons l ON l.topic_id=t.id AND l.active=1
+    LEFT JOIN user_lesson_progress p ON p.lesson_id=l.id AND p.user_id=?
+    WHERE t.subject_id=? AND t.active=1 AND t.id LIKE ?
+    ORDER BY t.sort_order
+  `).bind(user.id,subject.id,`${prefix}_%`).all();
+  const items=rows.results||[];
+  const total=items.length;
+  const completed=items.filter(x=>Number(x.completed)===1).length;
+  const progress=total?Math.round(items.reduce((a,x)=>a+Number(x.progress_percent||0),0)/total):0;
+  const nextIndex=items.findIndex(x=>Number(x.completed)!==1);
+  return json({subject,language:subject.code==="LANG"?language:null,items,total,completed,progress_percent:progress,next_index:nextIndex<0?Math.max(0,total-1):nextIndex});
+}
+
+async function putLessonProgress(request, env, user){
+  const body=await readJson(request);
+  if(!body.lesson_id) return json({error:"Falta lesson_id."},400);
+  const row=await env.DB.prepare(`SELECT l.id,l.topic_id,l.title,t.subject_id,t.name AS topic_name,s.code AS subject_code,s.name AS subject_name FROM lessons l JOIN topics t ON t.id=l.topic_id JOIN subjects s ON s.id=t.subject_id WHERE l.id=?`).bind(body.lesson_id).first();
+  if(!row) return json({error:"Lección no encontrada."},404);
+  const before=await env.DB.prepare("SELECT completed,progress_percent FROM user_lesson_progress WHERE user_id=? AND lesson_id=?").bind(user.id,row.id).first();
+  const progress=clamp(Number(body.progress_percent||0),0,100);
+  const completed=body.completed?1:0;
+  const now=new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO user_lesson_progress (id,user_id,lesson_id,progress_percent,completed,last_position_json,started_at,completed_at,last_studied_at,sync_version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?, ?,?,1,?,?)
+    ON CONFLICT(user_id,lesson_id) DO UPDATE SET
+      progress_percent=MAX(user_lesson_progress.progress_percent,excluded.progress_percent),
+      completed=MAX(user_lesson_progress.completed,excluded.completed),
+      last_position_json=excluded.last_position_json,
+      started_at=COALESCE(user_lesson_progress.started_at,excluded.started_at),
+      completed_at=CASE WHEN excluded.completed=1 THEN COALESCE(user_lesson_progress.completed_at,excluded.completed_at) ELSE user_lesson_progress.completed_at END,
+      last_studied_at=excluded.last_studied_at,
+      sync_version=user_lesson_progress.sync_version+1,
+      updated_at=excluded.updated_at
+  `).bind(crypto.randomUUID(),user.id,row.id,progress,completed,JSON.stringify(body.last_position||{}),before?null:now,completed?now:null,now,now,now).run();
+  const current=await env.DB.prepare("SELECT progress_percent,completed FROM user_lesson_progress WHERE user_id=? AND lesson_id=?").bind(user.id,row.id).first();
+  await env.DB.prepare(`
+    INSERT INTO user_topic_progress (id,user_id,topic_id,mastery,lessons_completed,questions_answered,questions_correct,cases_completed,last_studied_at,next_review_at,metadata_json,sync_version,created_at,updated_at)
+    VALUES (?,?,?,?,?,0,0,0,?,NULL,?,1,?,?)
+    ON CONFLICT(user_id,topic_id) DO UPDATE SET mastery=excluded.mastery,lessons_completed=excluded.lessons_completed,last_studied_at=excluded.last_studied_at,metadata_json=excluded.metadata_json,sync_version=user_topic_progress.sync_version+1,updated_at=excluded.updated_at
+  `).bind(crypto.randomUUID(),user.id,row.topic_id,Number(current?.progress_percent||0),Number(current?.completed||0),now,JSON.stringify({course:true,lesson_id:row.id}),now,now).run();
+
+  const prefix=row.topic_id.replace(/_\d+$/,'');
+  const agg=await env.DB.prepare(`SELECT AVG(COALESCE(p.progress_percent,0)) AS avgp FROM topics t JOIN lessons l ON l.topic_id=t.id LEFT JOIN user_lesson_progress p ON p.lesson_id=l.id AND p.user_id=? WHERE t.subject_id=? AND t.id LIKE ?`).bind(user.id,row.subject_id,`${prefix}_%`).first();
+  const overall=Math.round(Number(agg?.avgp||0));
+  await env.DB.prepare(`
+    INSERT INTO study_resume_state (user_id,route,subject_id,topic_id,lesson_id,mode,progress_percent,context_json,device_id,sync_version,updated_at)
+    VALUES (?,"/course",?,?,?,"course",?,?,NULL,1,?)
+    ON CONFLICT(user_id) DO UPDATE SET route=excluded.route,subject_id=excluded.subject_id,topic_id=excluded.topic_id,lesson_id=excluded.lesson_id,mode=excluded.mode,progress_percent=excluded.progress_percent,context_json=excluded.context_json,sync_version=study_resume_state.sync_version+1,updated_at=excluded.updated_at
+  `).bind(user.id,row.subject_id,row.topic_id,row.id,overall,JSON.stringify({subject:row.subject_name,topic:row.topic_name,course:true}),now).run();
+
+  if(completed && Number(before?.completed||0)!==1){
+    await bumpDailyMetric(env,user.id,{lessons_completed:1,xp_earned:25});
+    await env.DB.prepare("UPDATE profiles SET total_xp=total_xp+25,current_medical_level=MAX(1,CAST((total_xp+25)/500 AS INTEGER)+1),updated_at=? WHERE user_id=?").bind(now,user.id).run();
+  }
+  return json({ok:true,progress_percent:Number(current?.progress_percent||0),completed:Number(current?.completed||0)===1,course_progress:overall});
+}
+
+async function getCourseNote(url,env,user){
+  const topicId=url.searchParams.get("topic_id");
+  if(!topicId) return json({note:null});
+  const note=await env.DB.prepare("SELECT id,title,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title LIKE 'Curso:%' ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id,topicId).first();
+  return json({note:note||null});
+}
+
+async function putCourseNote(request,env,user){
+  const body=await readJson(request);
+  if(!body.topic_id) return json({error:"Falta topic_id."},400);
+  const topic=await env.DB.prepare("SELECT t.id,t.name,t.subject_id FROM topics t WHERE t.id=?").bind(body.topic_id).first();
+  if(!topic) return json({error:"Tema no encontrado."},404);
+  const now=new Date().toISOString();
+  const existing=await env.DB.prepare("SELECT id FROM notes WHERE user_id=? AND topic_id=? AND title LIKE 'Curso:%' ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id,topic.id).first();
+  if(existing){
+    await env.DB.prepare("UPDATE notes SET body=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?").bind(cleanText(body.body,30000),now,existing.id,user.id).run();
+    return json({ok:true,id:existing.id,updated_at:now});
+  }
+  const id=crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(id,user.id,topic.subject_id,topic.id,`Curso: ${topic.name}`,cleanText(body.body,30000),JSON.stringify(["curso"]),JSON.stringify({course:true}),now,now).run();
+  return json({ok:true,id,updated_at:now});
 }
 
 async function getResume(env, user) {

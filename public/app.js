@@ -3,7 +3,8 @@ const state = {
   currentSubject:null, currentTopic:null, chatConversation:null, exam:null,
   dueCards:[], cardIndex:0, showingBack:false, visionDataUrl:null,
   patientConversation:null, patientActive:false, caseSolverConversation:null,
-  scienceConversation:null, languageConversation:null, lastLanguageAnswer:""
+  scienceConversation:null, languageConversation:null, lastLanguageAnswer:"",
+  currentCourse:null,currentLesson:null,courseConversation:null,courseLanguage:localStorage.getItem("medai_course_language")||"en-US"
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -97,7 +98,8 @@ async function loadSubjects(){
 
 async function navigate(view){
   state.currentView=view;
-  $$(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
+  const navView=["course","course_lesson"].includes(view)?"study":view;
+  $$(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===navView));
   root.innerHTML=`<div class="empty">Cargando...</div>`;
   try{
     const renderers={
@@ -110,7 +112,8 @@ async function navigate(view){
       osce:()=>renderAIStudio("osce"),library:renderLibrary,mistakes:renderMistakes,
       plan:renderPlan,stats:renderStats,profile:renderProfile,
       mathematics:()=>renderScienceStudio("MATH"),physics:()=>renderScienceStudio("PHYS"),
-      astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLab
+      astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLab,
+      course:renderCourse,course_lesson:renderCourseLesson
     };
     await (renderers[view]||renderDashboard)();
   }catch(err){root.innerHTML=`<div class="card"><h3>No se pudo cargar</h3><p>${escapeHtml(err.message)}</p></div>`}
@@ -207,7 +210,15 @@ async function renderDashboard(){
         ${listDeadlinesCompact(d.deadlines)}
       </div>
     </section>`;
-  $("#continue-btn").onclick=()=>navigate(d.resume?.mode||"study");
+  $("#continue-btn").onclick=()=>{
+    if(d.resume?.mode==="course"&&d.resume?.subject_id){
+      state.currentSubject=state.subjects.find(s=>s.id===d.resume.subject_id)||null;
+      state.currentTopic=null;state.currentLesson=null;state.currentCourse=null;
+      navigate(state.currentSubject?"course":"study");
+      return;
+    }
+    navigate(d.resume?.mode||"study");
+  };
   $("#open-tutor-btn").onclick=()=>navigate("tutor");
   $("#open-exam-btn").onclick=()=>navigate("exams");
   $$(".clinical-module").forEach(c=>c.onclick=()=>navigate(c.dataset.view));
@@ -215,35 +226,162 @@ async function renderDashboard(){
 
 async function renderStudy(){
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">CURRÍCULO ACADÉMICO</div><h2>Estudiar</h2><p>Explora medicina, ciencias e idiomas desde un mismo entorno. Abre una materia, selecciona un tema y continúa con IA, exámenes o flashcards.</p></div></div>
-    <div class="card" style="margin-bottom:16px"><div class="info-box">Consejo: abre una materia, selecciona un tema y MED AI recordará tu ruta para que continúes luego desde cualquier dispositivo.</div></div>
-    <div class="grid three" id="subject-grid">
-      ${state.subjects.map(subjectCard).join("")}
+    <div class="page-head"><div><div class="eyebrow">CURSOS + ESTUDIO LIBRE</div><h2>Aprende a tu ritmo</h2><p>Puedes seguir la ruta recomendada de cada materia o abrir cualquier tema cuando lo necesites. Cada tema conserva su propio progreso, notas y actividad.</p></div></div>
+    <div class="course-intro card hybrid-intro">
+      <div><strong>Dos formas de estudiar, un solo progreso</strong><span>RUTA GUIADA · MED AI te recomienda el orden de básico a avanzado. &nbsp;&nbsp; ESTUDIO LIBRE · puedes saltar a cualquier tema, practicarlo y volver después sin perder tu avance.</span></div>
+      <div class="course-intro-badge">PROGRESO SINCRONIZADO</div>
     </div>
-    <div id="topic-section"></div>`;
+    <div class="hybrid-progress-note">
+      <div><b>01</b><span><strong>Ruta recomendada</strong><small>Te indica qué conviene estudiar después.</small></span></div>
+      <div><b>02</b><span><strong>Cualquier tema</strong><small>Ningún tema queda bloqueado.</small></span></div>
+      <div><b>03</b><span><strong>Progreso independiente</strong><small>Cada tema guarda su porcentaje y notas.</small></span></div>
+    </div>
+    <h3 class="section-title">Selecciona una materia</h3>
+    <div class="grid three" id="subject-grid">${state.subjects.map(courseSubjectCard).join("")}</div>`;
   $$(".subject-card").forEach(c=>c.onclick=()=>openSubject(c.dataset.id));
 }
-async function openSubject(id){
-  const s=state.subjects.find(x=>x.id===id);state.currentSubject=s;
-  const data=await api(`/api/topics?subject_id=${encodeURIComponent(id)}`);
-  const section=$("#topic-section");
-  section.innerHTML=`
-    <div class="section-stack">
-      <h3 class="section-title">${escapeHtml(s.name)} — temas</h3>
-      ${data.topics.length?`<div class="topic-grid">${data.topics.map(t=>`<button class="topic-btn" data-id="${t.id}"><strong>${escapeHtml(t.name)}</strong><span>${escapeHtml(t.description||"Abrir entrenamiento")}</span></button>`).join("")}</div>`:
-      `<div class="card empty">Esta materia ya forma parte del currículo. Puedes estudiarla ahora con el Tutor IA aunque sus subtemas específicos todavía no estén precargados.</div>`}
-      <div><button id="study-subject-ai" class="primary-btn">Estudiar ${escapeHtml(s.name)} con IA</button></div>
-    </div>`;
-  const specialView={MATH:"mathematics",PHYS:"physics",ASTRO:"astronomy",LANG:"languages"}[s.code]||null;
-  $$(".topic-btn",section).forEach(btn=>btn.onclick=()=>{
-    state.currentTopic=data.topics.find(x=>x.id===btn.dataset.id);
-    const target=specialView||"tutor";
-    saveResume({route:`/${target}`,subject_id:s.id,topic_id:state.currentTopic.id,mode:target,progress_percent:0,context:{subject:s.name,topic:state.currentTopic.name}});
-    navigate(target);
-  });
-  $("#study-subject-ai").onclick=()=>{state.currentTopic=null;navigate(specialView||"tutor")};
-  section.scrollIntoView({behavior:"smooth"});
+
+function courseSubjectCard(s){
+  const special={MATH:"RAZONAMIENTO",PHYS:"CIENCIA",ASTRO:"UNIVERSO",LANG:"IDIOMAS"}[s.code]||s.category||"MEDICINA";
+  return `<div class="card subject-card course-subject-card" data-id="${s.id}"><div class="category">${escapeHtml(special)}</div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Ruta progresiva guiada por MED AI.")}</p><div class="course-card-footer"><span>Ruta guiada + estudio libre</span><b>ABRIR →</b></div></div>`;
 }
+
+async function openSubject(id){
+  state.currentSubject=state.subjects.find(x=>x.id===id)||null;
+  state.currentTopic=null;state.currentLesson=null;state.currentCourse=null;state.courseConversation=null;
+  if(!state.currentSubject)return;
+  navigate("course");
+}
+
+async function renderCourse(){
+  const s=state.currentSubject;
+  if(!s){navigate("study");return}
+  let language=state.courseLanguage;
+  const languagePicker=s.code==="LANG"?`<div class="field course-language-field"><label>Idioma del curso</label><select id="course-language">${LANGUAGE_OPTIONS.map(([code,name])=>`<option value="${code}" ${code===language?"selected":""}>${escapeHtml(name)}</option>`).join("")}</select></div>`:"";
+  root.innerHTML=`<div class="empty">Preparando curso de ${escapeHtml(s.name)}...</div>`;
+  const data=await api(`/api/course?subject_id=${encodeURIComponent(s.id)}${s.code==="LANG"?`&language=${encodeURIComponent(language)}`:""}`);
+  state.currentCourse=data;
+  const currentIndex=Math.max(0,Number(data.next_index||0));
+  const next=data.items[currentIndex];
+  root.innerHTML=`
+    <div class="course-page-head">
+      <button id="back-courses" class="ghost-btn">← MATERIAS</button>
+      <div class="course-page-title"><div class="eyebrow">RUTA RECOMENDADA + LIBERTAD TOTAL</div><h2>${escapeHtml(s.name)}</h2><p>MED AI te recomienda un orden, pero todos los temas están disponibles desde el inicio. Puedes estudiar varios a la vez y cada uno guarda su avance.</p></div>
+      ${languagePicker}
+    </div>
+    <section class="course-overview card hybrid-course-overview">
+      <div class="course-overview-main"><span>PROGRESO TOTAL DE LA MATERIA</span><strong>${data.progress_percent}%</strong><div class="progress"><i style="width:${data.progress_percent}%"></i></div><small>${data.completed} de ${data.total} temas marcados como completados</small></div>
+      <div class="course-next"><span>RUTA RECOMENDADA</span><strong>${escapeHtml(next?.topic_name||"Curso completado")}</strong><small>${next?`Sugerencia actual · tema ${currentIndex+1} de ${data.total}`:"Has terminado toda la ruta."}</small>${next?`<button id="continue-course" class="primary-btn">CONTINUAR RUTA</button>`:""}</div>
+    </section>
+    <section class="course-choice-bar card">
+      <div><span class="panel-code">ESTUDIO LIBRE</span><strong>Abre cualquier tema cuando quieras</strong><small>Buscar o seleccionar otro tema no borra ni reinicia el progreso de los demás.</small></div>
+      <div class="course-topic-search"><span>⌕</span><input id="course-topic-search" placeholder="Buscar tema en ${escapeHtml(s.name)}..."></div>
+    </section>
+    <div class="course-legend"><span><i class="legend recommended"></i> Recomendado</span><span><i class="legend progress"></i> En progreso</span><span><i class="legend done"></i> Completado</span><span><i class="legend available"></i> Disponible</span></div>
+    <div class="course-track" id="course-track">
+      ${data.items.map((item,i)=>courseStep(item,i,data)).join("")}
+    </div>
+    <div class="course-free card"><div><strong>¿Quieres preguntar algo fuera de la ruta?</strong><span>El Tutor libre sigue disponible para cualquier duda. Para que una práctica sume al porcentaje de un tema del curso, abre ese tema desde la lista y practica dentro de él.</span></div><button id="free-study-course" class="secondary-btn">ABRIR TUTOR LIBRE</button></div>`;
+  $("#back-courses").onclick=()=>navigate("study");
+  $("#continue-course")?.addEventListener("click",()=>openCourseLesson(currentIndex));
+  $$(".course-step[data-open='1']").forEach(el=>el.onclick=()=>openCourseLesson(Number(el.dataset.index)));
+  $("#free-study-course").onclick=()=>{const v={MATH:"mathematics",PHYS:"physics",ASTRO:"astronomy",LANG:"languages"}[s.code]||"tutor";navigate(v)};
+  $("#course-language")?.addEventListener("change",async e=>{state.courseLanguage=e.target.value;localStorage.setItem("medai_course_language",state.courseLanguage);state.currentCourse=null;await renderCourse()});
+  $("#course-topic-search")?.addEventListener("input",e=>filterCourseTopics(e.target.value));
+}
+function courseStep(item,index,data){
+  const completed=Number(item.completed)===1;
+  const progress=Number(item.progress_percent||0);
+  const recommended=!completed&&index===Number(data.next_index);
+  const status=completed?"COMPLETADO":progress>0?"EN PROGRESO":recommended?"RECOMENDADO":"DISPONIBLE";
+  const stateClass=completed?"completed":progress>0?"in-progress":recommended?"active":"available";
+  return `<article class="course-step ${stateClass}" data-index="${index}" data-open="1" data-topic="${escapeAttr(String(item.topic_name||'').toLowerCase())}">
+    <div class="course-step-number">${String(index+1).padStart(2,"0")}</div>
+    <div class="course-step-body"><div class="course-step-meta"><span>${status}</span><small>${Number(item.estimated_minutes||35)} min · Nivel ${Number(item.difficulty||1)}</small></div><h3>${escapeHtml(item.topic_name)}</h3><p>${escapeHtml(item.summary||item.description||"")}</p><div class="course-step-progress"><i style="width:${progress}%"></i></div><small class="topic-progress-label">${Math.round(progress)}% guardado</small></div>
+    <div class="course-step-state">${completed?"✓":"→"}</div>
+  </article>`;
+}
+
+function filterCourseTopics(query){
+  const q=String(query||"").trim().toLowerCase();
+  $$(".course-step").forEach(el=>{
+    const name=el.dataset.topic||"";
+    el.classList.toggle("hidden",q&&!name.includes(q));
+  });
+}
+function openCourseLesson(index){
+  const item=state.currentCourse?.items?.[index];if(!item)return;
+  state.currentLesson={...item,index};state.currentTopic={id:item.topic_id,name:item.topic_name,subject_id:state.currentSubject.id};state.courseConversation=null;navigate("course_lesson");
+}
+
+async function renderCourseLesson(){
+  const item=state.currentLesson,s=state.currentSubject,course=state.currentCourse;
+  if(!item||!s||!course){navigate("course");return}
+  const objectives=safeJson(item.learning_objectives_json,[]);
+  const noteData=await api(`/api/course-note?topic_id=${encodeURIComponent(item.topic_id)}`).catch(()=>({note:null}));
+  root.innerHTML=`
+    <div class="lesson-course-head"><button id="back-course" class="ghost-btn">← ${escapeHtml(s.name.toUpperCase())}</button><div><span>LECCIÓN ${String(item.index+1).padStart(2,"0")} / ${course.total}</span><strong>${escapeHtml(item.topic_name)}</strong></div><div class="lesson-course-percent">${Math.round(Number(item.progress_percent||0))}%</div></div>
+    <div class="lesson-course-grid">
+      <main class="card lesson-main">
+        <div class="eyebrow">TEMA INDIVIDUAL · PROGRESO INDEPENDIENTE</div>
+        <h2>${escapeHtml(item.topic_name)}</h2>
+        <p class="lesson-summary">${escapeHtml(item.summary||item.description||"")}</p>
+        <div class="lesson-objectives"><strong>Objetivos de esta lección</strong><ul>${objectives.map(o=>`<li>${escapeHtml(o)}</li>`).join("")}</ul></div>
+        <div class="lesson-actions"><button id="start-guided-lesson" class="primary-btn">INICIAR LECCIÓN CON IA</button><button id="practice-guided-lesson" class="secondary-btn">PRACTICAR ESTE TEMA</button></div>
+        <div id="course-messages" class="messages course-messages"><div class="message ai rich"><div class="rich-response"><p>Pulsa <strong>Iniciar lección con IA</strong> para estudiarlo en profundidad o <strong>Practicar este tema</strong> para evaluarte. Puedes cambiar de tema en cualquier momento sin perder este progreso.</p></div></div></div>
+        <div class="composer"><textarea id="course-input" rows="2" placeholder="Pregunta algo sobre esta lección..."></textarea><button id="course-send" class="primary-btn">ENVIAR</button></div>
+      </main>
+      <aside class="lesson-side">
+        <section class="card lesson-progress-card"><div class="panel-code">PROGRESO GUARDADO</div><div class="lesson-progress-number" id="lesson-progress-number">${Math.round(Number(item.progress_percent||0))}%</div><div class="progress"><i id="lesson-progress-bar" style="width:${Number(item.progress_percent||0)}%"></i></div><p>Este porcentaje pertenece solo a este tema. Puedes salir, estudiar otro y regresar después: cada tema conserva su avance en Cloudflare D1.</p><button id="complete-course-topic" class="${Number(item.completed)?"secondary-btn":"primary-btn"} wide">${Number(item.completed)?"TEMA COMPLETADO ✓":"MARCAR TEMA COMO COMPLETADO"}</button><button id="next-course-topic" class="secondary-btn wide ${Number(item.completed)?"":"hidden"}" style="margin-top:8px">SIGUIENTE TEMA DE LA RUTA →</button></section>
+        <section class="card"><div class="panel-code">MIS NOTAS DEL TEMA</div><textarea id="course-note" class="course-note" placeholder="Escribe aquí lo que quieras recordar...">${escapeHtml(noteData.note?.body||"")}</textarea><button id="save-course-note" class="secondary-btn wide">GUARDAR NOTAS</button><small id="course-note-status">${noteData.note?.updated_at?`Último guardado: ${formatDate(noteData.note.updated_at)}`:"Tus notas también quedan sincronizadas."}</small></section>
+      </aside>
+    </div>`;
+  $("#back-course").onclick=()=>navigate("course");
+  $("#start-guided-lesson").onclick=()=>sendCourseLessonMessage("[INICIAR_CURSO_GUIADO] Enséñame esta lección de forma completa, desde los fundamentos hasta la aplicación. Divide la explicación en secciones claras, comprueba mi comprensión al final y no te salgas del tema.",true,false);
+  $("#practice-guided-lesson").onclick=()=>sendCourseLessonMessage("[PRACTICA_CURSO] Evalúame sobre esta lección con 3 preguntas progresivas, una por una. No reveles la respuesta antes de que yo intente responder.",true,true);
+  $("#course-send").onclick=()=>sendCourseLessonMessage();
+  $("#course-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendCourseLessonMessage()}});
+  $("#complete-course-topic").onclick=completeCourseTopic;
+  $("#next-course-topic").onclick=()=>{const ni=item.index+1;if(ni<course.items.length)openCourseLesson(ni);else navigate("course")};
+  $("#save-course-note").onclick=saveCourseNote;
+}
+
+async function sendCourseLessonMessage(forced=null,hide=false,practice=false){
+  const input=$("#course-input"),raw=forced||input.value.trim();if(!raw)return;
+  if(!hide)appendMessageTo("#course-messages","user",raw);else appendMessageTo("#course-messages","user",practice?"Practicar esta lección":"Iniciar lección guiada");
+  input.value="";
+  const item=state.currentLesson,s=state.currentSubject;
+  const target=appendMessageTo("#course-messages","ai","Preparando la lección...");target.classList.add("loading");
+  const mode=["MATH","PHYS","ASTRO"].includes(s.code)?"science":s.code==="LANG"?"language":"tutor";
+  const lang=s.code==="LANG"?` Idioma objetivo: ${LANGUAGE_OPTIONS.find(x=>x[0]===state.courseLanguage)?.[1]||"Inglés"}.`:"";
+  const message=`CURSO GUIADO. Materia: ${s.name}. Tema actual: ${item.topic_name}. Lección ${item.index+1} de ${state.currentCourse.total}.${lang}\n\n${raw}\n\nREGLA: mantente dentro del tema actual y enseña de lo fácil a lo difícil.`;
+  try{
+    const r=await streamSpecialAI({mode,message,conversationId:state.courseConversation,subjectId:s.id,title:`Curso — ${item.topic_name}`,context:{course:true,topic:item.topic_name,language:state.courseLanguage},target});
+    state.courseConversation=r.conversationId;
+    const nextProgress=Math.max(Number(item.progress_percent||0),practice?80:60);
+    if(!Number(item.completed))await updateCourseLessonProgress(nextProgress,false,{stage:practice?"practice":"lesson"});
+  }catch(err){target.classList.remove("loading");setMessageContent(target,"ai",`Error: ${err.message}`)}
+}
+
+async function updateCourseLessonProgress(progress,completed=false,lastPosition={},updateUI=true){
+  const item=state.currentLesson;if(!item)return null;
+  const r=await api("/api/lesson-progress",{method:"PUT",body:{lesson_id:item.lesson_id,progress_percent:progress,completed,last_position:lastPosition}});
+  item.progress_percent=Math.max(Number(item.progress_percent||0),Number(r.progress_percent||0));item.completed=r.completed?1:item.completed;
+  if(state.currentCourse){const ci=item.index;state.currentCourse.items[ci]={...state.currentCourse.items[ci],...item};state.currentCourse.progress_percent=r.course_progress}
+  if(updateUI){$("#lesson-progress-number")&&( $("#lesson-progress-number").textContent=`${Math.round(item.progress_percent)}%`);$("#lesson-progress-bar")&&( $("#lesson-progress-bar").style.width=`${item.progress_percent}%`)}
+  return r;
+}
+
+async function completeCourseTopic(){
+  const item=state.currentLesson;if(Number(item.completed))return;
+  try{await updateCourseLessonProgress(100,true,{stage:"completed"});toast("Tema completado. Tu progreso quedó guardado.");$("#complete-course-topic").textContent="TEMA COMPLETADO ✓";$("#complete-course-topic").className="secondary-btn wide";$("#next-course-topic").classList.remove("hidden");}catch(err){toast(err.message,true)}
+}
+
+async function saveCourseNote(){
+  try{const r=await api("/api/course-note",{method:"PUT",body:{topic_id:state.currentLesson.topic_id,body:$("#course-note").value}});$("#course-note-status").textContent=`Guardado: ${formatDate(r.updated_at)}`;toast("Notas guardadas.")}catch(err){toast(err.message,true)}
+}
+
+function safeJson(value,fallback){try{return Array.isArray(value)?value:JSON.parse(value||"null")||fallback}catch{return fallback}}
 
 
 const SCIENCE_CONFIG={
