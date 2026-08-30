@@ -503,3 +503,30 @@ body{
 @media(max-width:1240px){.clinical-console{grid-template-columns:1fr}.clinical-modules{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:900px){.app-shell{grid-template-columns:1fr}.sidebar{width:286px}.topbar{margin:0;top:0}.institution-header{align-items:flex-start;flex-direction:column}.institution-id{width:100%}.clinical-modules{grid-template-columns:1fr 1fr}.institution-lower-grid{grid-template-columns:1fr}.view-root{padding:22px 14px 90px}}
 @media(max-width:560px){.institution-main h1{font-size:34px}.clinical-resume-body{grid-template-columns:52px 1fr;gap:14px;padding:20px 16px}.session-number{font-size:36px;padding-right:12px}.session-copy h2{font-size:28px}.console-actions{padding:16px;flex-direction:column}.console-primary{min-width:0}.clinical-modules{grid-template-columns:1fr}.panel-progress{display:none}}
+
+
+/* V10 — Patient interview & clinical case solver */
+.patient-training-grid{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:stretch}
+.patient-setup,.patient-workspace,.case-input-panel,.case-output-panel{border-radius:3px!important}
+.patient-setup h3,.case-input-panel h3{margin:7px 0 18px}
+.simulation-rules{display:grid;gap:7px;margin-top:18px;padding-top:16px;border-top:1px solid var(--institution-line)}
+.simulation-rules strong{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:13px;color:var(--heading);text-transform:uppercase;letter-spacing:.04em}
+.simulation-rules span{font-family:"IBM Plex Mono",monospace;font-size:9px;color:var(--muted);line-height:1.55}
+.patient-workspace{display:flex;flex-direction:column;min-height:680px}
+.simulation-status{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 0 13px;border-bottom:1px solid var(--institution-line);margin-bottom:12px}
+.simulation-status>div{display:flex;align-items:center;gap:8px}.simulation-status i{width:7px;height:7px;background:var(--institution-accent);display:block}.simulation-status span{font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.10em;color:var(--heading)}
+.simulation-status small{font-size:10px;color:var(--muted)}
+.patient-messages{max-height:none;min-height:0}
+.patient-command-strip{display:flex;gap:7px;flex-wrap:wrap;padding:11px 0;border-top:1px solid var(--institution-line)}
+.patient-command-strip button{border:1px solid var(--institution-line);background:var(--surface2);color:var(--text2);border-radius:2px;padding:8px 10px;font-family:"IBM Plex Mono",monospace;font-size:8px;letter-spacing:.05em;text-transform:uppercase}
+.patient-command-strip button:hover{border-color:var(--institution-accent);color:var(--heading)}
+.patient-command-strip #evaluate-patient{margin-left:auto;color:var(--institution-accent)}
+.patient-composer{margin-top:auto}
+.case-solver-grid{display:grid;grid-template-columns:minmax(440px,.95fr) minmax(0,1.15fr);gap:16px;align-items:start}
+.compact-fields{gap:10px}.case-textarea{min-height:330px!important;line-height:1.65!important}
+.case-actions{display:flex;gap:8px;align-items:center}
+.case-output-panel{min-height:650px;position:sticky;top:104px}
+.case-answer{height:560px;overflow:auto;padding-right:3px}
+.case-answer .message{max-width:100%;border-radius:2px;white-space:pre-wrap}
+@media(max-width:1100px){.patient-training-grid,.case-solver-grid{grid-template-columns:1fr}.case-output-panel{position:static}.patient-workspace{min-height:600px}}
+@media(max-width:560px){.simulation-status{align-items:flex-start;flex-direction:column}.patient-command-strip #evaluate-patient{margin-left:0}.case-actions{flex-direction:column;align-items:stretch}.case-answer{height:auto;min-height:420px}}

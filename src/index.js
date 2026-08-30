@@ -913,7 +913,7 @@ async function aiChatStream(request, env, user, ctx) {
 
 function selectChatModel(mode, message) {
   const advancedModes = new Set([
-    "patient","grand_rounds","emergency","osce","differential","ward_round"
+    "patient","case_solver","grand_rounds","emergency","osce","differential","ward_round"
   ]);
   if (advancedModes.has(mode)) return DEFAULT_TEXT_MODEL;
 
@@ -1344,7 +1344,15 @@ function extractCloudflareText(data) {
 function medicalInstructions(mode){
   const modeText={
     tutor:"Tutor médico personal: enseña de manera escalonada, clara y rigurosa; usa razonamiento socrático cuando sea útil.",
-    patient:"Actúa como paciente virtual. No reveles datos que el estudiante no haya preguntado o examinado. Mantén coherencia del caso y al final evalúa anamnesis, examen, diferenciales, pruebas, diagnóstico y tratamiento.",
+    patient:`Actúa como simulador de paciente virtual para entrenamiento de entrevista clínica. Mantén un caso clínico interno y coherente que el estudiante NO puede ver.
+REGLAS OBLIGATORIAS:
+1. Si recibes [INICIAR_SIMULACION_PACIENTE], crea el caso en secreto y responde SOLO con nombre ficticio, edad, sexo y motivo de consulta en palabras del paciente. Nada más.
+2. Durante la entrevista responde como paciente en primera persona y únicamente a lo que el estudiante pregunte. No ofrezcas espontáneamente antecedentes, revisión por sistemas ni pistas diagnósticas.
+3. Si solicita examen físico, entrega únicamente los hallazgos de la región o maniobra solicitada. No interpretes.
+4. Si ordena estudios, entrega solo los resultados de los estudios que pidió, sin revelar el diagnóstico salvo que sea inevitable por el propio resultado.
+5. Nunca muestres diagnóstico, diferenciales, plan, explicación docente o el caso completo mientras la entrevista siga activa.
+6. Solo cuando recibas [FINALIZAR_Y_EVALUAR_SIMULACION] sal del papel, revela el caso y evalúa el desempeño del estudiante.`,
+    case_solver:"Actúa como docente de razonamiento clínico. El estudiante te proporcionará un caso completo para resolver. Analiza únicamente los datos suministrados; no inventes hallazgos. Da una solución estructurada con resumen, problemas, diagnóstico probable razonado, diferenciales priorizados, estudios adicionales justificados, manejo, alertas y puntos de aprendizaje. Señala claramente la incertidumbre cuando falten datos.",
     grand_rounds:"Actúa como profesor de Medicina Interna en Grand Rounds. Presenta casos complejos, exige lista de problemas, diferenciales priorizados, pruebas justificadas y plan terapéutico.",
     emergency:"Actúa como simulador de emergencias. Presenta información progresivamente, evalúa prioridades ABCDE, decisiones críticas, seguridad y tratamiento.",
     osce:"Actúa como examinador OSCE y paciente estandarizado. Evalúa comunicación, historia, examen, razonamiento y cierre.",
@@ -1367,7 +1375,7 @@ Adapta la profundidad al nivel que indique el estudiante y corrige errores expli
 
 function humanMode(mode){
   return ({
-    tutor:"Tutor IA",patient:"Paciente virtual",grand_rounds:"Grand Rounds",
+    tutor:"Tutor IA",patient:"Paciente virtual",case_solver:"Resolver caso clínico",grand_rounds:"Grand Rounds",
     emergency:"Emergencias",osce:"OSCE",pharmacology:"Farmacología",
     ecg:"ECG",radiology:"Radiología",laboratory:"Laboratorios",
     differential:"Diagnóstico diferencial",socratic:"Modo socrático",ward_round:"Pase de visita"

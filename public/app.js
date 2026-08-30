@@ -1,7 +1,8 @@
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
   currentSubject:null, currentTopic:null, chatConversation:null, exam:null,
-  dueCards:[], cardIndex:0, showingBack:false, visionDataUrl:null
+  dueCards:[], cardIndex:0, showingBack:false, visionDataUrl:null,
+  patientConversation:null, patientActive:false, caseSolverConversation:null
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -100,7 +101,8 @@ async function navigate(view){
   try{
     const renderers={
       dashboard:renderDashboard,study:renderStudy,tutor:()=>renderAIStudio("tutor"),
-      exams:renderExams,flashcards:renderFlashcards,patient:()=>renderAIStudio("patient"),
+      exams:renderExams,flashcards:renderFlashcards,patient:renderPatientVirtual,
+      case_solver:renderCaseSolver,
       grand_rounds:()=>renderAIStudio("grand_rounds"),emergency:()=>renderAIStudio("emergency"),
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
       laboratory:()=>renderAIStudio("laboratory"),pharmacology:()=>renderAIStudio("pharmacology"),
@@ -173,11 +175,12 @@ async function renderDashboard(){
     </div>
     <section class="clinical-modules">
       <button class="clinical-module" data-view="tutor"><span class="module-no">01</span><div class="module-symbol">✦</div><div><strong>Tutor IA</strong><small>Estudio guiado y explicación adaptativa</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="patient"><span class="module-no">02</span><div class="module-symbol">♙</div><div><strong>Paciente virtual</strong><small>Historia clínica y razonamiento diagnóstico</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="exams"><span class="module-no">03</span><div class="module-symbol">✓</div><div><strong>Exámenes</strong><small>Evaluación adaptativa del conocimiento</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="flashcards"><span class="module-no">04</span><div class="module-symbol">▱</div><div><strong>Flashcards</strong><small>Repetición espaciada y memoria activa</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="grand_rounds"><span class="module-no">05</span><div class="module-symbol">◆</div><div><strong>Grand Rounds</strong><small>Casos complejos de Medicina Interna</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="emergency"><span class="module-no">06</span><div class="module-symbol">⚡</div><div><strong>Emergencias</strong><small>Priorización y decisiones clínicas</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="patient"><span class="module-no">02</span><div class="module-symbol">♙</div><div><strong>Paciente virtual</strong><small>Entrevista clínica progresiva sin revelar el caso</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="case_solver"><span class="module-no">03</span><div class="module-symbol">▣</div><div><strong>Resolver caso clínico</strong><small>Pega un caso completo y recibe la solución razonada</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="exams"><span class="module-no">04</span><div class="module-symbol">✓</div><div><strong>Exámenes</strong><small>Evaluación adaptativa del conocimiento</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="flashcards"><span class="module-no">05</span><div class="module-symbol">▱</div><div><strong>Flashcards</strong><small>Repetición espaciada y memoria activa</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="grand_rounds"><span class="module-no">06</span><div class="module-symbol">◆</div><div><strong>Grand Rounds</strong><small>Casos complejos de Medicina Interna</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="emergency"><span class="module-no">07</span><div class="module-symbol">⚡</div><div><strong>Emergencias</strong><small>Priorización y decisiones clínicas</small></div><b>ABRIR</b></button>
     </section>
 
     <section class="institution-lower-grid">
@@ -224,6 +227,181 @@ async function openSubject(id){
   });
   $("#study-subject-ai").onclick=()=>{state.currentTopic=null;navigate("tutor")};
   section.scrollIntoView({behavior:"smooth"});
+}
+
+
+async function renderPatientVirtual(){
+  state.patientConversation=null;
+  state.patientActive=false;
+  root.innerHTML=`
+    <div class="page-head"><div><div class="eyebrow">SIMULACIÓN CLÍNICA INTERACTIVA</div><h2>Paciente virtual</h2><p>Aquí tú realizas la entrevista. MED AI mantiene el caso oculto y solo revela la información que preguntes o explores.</p></div></div>
+    <div class="patient-training-grid">
+      <aside class="patient-setup card">
+        <div class="panel-code">CONFIGURACIÓN DEL CASO</div>
+        <h3>Preparar paciente</h3>
+        <div class="field"><label>Sistema</label><select id="patient-system">
+          <option value="aleatorio">Aleatorio</option><option>Cardiovascular</option><option>Respiratorio</option><option>Gastrointestinal</option><option>Neurológico</option><option>Renal</option><option>Endocrino</option><option>Hematológico</option><option>Infeccioso</option><option>Reumatológico</option>
+        </select></div>
+        <div class="field"><label>Dificultad</label><select id="patient-difficulty"><option>Básica</option><option selected>Intermedia</option><option>Avanzada</option><option>Residencia / Internista</option></select></div>
+        <div class="field"><label>Escenario</label><select id="patient-setting"><option>Consulta externa</option><option>Urgencias</option><option>Hospitalización</option></select></div>
+        <button id="start-patient" class="primary-btn wide">INICIAR ENTREVISTA</button>
+        <div class="simulation-rules">
+          <strong>Reglas de la simulación</strong>
+          <span>01 · El diagnóstico permanece oculto.</span>
+          <span>02 · El paciente no regala antecedentes.</span>
+          <span>03 · El examen solo aparece si lo solicitas.</span>
+          <span>04 · Los estudios solo aparecen si los ordenas.</span>
+        </div>
+      </aside>
+      <section class="patient-workspace card">
+        <div class="simulation-status"><div><i></i><span id="patient-status">SIMULACIÓN NO INICIADA</span></div><small id="patient-status-detail">Configura el caso y pulsa “Iniciar entrevista”.</small></div>
+        <div id="patient-messages" class="messages patient-messages">
+          <div class="message ai">Cuando inicies, recibirás únicamente la presentación inicial del paciente y su motivo de consulta. A partir de ahí, tú conduces la anamnesis.</div>
+        </div>
+        <div class="patient-command-strip hidden" id="patient-command-strip">
+          <button data-patient-command="Quiero realizar el examen físico general. Dame únicamente los hallazgos que corresponden a lo que estoy examinando, sin interpretar ni revelar el diagnóstico.">Examen físico</button>
+          <button data-patient-command="Quiero solicitar estudios. Espera a que yo indique exactamente cuáles antes de entregar resultados.">Solicitar estudios</button>
+          <button id="evaluate-patient">Finalizar y evaluar</button>
+        </div>
+        <div class="composer patient-composer">
+          <button id="patient-mic" class="icon-btn" title="Hablar">🎙</button>
+          <textarea id="patient-input" rows="2" disabled placeholder="Primero inicia la entrevista..."></textarea>
+          <button id="patient-send" class="primary-btn" disabled>ENVIAR</button>
+        </div>
+      </section>
+    </div>`;
+
+  $("#start-patient").onclick=startPatientInterview;
+  $("#patient-send").onclick=sendPatientMessage;
+  $("#patient-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendPatientMessage()}});
+  $("#patient-mic").onclick=()=>startSpeechRecognition($("#patient-input"));
+}
+
+async function startPatientInterview(){
+  state.patientConversation=null;
+  state.patientActive=true;
+  const system=$("#patient-system").value;
+  const difficulty=$("#patient-difficulty").value;
+  const setting=$("#patient-setting").value;
+  $("#start-patient").disabled=true;
+  $("#patient-input").disabled=false;
+  $("#patient-send").disabled=true;
+  $("#patient-input").placeholder="Ej. Buenos días, ¿qué lo trae hoy a consulta?";
+  $("#patient-status").textContent="GENERANDO PACIENTE...";
+  $("#patient-status-detail").textContent="El diagnóstico se mantiene oculto.";
+  $("#patient-messages").innerHTML="";
+
+  const startPrompt=`[INICIAR_SIMULACION_PACIENTE]\nSistema: ${system}.\nDificultad: ${difficulty}.\nEscenario: ${setting}.\n\nCrea internamente un caso clínico coherente, pero NO reveles la solución. En este primer turno responde únicamente como el paciente: nombre ficticio, edad, sexo y motivo de consulta expresado en lenguaje natural del paciente. No entregues antecedentes, signos vitales, examen físico, laboratorios, diagnóstico, diferenciales ni tratamiento. Termina y espera mi primera pregunta.`;
+  try{
+    await streamClinicalMessage({mode:"patient",message:startPrompt,conversationKey:"patientConversation",container:"#patient-messages",thinkingText:"Preparando paciente..."});
+    $("#patient-status").textContent="ENTREVISTA ACTIVA";
+    $("#patient-status-detail").textContent="Pregunta como en una consulta real. MED AI solo revelará lo solicitado.";
+    $("#patient-command-strip").classList.remove("hidden");
+    $("#patient-send").disabled=false;
+    $("#patient-input").focus();
+    $$("[data-patient-command]").forEach(b=>b.onclick=()=>{$("#patient-input").value=b.dataset.patientCommand;sendPatientMessage()});
+    $("#evaluate-patient").onclick=finishPatientInterview;
+  }catch(err){
+    $("#patient-status").textContent="NO SE PUDO INICIAR";
+    $("#patient-status-detail").textContent=err.message;
+    $("#start-patient").disabled=false;
+  }
+}
+
+async function sendPatientMessage(){
+  if(!state.patientActive)return;
+  const input=$("#patient-input");
+  const message=input.value.trim();if(!message)return;
+  appendToContainer("#patient-messages","user",message);input.value="";
+  $("#patient-send").disabled=true;
+  try{
+    await streamClinicalMessage({mode:"patient",message,conversationKey:"patientConversation",container:"#patient-messages",thinkingText:"El paciente responde..."});
+  }catch(err){toast(err.message,true)}
+  finally{$("#patient-send").disabled=false;input.focus()}
+}
+
+async function finishPatientInterview(){
+  if(!state.patientActive)return;
+  const prompt=`[FINALIZAR_Y_EVALUAR_SIMULACION]\nSal del papel de paciente. Ahora actúa como docente clínico. Revela el caso completo y evalúa mi desempeño en: anamnesis, examen físico solicitado, estudios, diagnóstico diferencial, diagnóstico principal y manejo. Señala qué pregunté bien, qué omití y cómo podría mejorar. Califica de 0 a 100.`;
+  $("#patient-send").disabled=true;
+  $("#evaluate-patient").disabled=true;
+  appendToContainer("#patient-messages","user","Finalizar entrevista y evaluar mi desempeño.");
+  try{
+    await streamClinicalMessage({mode:"patient",message:prompt,conversationKey:"patientConversation",container:"#patient-messages",thinkingText:"Evaluando la entrevista..."});
+    state.patientActive=false;
+    $("#patient-status").textContent="SIMULACIÓN FINALIZADA";
+    $("#patient-status-detail").textContent="Revisa la retroalimentación y luego inicia un nuevo paciente.";
+    $("#patient-input").disabled=true;
+    $("#patient-command-strip").classList.add("hidden");
+    $("#start-patient").disabled=false;
+    $("#start-patient").textContent="INICIAR NUEVO PACIENTE";
+  }catch(err){toast(err.message,true);$("#evaluate-patient").disabled=false}
+  finally{$("#patient-send").disabled=false}
+}
+
+async function renderCaseSolver(){
+  state.caseSolverConversation=null;
+  root.innerHTML=`
+    <div class="page-head"><div><div class="eyebrow">RAZONAMIENTO CLÍNICO ASISTIDO</div><h2>Resolver caso clínico</h2><p>Pega aquí un caso completo. En este módulo MED AI sí puede analizarlo y darte la solución explicada paso a paso.</p></div></div>
+    <div class="case-solver-grid">
+      <section class="card case-input-panel">
+        <div class="panel-code">CASO PROPORCIONADO POR EL ESTUDIANTE</div>
+        <h3>Información clínica</h3>
+        <div class="grid two compact-fields">
+          <div class="field"><label>Materia</label><select id="case-subject">${subjectOptions()}</select></div>
+          <div class="field"><label>Nivel de profundidad</label><select id="case-level"><option>Estudiante clínico</option><option>Internado</option><option>Médico general</option><option selected>Residencia</option><option>Internista</option></select></div>
+        </div>
+        <div class="field"><label>Caso clínico completo</label><textarea id="case-text" class="case-textarea" placeholder="Pega aquí el motivo de consulta, historia, antecedentes, examen físico, laboratorios, imágenes y cualquier otra información del caso..."></textarea></div>
+        <div class="field"><label>Pregunta específica (opcional)</label><input id="case-question" placeholder="Ej. ¿Cuál es el diagnóstico más probable y por qué?"></div>
+        <div class="case-actions"><button id="solve-case" class="primary-btn">ANALIZAR Y RESOLVER</button><button id="clear-case" class="secondary-btn">LIMPIAR</button></div>
+        <div class="notice" style="margin-top:14px">Este módulo es para aprendizaje. Si introduces información de un paciente real, evita datos identificables y verifica las decisiones clínicas con supervisión y fuentes actuales.</div>
+      </section>
+      <section class="card case-output-panel">
+        <div class="simulation-status"><div><i></i><span>ANÁLISIS CLÍNICO</span></div><small>La solución aparecerá progresivamente.</small></div>
+        <div id="case-answer" class="case-answer"><div class="empty">Pega un caso y pulsa “Analizar y resolver”.</div></div>
+      </section>
+    </div>`;
+  $("#solve-case").onclick=solveClinicalCase;
+  $("#clear-case").onclick=()=>{$("#case-text").value="";$("#case-question").value="";$("#case-answer").innerHTML='<div class="empty">Pega un caso y pulsa “Analizar y resolver”.</div>';state.caseSolverConversation=null};
+}
+
+async function solveClinicalCase(){
+  const caseText=$("#case-text").value.trim();if(!caseText)return toast("Pega primero el caso clínico.",true);
+  const subjectId=$("#case-subject").value;
+  const subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
+  const level=$("#case-level").value;
+  const question=$("#case-question").value.trim();
+  const prompt=`[RESOLVER_CASO_CLINICO]\nMateria: ${subject}.\nNivel: ${level}.\n\nCASO:\n${caseText}\n\n${question?`PREGUNTA DEL ESTUDIANTE: ${question}\n`:""}\nResuelve el caso de forma docente y estructurada. Incluye: 1) resumen clínico, 2) lista de problemas, 3) diagnóstico más probable y argumentos, 4) diferenciales priorizados con datos a favor/en contra, 5) estudios adicionales que pedirías y por qué, 6) manejo inicial y definitivo, 7) alertas o complicaciones, 8) puntos de aprendizaje. Señala incertidumbres y no inventes datos que no estén en el caso.`;
+  $("#solve-case").disabled=true;
+  $("#case-answer").innerHTML="";
+  try{
+    await streamClinicalMessage({mode:"case_solver",message:prompt,conversationKey:"caseSolverConversation",container:"#case-answer",thinkingText:"Analizando el caso...",appendUser:false});
+  }catch(err){$("#case-answer").innerHTML=`<div class="notice">${escapeHtml(err.message)}</div>`}
+  finally{$("#solve-case").disabled=false}
+}
+
+async function streamClinicalMessage({mode,message,conversationKey,container,thinkingText="Analizando...",appendUser=false}){
+  const holder=$(container);
+  const thinking=document.createElement("div");
+  thinking.className="message ai loading";
+  thinking.textContent=thinkingText;
+  holder.appendChild(thinking);holder.scrollTop=holder.scrollHeight;
+  const response=await fetch("/api/ai/chat/stream",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({mode,message,conversation_id:state[conversationKey]||null,title:mode==="patient"?"Paciente virtual":"Resolver caso clínico"})});
+  if(!response.ok){const e=await response.json().catch(()=>({}));thinking.remove();throw new Error(e.error||`Error ${response.status}`)}
+  state[conversationKey]=response.headers.get("x-medai-conversation-id")||state[conversationKey];
+  thinking.classList.remove("loading");thinking.textContent="";
+  const reader=response.body.getReader();const decoder=new TextDecoder();let buffer="",answer="";
+  while(true){
+    const {done,value}=await reader.read();if(done)break;
+    buffer+=decoder.decode(value,{stream:true});const lines=buffer.split(/\r?\n/);buffer=lines.pop()||"";
+    for(const line of lines){const t=line.trim();if(!t.startsWith("data:"))continue;const payload=t.slice(5).trim();if(!payload||payload==="[DONE]")continue;try{const obj=JSON.parse(payload);const piece=extractStreamPieceClient(obj);if(piece){answer=smartAppendClient(answer,piece);thinking.textContent=answer;holder.scrollTop=holder.scrollHeight}}catch{}}
+  }
+  if(!answer.trim())thinking.textContent="No pude generar una respuesta en este momento.";
+  return answer;
+}
+
+function appendToContainer(selector,role,text){
+  const el=$(selector),m=document.createElement("div");m.className=`message ${role}`;m.textContent=text;el.appendChild(m);el.scrollTop=el.scrollHeight;return m;
 }
 
 async function renderAIStudio(mode){
@@ -618,7 +796,8 @@ async function renderProfile(){
 function modeConfig(mode){
   return {
     tutor:{kicker:"TUTOR PERSONAL",title:"Tutor médico IA",subtitle:"Aprende cualquier tema a tu nivel.",welcome:"¿Qué quieres dominar hoy? Puedo explicarlo, preguntarte y cambiar a modo socrático.",placeholder:"Ej. Enséñame insuficiencia cardíaca como estudiante clínico."},
-    patient:{kicker:"SIMULACIÓN CLÍNICA",title:"Paciente virtual",subtitle:"Entrena la consulta desde cero.",welcome:"Solicita un caso o dime el sistema que quieres practicar. Yo actuaré como paciente y solo revelaré lo que preguntes.",placeholder:"Inicia un paciente con dolor torácico, dificultad intermedia."},
+    patient:{kicker:"SIMULACIÓN CLÍNICA",title:"Paciente virtual",subtitle:"Entrevista clínica progresiva.",welcome:"El caso permanece oculto y solo se revela lo que preguntes.",placeholder:"Pregunta al paciente como en una consulta real."},
+    case_solver:{kicker:"RAZONAMIENTO CLÍNICO",title:"Resolver caso clínico",subtitle:"Análisis completo de un caso proporcionado por ti.",welcome:"Pega un caso para resolverlo.",placeholder:"Pega el caso clínico completo."},
     grand_rounds:{kicker:"MEDICINA INTERNA AVANZADA",title:"Grand Rounds",subtitle:"Casos complejos con múltiples problemas.",welcome:"Te presentaré un caso de alta complejidad. Organiza problemas, diferenciales, estudios y tratamiento.",placeholder:"Dame un Grand Round de nefrología nivel R2."},
     emergency:{kicker:"SIMULACIÓN DE URGENCIAS",title:"Emergencias",subtitle:"Prioriza y decide bajo presión.",welcome:"Elige una emergencia o pide una aleatoria. Evalúo prioridades y decisiones críticas.",placeholder:"Simula un paciente con shock sin decirme la causa."},
     laboratory:{kicker:"INTERPRETACIÓN",title:"Laboratorios",subtitle:"Integra patrones, fisiopatología y decisiones.",welcome:"Puedo darte paneles de laboratorio para que los interpretes o analizar resultados educativos que escribas.",placeholder:"Dame una gasometría difícil y no me digas el diagnóstico."},
