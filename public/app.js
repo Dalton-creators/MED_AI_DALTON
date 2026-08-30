@@ -1082,80 +1082,92 @@ function setMessageContent(el,role,text){
 }
 
 function renderRichResponse(text){
-  const clean=String(text??"").replace(/\r/g, "").trim();
+  const clean=String(text??"").replace(/\r/g,"").trim();
   if(!clean) return '<div class="rich-response"><p></p></div>';
   const lines=clean.split("\n");
   const blocks=[];
   let paragraph=[];
   let listItems=[];
-  let listType='';
+  let listType="";
+  let i=0;
 
-  function flushParagraph(){
-    if(!paragraph.length) return;
+  const flushParagraph=()=>{
+    if(!paragraph.length)return;
     blocks.push(`<p>${formatInline(paragraph.join(" "))}</p>`);
     paragraph=[];
-  }
-  function flushList(){
-    if(!listItems.length) return;
-    const tag=listType==='ol'?'ol':'ul';
-    blocks.push(`<${tag}>${listItems.map(i=>`<li>${formatInline(i)}</li>`).join("")}</${tag}>`);
-    listItems=[];
-    listType='';
-  }
+  };
+  const flushList=()=>{
+    if(!listItems.length)return;
+    const tag=listType==="ol"?"ol":"ul";
+    blocks.push(`<${tag}>${listItems.map(x=>`<li>${formatInline(x)}</li>`).join("")}</${tag}>`);
+    listItems=[];listType="";
+  };
 
-  for(const rawLine of lines){
-    const line=rawLine.trim();
-    if(!line){ flushParagraph(); flushList(); continue; }
+  while(i<lines.length){
+    const raw=lines[i];
+    const line=raw.trim();
+    const next=(lines[i+1]||"").trim();
 
+    if(!line){flushParagraph();flushList();i++;continue;}
+
+    // Markdown Setext headings: Title + ===== or -----
+    if(next && /^={3,}$/.test(next)){
+      flushParagraph();flushList();
+      blocks.push(`<h2>${formatInline(line)}</h2>`);i+=2;continue;
+    }
+    if(next && /^-{3,}$/.test(next)){
+      flushParagraph();flushList();
+      blocks.push(`<h3>${formatInline(line)}</h3>`);i+=2;continue;
+    }
+
+    // ATX headings
     const heading=line.match(/^(#{1,4})\s+(.+)$/);
     if(heading){
-      flushParagraph(); flushList();
-      const level=Math.min(4, heading[1].length+1);
-      blocks.push(`<h${level}>${formatInline(heading[2])}</h${level}>`);
-      continue;
+      flushParagraph();flushList();
+      const h=heading[1].length===1?2:Math.min(4,heading[1].length+1);
+      blocks.push(`<h${h}>${formatInline(heading[2].replace(/\s+#+$/,""))}</h${h}>`);
+      i++;continue;
     }
 
+    // Horizontal rule
     if(/^(-{3,}|_{3,}|\*{3,})$/.test(line)){
-      flushParagraph(); flushList(); blocks.push('<hr>'); continue;
+      flushParagraph();flushList();blocks.push('<hr>');i++;continue;
     }
 
+    // Bullets
     const bullet=line.match(/^[-*•]\s+(.+)$/);
     if(bullet){
       flushParagraph();
-      if(listType && listType!=="ul") flushList();
-      listType="ul";
-      listItems.push(bullet[1]);
-      continue;
+      if(listType&&listType!=="ul")flushList();
+      listType="ul";listItems.push(bullet[1]);i++;continue;
     }
 
+    // Numbered list
     const ordered=line.match(/^\d+[.)]\s+(.+)$/);
     if(ordered){
       flushParagraph();
-      if(listType && listType!=="ol") flushList();
-      listType="ol";
-      listItems.push(ordered[1]);
-      continue;
+      if(listType&&listType!=="ol")flushList();
+      listType="ol";listItems.push(ordered[1]);i++;continue;
     }
 
-    const callout=line.match(/^>\s+(.+)$/);
-    if(callout){
-      flushParagraph(); flushList();
-      blocks.push(`<blockquote>${formatInline(callout[1])}</blockquote>`);
-      continue;
+    // Blockquote / important note
+    const quote=line.match(/^>\s?(.+)$/);
+    if(quote){
+      flushParagraph();flushList();
+      blocks.push(`<blockquote>${formatInline(quote[1])}</blockquote>`);i++;continue;
     }
 
-    if(/^[A-ZÁÉÍÓÚÑ0-9 ]{3,40}:$/.test(line) || /^[A-Z][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,36}:$/.test(line)){
-      flushParagraph(); flushList();
-      blocks.push(`<h4>${formatInline(line.replace(/:$/, ""))}</h4>`);
-      continue;
+    // Label-like subsection, e.g. "Puntos clave:"
+    if(/^[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9 /()\-]{2,46}:$/.test(line)){
+      flushParagraph();flushList();
+      blocks.push(`<h4>${formatInline(line.slice(0,-1))}</h4>`);i++;continue;
     }
 
-    paragraph.push(line);
+    paragraph.push(line);i++;
   }
 
-  flushParagraph();
-  flushList();
-  return `<div class="rich-response">${blocks.join("") || `<p>${formatInline(clean)}</p>`}</div>`;
+  flushParagraph();flushList();
+  return `<div class="ai-response-head"><span class="ai-response-mark">M+</span><span>MED AI</span></div><div class="rich-response">${blocks.join("")||`<p>${formatInline(clean)}</p>`}</div>`;
 }
 
 function formatInline(text){
@@ -1163,8 +1175,8 @@ function formatInline(text){
   s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
   s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
   s=s.replace(/__(.+?)__/g,'<strong>$1</strong>');
+  s=s.replace(/~~(.+?)~~/g,'<del>$1</del>');
   s=s.replace(/\*([^*]+)\*/g,'<em>$1</em>');
-  s=s.replace(/_([^_]+)_/g,'<em>$1</em>');
   return s;
 }
 

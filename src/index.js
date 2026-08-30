@@ -888,13 +888,13 @@ async function aiChatStream(request, env, user, ctx) {
 
   const history = [...(historyRows.results||[])].reverse();
   const messages = [
-    { role:"system", content:medicalInstructions(mode) + "\nSé claro y directo. Empieza por la respuesta esencial y amplía solo lo necesario." },
+    { role:"system", content:medicalInstructions(mode) + "\nSé claro, completo y docente. Nunca respondas únicamente con un título. Si el usuario pide aprender, explicar o entender un tema, desarrolla una explicación sustancial. Usa párrafos cortos y una estructura visual limpia." },
     ...history.map(x => ({ role:x.role, content:x.content })),
     { role:"user", content:message }
   ];
 
   const model = selectChatModel(mode, message);
-  const maxTokens = model === DEFAULT_FAST_MODEL ? 950 : 1450;
+  const maxTokens = model === DEFAULT_FAST_MODEL ? 1250 : 1700;
 
   // Save the user message before inference so conversation continuity is safe.
   await env.DB.prepare(`
@@ -946,7 +946,10 @@ function selectChatModel(mode, message) {
   const complex = /diagn[oó]stic|diferencial|fisiopatolog|tratamiento|manejo|sepsis|shock|gasometr|electrolit|interacci[oó]n|contraindic|complicaci[oó]n|caso cl[ií]nico|internista|\bR[123]\b|urgencia|emergencia|interpretaci[oó]n|razonamiento cl[ií]nico|demostraci[oó]n|derivaci[oó]n|ecuaci[oó]n diferencial|relatividad|cu[aá]ntic|c[aá]lculo avanzado|tensor/i;
   if (complex.test(message)) return DEFAULT_TEXT_MODEL;
 
-  // Definitions, basic explanations, anatomy, memorization and ordinary study use the fast model.
+  // Teaching requests benefit from the stronger model while streaming keeps the interface responsive.
+  if (mode === "tutor" && /quiero aprender|quiero entender|ens[eé]ñame|expl[ií]came|explica|paso a paso|c[oó]mo funciona|funcionamiento|fisiolog[ií]a|mecanismo/i.test(message)) return DEFAULT_TEXT_MODEL;
+
+  // Short definitions, memorization and quick drills use the fast model.
   return DEFAULT_FAST_MODEL;
 }
 
@@ -1370,7 +1373,7 @@ function extractCloudflareText(data) {
 
 function medicalInstructions(mode){
   if(mode==="science") return `Responde en español y actúa como profesor universitario excelente de Matemática, Física o Astronomía según el área indicada por el estudiante.
-REGLAS: enseña conceptos antes de fórmulas; no saltes pasos algebraicos importantes; define símbolos y unidades; verifica dimensiones y resultados; distingue intuición, derivación y aplicación; en problemas guía paso a paso y deja que el estudiante intente cuando la modalidad sea práctica o socrática. Corrige errores explicando exactamente dónde ocurrió el razonamiento incorrecto. Si el tema es avanzado, declara supuestos y límites de validez. Evita inventar datos o hechos científicos. Adapta la profundidad al nivel indicado. FORMATO: usa títulos y subtítulos breves en markdown cuando expliques con ## y ###, listas con viñetas o pasos numerados, y párrafos cortos.`;
+REGLAS: enseña conceptos antes de fórmulas; no saltes pasos algebraicos importantes; define símbolos y unidades; verifica dimensiones y resultados; distingue intuición, derivación y aplicación; en problemas guía paso a paso y deja que el estudiante intente cuando la modalidad sea práctica o socrática. Corrige errores explicando exactamente dónde ocurrió el razonamiento incorrecto. Si el tema es avanzado, declara supuestos y límites de validez. Evita inventar datos o hechos científicos. Adapta la profundidad al nivel indicado. FORMATO: usa ## para el título principal y ### para subtítulos cuando sea útil, listas o pasos numerados y párrafos cortos. No uses encabezados subrayados con signos = o -. Nunca respondas solo con el título.`;
   if(mode==="language") return `Actúa como profesor experto en adquisición de idiomas. El idioma nativo del estudiante es español y el idioma objetivo, nivel CEFR e inmersión vienen indicados en cada mensaje.
 REGLAS OBLIGATORIAS: 1) prioriza comprensión y producción real, no listas aisladas; 2) presenta una actividad manejable por turno y espera respuesta; 3) corrige primero los errores que afectan significado o son repetitivos, explicando brevemente el porqué; 4) enseña gramática dentro de contexto; 5) recicla vocabulario previamente usado para repetición espaciada; 6) incluye conversación, lectura, escucha simulada, escritura y pronunciación de forma equilibrada; 7) respeta el porcentaje de inmersión indicado; 8) no traduzcas todo automáticamente; 9) cuando enseñes pronunciación, usa ejemplos claros y, si ayuda, IPA sin abrumar; 10) para pruebas de nivel aumenta dificultad gradualmente y estima A1-C2 solo después de suficiente evidencia. Mantén tono de profesor adulto, serio y paciente. FORMATO: organiza explicaciones con títulos cortos, subtítulos, ejemplos y viñetas cuando sea útil.`;
   const modeText={
@@ -1402,7 +1405,7 @@ Diferencia hechos establecidos, razonamiento e incertidumbre. Evita inventar gu�
 Cuando una recomendación dependa de guías cambiantes, indícalo.
 Es contenido educativo y no sustituye la valoración profesional de pacientes reales.
 Adapta la profundidad al nivel que indique el estudiante y corrige errores explicando el porqué.
-FORMATO GENERAL: salvo cuando debas actuar estrictamente como paciente durante una simulación, presenta las respuestas de forma visualmente ordenada con títulos y subtítulos en markdown, listas con viñetas o pasos numerados, y párrafos cortos. Evita muros de texto.`;
+FORMATO GENERAL: salvo cuando debas actuar estrictamente como paciente durante una simulación, presenta las respuestas como un documento profesional y fácil de estudiar. Usa encabezados Markdown con ## para títulos y ### para subtítulos; usa **negrita** para conceptos importantes; listas con viñetas o pasos numerados cuando ayuden; párrafos cortos y claros. NO uses encabezados subrayados con signos = o -. NUNCA entregues solo un título: todo encabezado debe ir seguido de contenido sustancial. Evita muros de texto y también evita fragmentar en demasiadas secciones.`;
 }
 
 function humanMode(mode){
