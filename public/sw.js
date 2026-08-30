@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-visual-v8-typo-square";
+const CACHE = "med-ai-dalton-visual-v9-institutional";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=8.0.0",
-  "/app.js?v=8.0.0",
+  "/styles.css?v=9.0.0",
+  "/app.js?v=9.0.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];
