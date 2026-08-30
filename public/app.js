@@ -393,7 +393,7 @@ async function sendLanguageMessage(forcedMessage=null,hideForced=false){
 }
 
 function appendMessageTo(selector,role,text){
-  const box=$(selector);const d=document.createElement("div");d.className=`message ${role}`;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;return d;
+  const box=$(selector);const d=document.createElement("div");d.className=`message ${role}`;setMessageContent(d,role,text);box.appendChild(d);box.scrollTop=box.scrollHeight;return d;
 }
 
 async function streamSpecialAI({mode,message,conversationId,subjectId,title,context,target}){
@@ -584,7 +584,7 @@ async function streamClinicalMessage({mode,message,conversationKey,container,thi
 }
 
 function appendToContainer(selector,role,text){
-  const el=$(selector),m=document.createElement("div");m.className=`message ${role}`;m.textContent=text;el.appendChild(m);el.scrollTop=el.scrollHeight;return m;
+  const el=$(selector),m=document.createElement("div");m.className=`message ${role}`;setMessageContent(m,role,text);el.appendChild(m);el.scrollTop=el.scrollHeight;return m;
 }
 
 async function renderAIStudio(mode){
@@ -620,7 +620,7 @@ async function renderAIStudio(mode){
   if(state.currentSubject) $("#ai-subject").value=state.currentSubject.id;
   $("#send-chat").onclick=()=>sendChat(mode);
   $("#chat-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat(mode)}});
-  $("#new-chat").onclick=()=>{state.chatConversation=null;$("#messages").innerHTML=`<div class="message ai">${escapeHtml(cfg.welcome)}</div>`};
+  $("#new-chat").onclick=()=>{state.chatConversation=null;$("#messages").innerHTML="";appendMessage("ai",cfg.welcome)};
   $("#mic-btn").onclick=()=>startSpeechRecognition($("#chat-input"));
 }
 
@@ -698,12 +698,13 @@ ${message}`,
       }
     }
 
-    if(!answer.trim()) thinking.textContent="No pude generar una respuesta en este momento.";
+    if(!answer.trim()) answer="No pude generar una respuesta en este momento.";
     thinking.classList.remove("streaming");
+    setMessageContent(thinking,"ai",answer);
     await saveResume({route:`/${mode}`,subject_id:subjectId,topic_id:state.currentTopic?.id||null,mode,progress_percent:0,context:{subject,level}});
   }catch(err){
     thinking.classList.remove("loading","streaming");
-    thinking.textContent=`Error: ${err.message}`;
+    setMessageContent(thinking,"ai",`Error: ${err.message}`);
   }finally{
     $("#send-chat").disabled=false;input.focus();
   }
@@ -753,11 +754,11 @@ async function renderVisionStudio(mode){
   };
   $("#vision-send").onclick=async()=>{
     if(!state.visionDataUrl)return toast("Primero selecciona una imagen.",true);
-    const btn=$("#vision-send");btn.disabled=true;$("#vision-answer").textContent="Analizando imagen...";
+    const btn=$("#vision-send");btn.disabled=true;setMessageContent($("#vision-answer"),"ai","Analizando imagen...");
     try{
       const d=await api("/api/ai/vision",{method:"POST",body:{mode,image_data_url:state.visionDataUrl,prompt:$("#vision-prompt").value||cfg.placeholder}});
-      $("#vision-answer").textContent=d.answer;
-    }catch(err){$("#vision-answer").textContent=`Error: ${err.message}`}finally{btn.disabled=false}
+      setMessageContent($("#vision-answer"),"ai",d.answer);
+    }catch(err){setMessageContent($("#vision-answer"),"ai",`Error: ${err.message}`)}finally{btn.disabled=false}
   };
 }
 
@@ -1069,6 +1070,104 @@ function getDeviceId(){let id=localStorage.getItem("medai_device");if(!id){id=cr
 function metric(label,value,sub,icon="◦"){return `<div class="card metric-card"><div class="metric-icon">${icon}</div><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${escapeHtml(String(value))}</div><div class="metric-sub">${escapeHtml(sub)}</div></div>`}
 function modeCard(title,p,view,icon){return `<div class="card mode-card" data-view="${view}"><div class="metric-icon">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(p)}</p></div>`}
 function subjectCard(s){return `<div class="card subject-card" data-id="${s.id}"><div class="category">${escapeHtml(s.category||"Medicina")}</div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Abrir materia y comenzar entrenamiento.")}</p><span class="badge" style="margin-top:10px">Abrir materia</span></div>`}
+function setMessageContent(el,role,text){
+  const value=String(text??"");
+  if(role==="ai"){
+    el.classList.add("rich");
+    el.innerHTML=renderRichResponse(value);
+  }else{
+    el.classList.remove("rich");
+    el.textContent=value;
+  }
+}
+
+function renderRichResponse(text){
+  const clean=String(text??"").replace(/\r/g, "").trim();
+  if(!clean) return '<div class="rich-response"><p></p></div>';
+  const lines=clean.split("\n");
+  const blocks=[];
+  let paragraph=[];
+  let listItems=[];
+  let listType='';
+
+  function flushParagraph(){
+    if(!paragraph.length) return;
+    blocks.push(`<p>${formatInline(paragraph.join(" "))}</p>`);
+    paragraph=[];
+  }
+  function flushList(){
+    if(!listItems.length) return;
+    const tag=listType==='ol'?'ol':'ul';
+    blocks.push(`<${tag}>${listItems.map(i=>`<li>${formatInline(i)}</li>`).join("")}</${tag}>`);
+    listItems=[];
+    listType='';
+  }
+
+  for(const rawLine of lines){
+    const line=rawLine.trim();
+    if(!line){ flushParagraph(); flushList(); continue; }
+
+    const heading=line.match(/^(#{1,4})\s+(.+)$/);
+    if(heading){
+      flushParagraph(); flushList();
+      const level=Math.min(4, heading[1].length+1);
+      blocks.push(`<h${level}>${formatInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    if(/^(-{3,}|_{3,}|\*{3,})$/.test(line)){
+      flushParagraph(); flushList(); blocks.push('<hr>'); continue;
+    }
+
+    const bullet=line.match(/^[-*•]\s+(.+)$/);
+    if(bullet){
+      flushParagraph();
+      if(listType && listType!=="ul") flushList();
+      listType="ul";
+      listItems.push(bullet[1]);
+      continue;
+    }
+
+    const ordered=line.match(/^\d+[.)]\s+(.+)$/);
+    if(ordered){
+      flushParagraph();
+      if(listType && listType!=="ol") flushList();
+      listType="ol";
+      listItems.push(ordered[1]);
+      continue;
+    }
+
+    const callout=line.match(/^>\s+(.+)$/);
+    if(callout){
+      flushParagraph(); flushList();
+      blocks.push(`<blockquote>${formatInline(callout[1])}</blockquote>`);
+      continue;
+    }
+
+    if(/^[A-ZÁÉÍÓÚÑ0-9 ]{3,40}:$/.test(line) || /^[A-Z][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,36}:$/.test(line)){
+      flushParagraph(); flushList();
+      blocks.push(`<h4>${formatInline(line.replace(/:$/, ""))}</h4>`);
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+  return `<div class="rich-response">${blocks.join("") || `<p>${formatInline(clean)}</p>`}</div>`;
+}
+
+function formatInline(text){
+  let s=escapeHtml(String(text??""));
+  s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/__(.+?)__/g,'<strong>$1</strong>');
+  s=s.replace(/\*([^*]+)\*/g,'<em>$1</em>');
+  s=s.replace(/_([^_]+)_/g,'<em>$1</em>');
+  return s;
+}
+
 function subjectOptions(includeBlank=false,medicalOnly=false){
   const list=medicalOnly?state.subjects.filter(s=>!['MATH','PHYS','ASTRO','LANG'].includes(s.code)):state.subjects;
   return `${includeBlank?'<option value="">Sin especificar</option>':""}${list.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}`
@@ -1077,7 +1176,7 @@ function listRecent(items){return items?.length?`<div class="list">${items.map(x
 function listDeadlinesCompact(items){return items?.length?`<div class="list">${items.map(x=>`<div class="list-item"><div class="grow"><strong>${escapeHtml(x.title)}</strong><span>${formatDate(x.due_at)}</span></div><span class="badge">P${x.importance}</span></div>`).join("")}</div>`:`<div class="empty">No hay fechas pendientes.</div>`}
 function noteItem(n){return `<div class="list-item"><div class="grow"><strong>${escapeHtml(n.title)}</strong><span>${formatDate(n.updated_at)}</span><p style="white-space:pre-wrap">${escapeHtml((n.body||"").slice(0,260))}</p></div><button class="danger-btn delete-note" data-id="${n.id}">Eliminar</button></div>`}
 function profileField(label,id,value){return `<div class="field"><label>${escapeHtml(label)}</label><input id="${id}" value="${escapeAttr(value)}"></div>`}
-function appendMessage(role,text){const m=document.createElement("div");m.className=`message ${role}`;m.textContent=text;$("#messages").appendChild(m);$("#messages").scrollTop=$("#messages").scrollHeight;return m}
+function appendMessage(role,text){const m=document.createElement("div");m.className=`message ${role}`;setMessageContent(m,role,text);$("#messages").appendChild(m);$("#messages").scrollTop=$("#messages").scrollHeight;return m}
 function toast(text,error=false){const t=document.createElement("div");t.className=`toast ${error?"error":""}`;t.textContent=text;$("#toast-root").appendChild(t);setTimeout(()=>t.remove(),3300)}
 function firstName(n){return String(n||"").trim().split(/\s+/)[0]}
 function formatDate(v){if(!v)return"Sin fecha";const d=new Date(v);return isNaN(d)?String(v):d.toLocaleString("es-GT",{dateStyle:"medium",timeStyle:"short"})}

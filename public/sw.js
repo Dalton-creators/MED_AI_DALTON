@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v11-sciences-languages-practice";
+const CACHE = "med-ai-dalton-v12-response-visual";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=11.0.0",
-  "/app.js?v=11.0.0",
+  "/styles.css?v=12.0.0",
+  "/app.js?v=12.0.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];
