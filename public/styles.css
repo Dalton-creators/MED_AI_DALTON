@@ -652,3 +652,32 @@ body{
 .course-step.locked{opacity:1;pointer-events:auto}
 .topic-progress-label{display:block;color:var(--muted);font-size:10px;margin-top:6px;font-family:var(--font-mono)}
 @media(max-width:900px){.hybrid-progress-note{grid-template-columns:1fr}.hybrid-progress-note>div{border-right:0;border-bottom:1px solid var(--border)}.hybrid-progress-note>div:last-child{border-bottom:0}.course-choice-bar{align-items:stretch;flex-direction:column}.course-topic-search{min-width:0;width:100%}}
+
+
+/* V14 · cursos fijos + examen por tema + guardado Tutor */
+.fixed-progress-note .course-step{}
+.course-step.locked{opacity:.48;cursor:not-allowed}
+.course-step.locked:hover{background:var(--surface);border-color:var(--border)}
+.course-step.locked .course-step-state{filter:grayscale(1)}
+.course-pass-status{margin-top:12px;border:1px solid var(--border);padding:10px 12px;font-family:var(--font-head);font-size:12px;letter-spacing:.06em;color:var(--warn);text-align:center}
+.course-pass-status.passed{color:var(--success);border-color:color-mix(in srgb,var(--success) 35%,var(--border));background:color-mix(in srgb,var(--success) 8%,transparent)}
+.course-exam-area{margin-top:18px}
+.course-exam-loading,.course-exam-result{border:1px solid var(--border);padding:16px;background:var(--surface2)}
+.course-exam-result{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.course-exam-result strong,.course-exam-result span{display:block}
+.course-exam-result.passed{border-left:3px solid var(--success)}
+.course-exam-result.failed{border-left:3px solid var(--danger)}
+.course-final-exam{border-top:1px solid var(--border);padding-top:18px}
+.course-final-exam>h3{font-family:var(--font-head);font-size:24px;color:var(--heading);margin:7px 0}
+.course-final-exam>p{color:var(--text2);margin:0 0 18px}
+.course-exam-question{padding:18px 0;border-top:1px solid var(--border)}
+.course-exam-question:first-of-type{border-top:0}
+.explanation{margin-top:9px;padding:10px 12px;background:var(--surface2);border-left:3px solid var(--accent);color:var(--text2);line-height:1.6}
+.tutor-save-card .tutor-auto-note{font-size:11px;line-height:1.55;color:var(--muted);margin:10px 0 0}
+.tutor-history{display:grid;gap:7px;margin-top:11px;max-height:290px;overflow:auto}
+.tutor-history-item{width:100%;border:1px solid var(--border);background:var(--surface2);color:var(--text);padding:10px 11px;text-align:left;transition:.14s}
+.tutor-history-item:hover{border-color:var(--border2);background:var(--surface3)}
+.tutor-history-item strong,.tutor-history-item span{display:block}
+.tutor-history-item strong{font-family:var(--font-head);font-size:13px;color:var(--heading)}
+.tutor-history-item span{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.4}
+@media(max-width:650px){.course-exam-result{align-items:flex-start;flex-direction:column}.lesson-actions{display:grid;grid-template-columns:1fr}}
