@@ -2,7 +2,8 @@ const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
   currentSubject:null, currentTopic:null, chatConversation:null, exam:null,
   dueCards:[], cardIndex:0, showingBack:false, visionDataUrl:null,
-  patientConversation:null, patientActive:false, caseSolverConversation:null
+  patientConversation:null, patientActive:false, caseSolverConversation:null,
+  scienceConversation:null, languageConversation:null, lastLanguageAnswer:""
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -107,7 +108,9 @@ async function navigate(view){
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
       laboratory:()=>renderAIStudio("laboratory"),pharmacology:()=>renderAIStudio("pharmacology"),
       osce:()=>renderAIStudio("osce"),library:renderLibrary,mistakes:renderMistakes,
-      plan:renderPlan,stats:renderStats,profile:renderProfile
+      plan:renderPlan,stats:renderStats,profile:renderProfile,
+      mathematics:()=>renderScienceStudio("MATH"),physics:()=>renderScienceStudio("PHYS"),
+      astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLab
     };
     await (renderers[view]||renderDashboard)();
   }catch(err){root.innerHTML=`<div class="card"><h3>No se pudo cargar</h3><p>${escapeHtml(err.message)}</p></div>`}
@@ -183,6 +186,17 @@ async function renderDashboard(){
       <button class="clinical-module" data-view="emergency"><span class="module-no">07</span><div class="module-symbol">⚡</div><div><strong>Emergencias</strong><small>Priorización y decisiones clínicas</small></div><b>ABRIR</b></button>
     </section>
 
+    <div class="institution-section-head">
+      <div><span>FORMACIÓN COMPLEMENTARIA</span><h3>Ciencias e idiomas</h3></div>
+      <small>Amplía tu formación más allá de medicina</small>
+    </div>
+    <section class="clinical-modules academic-expansion">
+      <button class="clinical-module" data-view="mathematics"><span class="module-no">M1</span><div class="module-symbol">∑</div><div><strong>Matemática</strong><small>Desde fundamentos hasta cálculo y estadística</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="physics"><span class="module-no">F1</span><div class="module-symbol">Φ</div><div><strong>Física</strong><small>Conceptos, problemas y razonamiento paso a paso</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="astronomy"><span class="module-no">A1</span><div class="module-symbol">✧</div><div><strong>Astronomía</strong><small>Sistema Solar, estrellas, galaxias y cosmología</small></div><b>ABRIR</b></button>
+      <button class="clinical-module" data-view="languages"><span class="module-no">L1</span><div class="module-symbol">文</div><div><strong>Idiomas</strong><small>Curso progresivo A1–C2 con conversación y corrección</small></div><b>ABRIR</b></button>
+    </section>
+
     <section class="institution-lower-grid">
       <div class="record-panel">
         <div class="panel-header"><div><span class="panel-code">HISTORIAL ACADÉMICO</span><strong>Actividad reciente</strong></div></div>
@@ -201,7 +215,7 @@ async function renderDashboard(){
 
 async function renderStudy(){
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">CURRÍCULO MÉDICO</div><h2>Estudiar</h2><p>Explora tus materias en un entorno ordenado y fácil de leer. Puedes abrir un tema o entrar directamente al Tutor IA.</p></div></div>
+    <div class="page-head"><div><div class="eyebrow">CURRÍCULO ACADÉMICO</div><h2>Estudiar</h2><p>Explora medicina, ciencias e idiomas desde un mismo entorno. Abre una materia, selecciona un tema y continúa con IA, exámenes o flashcards.</p></div></div>
     <div class="card" style="margin-bottom:16px"><div class="info-box">Consejo: abre una materia, selecciona un tema y MED AI recordará tu ruta para que continúes luego desde cualquier dispositivo.</div></div>
     <div class="grid three" id="subject-grid">
       ${state.subjects.map(subjectCard).join("")}
@@ -220,13 +234,182 @@ async function openSubject(id){
       `<div class="card empty">Esta materia ya forma parte del currículo. Puedes estudiarla ahora con el Tutor IA aunque sus subtemas específicos todavía no estén precargados.</div>`}
       <div><button id="study-subject-ai" class="primary-btn">Estudiar ${escapeHtml(s.name)} con IA</button></div>
     </div>`;
+  const specialView={MATH:"mathematics",PHYS:"physics",ASTRO:"astronomy",LANG:"languages"}[s.code]||null;
   $$(".topic-btn",section).forEach(btn=>btn.onclick=()=>{
     state.currentTopic=data.topics.find(x=>x.id===btn.dataset.id);
-    saveResume({route:"/study",subject_id:s.id,topic_id:state.currentTopic.id,mode:"tutor",progress_percent:0,context:{subject:s.name,topic:state.currentTopic.name}});
-    navigate("tutor");
+    const target=specialView||"tutor";
+    saveResume({route:`/${target}`,subject_id:s.id,topic_id:state.currentTopic.id,mode:target,progress_percent:0,context:{subject:s.name,topic:state.currentTopic.name}});
+    navigate(target);
   });
-  $("#study-subject-ai").onclick=()=>{state.currentTopic=null;navigate("tutor")};
+  $("#study-subject-ai").onclick=()=>{state.currentTopic=null;navigate(specialView||"tutor")};
   section.scrollIntoView({behavior:"smooth"});
+}
+
+
+const SCIENCE_CONFIG={
+  MATH:{code:"MATH",title:"Matemática",symbol:"∑",kicker:"RAZONAMIENTO MATEMÁTICO",subtitle:"Aprende conceptos, procedimientos y resolución de problemas sin saltos.",topics:["Aritmética y proporciones","Álgebra","Ecuaciones e inecuaciones","Funciones y gráficas","Geometría","Trigonometría","Geometría analítica","Límites y continuidad","Derivadas","Integrales","Probabilidad y estadística","Vectores y matrices","Ecuaciones diferenciales"]},
+  PHYS:{code:"PHYS",title:"Física",symbol:"Φ",kicker:"CIENCIAS FÍSICAS",subtitle:"Comprende las leyes físicas y aprende a resolver problemas justificando cada paso.",topics:["Unidades, medición y vectores","Cinemática","Leyes de Newton","Trabajo y energía","Cantidad de movimiento","Rotación y torque","Fluidos","Termodinámica","Ondas y sonido","Electricidad","Magnetismo","Óptica","Relatividad","Física cuántica y moderna"]},
+  ASTRO:{code:"ASTRO",title:"Astronomía",symbol:"✧",kicker:"CIENCIA DEL UNIVERSO",subtitle:"Estudia desde el cielo observable hasta estrellas, galaxias y cosmología moderna.",topics:["Esfera celeste y coordenadas","Gravedad y órbitas","Sistema Solar","El Sol","Propiedades de las estrellas","Evolución estelar","Exoplanetas","Vía Láctea","Galaxias","Cosmología","Telescopios y observación","Astrobiología"]}
+};
+
+function getSubjectByCode(code){return state.subjects.find(s=>s.code===code)||null}
+
+async function renderScienceStudio(code){
+  const cfg=SCIENCE_CONFIG[code];
+  const subject=getSubjectByCode(code);
+  const presetTopic=state.currentTopic?.subject_id===subject?.id?state.currentTopic.name:null;
+  state.scienceConversation=null;
+  state.currentSubject=subject;
+  root.innerHTML=`
+    <div class="page-head"><div><div class="eyebrow">${cfg.kicker}</div><h2>${cfg.symbol} ${cfg.title}</h2><p>${cfg.subtitle}</p></div></div>
+    <div class="science-layout">
+      <aside class="card science-controls">
+        <div class="panel-code">CONFIGURACIÓN DE ESTUDIO</div>
+        <div class="field"><label>Tema</label><select id="science-topic">${cfg.topics.map(t=>`<option>${escapeHtml(t)}</option>`).join("")}<option>Otro tema...</option></select></div>
+        <div class="field"><label>Nivel</label><select id="science-level"><option>Desde cero</option><option>Secundaria</option><option>Diversificado / Bachillerato</option><option selected>Universitario básico</option><option>Universitario avanzado</option></select></div>
+        <div class="field"><label>Modo</label><select id="science-mode"><option>Aprender desde cero</option><option>Explicación conceptual</option><option>Resolver problemas paso a paso</option><option>Práctica guiada</option><option>Modo socrático</option><option>Preparación para examen</option></select></div>
+        <div class="field"><label>Tema personalizado</label><input id="science-custom" placeholder="Opcional: escribe un tema exacto"></div>
+        <button id="science-start" class="primary-btn wide">INICIAR LECCIÓN GUIADA</button>
+        <button id="science-new" class="secondary-btn wide" style="margin-top:8px">NUEVA SESIÓN</button>
+      </aside>
+      <div class="card chat-panel science-chat">
+        <div id="science-messages" class="messages"><div class="message ai">Selecciona el tema y pulsa <strong>Iniciar lección guiada</strong>. También puedes preguntarme directamente cualquier duda de ${cfg.title}.</div></div>
+        <div class="composer"><textarea id="science-input" rows="2" placeholder="Escribe una pregunta o un problema de ${cfg.title}..."></textarea><button id="science-send" class="primary-btn">Enviar</button></div>
+      </div>
+    </div>
+    <div class="learning-pillar-grid" style="margin-top:16px">
+      <div class="learning-pillar"><span>01</span><strong>Comprender</strong><small>Conceptos antes de memorizar fórmulas.</small></div>
+      <div class="learning-pillar"><span>02</span><strong>Derivar</strong><small>Justificar de dónde sale cada relación.</small></div>
+      <div class="learning-pillar"><span>03</span><strong>Practicar</strong><small>Problemas progresivos y corrección de errores.</small></div>
+      <div class="learning-pillar"><span>04</span><strong>Dominar</strong><small>Exámenes y flashcards del tema estudiado.</small></div>
+    </div>`;
+  if(presetTopic && [...$("#science-topic").options].some(o=>o.value===presetTopic)) $("#science-topic").value=presetTopic;
+  const start=()=>{
+    const topic=$("#science-custom").value.trim() || $("#science-topic").value;
+    const level=$("#science-level").value,mode=$("#science-mode").value;
+    sendScienceMessage(code,`[INICIAR_LECCION] Tema: ${topic}. Nivel: ${level}. Modalidad: ${mode}. Empieza evaluando brevemente lo que necesito saber y luego enséñame paso a paso.`,true);
+  };
+  $("#science-start").onclick=start;
+  $("#science-send").onclick=()=>sendScienceMessage(code);
+  $("#science-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendScienceMessage(code)}});
+  $("#science-new").onclick=()=>{state.scienceConversation=null;$("#science-messages").innerHTML=`<div class="message ai">Nueva sesión de ${cfg.title}. Elige un tema o escribe tu pregunta.</div>`};
+}
+
+async function sendScienceMessage(code,forcedMessage=null,hideForced=false){
+  const cfg=SCIENCE_CONFIG[code],input=$("#science-input");
+  const message=(forcedMessage||input.value.trim()); if(!message)return;
+  if(!hideForced)appendMessageTo("#science-messages","user",message); else appendMessageTo("#science-messages","user","Iniciar lección guiada");
+  input.value="";
+  const topic=$("#science-custom")?.value.trim() || $("#science-topic")?.value || "General";
+  const level=$("#science-level")?.value||"Universitario básico";
+  const studyMode=$("#science-mode")?.value||"Explicación conceptual";
+  const subject=getSubjectByCode(code);
+  const thinking=appendMessageTo("#science-messages","ai","Preparando explicación..."); thinking.classList.add("loading");
+  $("#science-send").disabled=true;
+  try{
+    const result=await streamSpecialAI({mode:"science",message:`Área: ${cfg.title}. Tema: ${topic}. Nivel: ${level}. Modalidad: ${studyMode}.\n\n${message}`,conversationId:state.scienceConversation,subjectId:subject?.id||null,title:`${cfg.title} — ${topic}`,context:{area:cfg.title,topic,level,studyMode},target:thinking});
+    state.scienceConversation=result.conversationId;
+    if(subject)await saveResume({route:`/${code.toLowerCase()}`,subject_id:subject.id,topic_id:null,mode:code==="MATH"?"mathematics":code==="PHYS"?"physics":"astronomy",progress_percent:0,context:{subject:cfg.title,topic,level}}).catch(()=>{});
+  }catch(err){thinking.classList.remove("loading");thinking.textContent=`Error: ${err.message}`}
+  finally{$("#science-send").disabled=false;input.focus()}
+}
+
+const LANGUAGE_OPTIONS=[
+  ["en-US","Inglés"],["fr-FR","Francés"],["pt-BR","Portugués"],["it-IT","Italiano"],["de-DE","Alemán"],["ja-JP","Japonés"],["ko-KR","Coreano"],["zh-CN","Chino mandarín"]
+];
+
+async function renderLanguageLab(){
+  state.languageConversation=null; state.lastLanguageAnswer="";
+  const subject=getSubjectByCode("LANG"); const presetLevel=state.currentTopic?.subject_id===subject?.id?state.currentTopic.name:null; state.currentSubject=subject;
+  root.innerHTML=`
+    <div class="page-head"><div><div class="eyebrow">LABORATORIO DE IDIOMAS</div><h2>Aprender idiomas</h2><p>Un curso progresivo que combina comprensión, conversación, vocabulario, gramática, pronunciación y escritura. No se limita a traducir o memorizar palabras.</p></div></div>
+    <div class="language-course-grid">
+      <aside class="card language-controls">
+        <div class="panel-code">PLAN DE APRENDIZAJE</div>
+        <div class="field"><label>Idioma objetivo</label><select id="lang-target">${LANGUAGE_OPTIONS.map(([c,n])=>`<option value="${c}">${n}</option>`).join("")}</select></div>
+        <div class="field"><label>Nivel actual</label><select id="lang-level"><option>Empezar desde cero</option><option selected>A1 — Principiante</option><option>A2 — Elemental</option><option>B1 — Intermedio</option><option>B2 — Intermedio alto</option><option>C1 — Avanzado</option><option>C2 — Dominio</option></select></div>
+        <div class="field"><label>Objetivo de la sesión</label><select id="lang-focus"><option>Curso completo equilibrado</option><option>Conversación</option><option>Comprensión auditiva</option><option>Pronunciación</option><option>Gramática en contexto</option><option>Vocabulario útil</option><option>Lectura</option><option>Escritura</option><option>Viajes y situaciones reales</option><option>Académico / profesional</option></select></div>
+        <div class="field"><label>Inmersión</label><select id="lang-immersion"><option value="30">30% idioma objetivo — muchas explicaciones en español</option><option value="60" selected>60% idioma objetivo — equilibrio</option><option value="85">85% idioma objetivo — inmersión alta</option><option value="100">100% idioma objetivo — inmersión total</option></select></div>
+        <button id="lang-start" class="primary-btn wide">INICIAR LECCIÓN</button>
+        <button id="lang-placement" class="secondary-btn wide" style="margin-top:8px">PRUEBA DE NIVEL</button>
+        <button id="lang-new" class="secondary-btn wide" style="margin-top:8px">NUEVA SESIÓN</button>
+      </aside>
+      <div class="card chat-panel language-chat">
+        <div class="language-toolbar"><span id="language-session-label">Curso de idiomas</span><div><button id="lang-listen" class="secondary-btn">Escuchar respuesta</button></div></div>
+        <div id="language-messages" class="messages"><div class="message ai">Selecciona el idioma y tu nivel. Empezaremos con una lección corta y activa, y ajustaré la dificultad según tus respuestas.</div></div>
+        <div class="composer"><button id="lang-mic" class="icon-btn" title="Practicar hablando">🎙</button><textarea id="language-input" rows="2" placeholder="Escribe o habla en el idioma que estás aprendiendo..."></textarea><button id="language-send" class="primary-btn">Enviar</button></div>
+      </div>
+    </div>
+    <div class="learning-pillar-grid language-pillars" style="margin-top:16px">
+      <div class="learning-pillar"><span>01</span><strong>Comprensión</strong><small>Lectura y escucha con dificultad progresiva.</small></div>
+      <div class="learning-pillar"><span>02</span><strong>Producción</strong><small>Hablar y escribir desde la primera sesión.</small></div>
+      <div class="learning-pillar"><span>03</span><strong>Corrección</strong><small>Errores explicados sin interrumpir la fluidez.</small></div>
+      <div class="learning-pillar"><span>04</span><strong>Retención</strong><small>Vocabulario en contexto y repaso espaciado.</small></div>
+      <div class="learning-pillar"><span>05</span><strong>Pronunciación</strong><small>Modelos de frases, ritmo y sonidos difíciles.</small></div>
+      <div class="learning-pillar"><span>06</span><strong>Uso real</strong><small>Conversaciones y situaciones auténticas.</small></div>
+    </div>`;
+  $("#lang-start").onclick=()=>startLanguageLesson(false);
+  $("#lang-placement").onclick=()=>startLanguageLesson(true);
+  $("#language-send").onclick=()=>sendLanguageMessage();
+  $("#language-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendLanguageMessage()}});
+  $("#lang-new").onclick=()=>{state.languageConversation=null;state.lastLanguageAnswer="";$("#language-messages").innerHTML=`<div class="message ai">Nueva sesión lista. Elige tu objetivo y comienza.</div>`};
+  $("#lang-mic").onclick=()=>startSpeechRecognition($("#language-input"),$("#lang-target").value);
+  $("#lang-listen").onclick=()=>{if(!state.lastLanguageAnswer)return toast("Todavía no hay una respuesta para escuchar.",true);speakText(state.lastLanguageAnswer,$("#lang-target").value)};
+  $("#lang-target").onchange=()=>updateLanguageLabel();
+  $("#lang-level").onchange=()=>updateLanguageLabel();
+  if(presetLevel){const prefix=presetLevel.slice(0,2);const option=[...$("#lang-level").options].find(o=>o.text.startsWith(prefix));if(option)$("#lang-level").value=option.value}
+  updateLanguageLabel();
+}
+
+function updateLanguageLabel(){
+  const sel=$("#lang-target"); if(!sel)return; const name=sel.options[sel.selectedIndex]?.text||"Idioma";
+  $("#language-session-label").textContent=`${name} · ${$("#lang-level")?.value||"A1"}`;
+}
+
+function startLanguageLesson(placement=false){
+  const lang=$("#lang-target").options[$("#lang-target").selectedIndex].text;
+  const level=$("#lang-level").value,focus=$("#lang-focus").value,immersion=$("#lang-immersion").value;
+  const prompt=placement
+    ? `[PRUEBA_DE_NIVEL] Idioma objetivo: ${lang}. Evalúa mi nivel de manera progresiva, una pregunta o tarea por turno. No reveles todas las respuestas. Al terminar estima CEFR A1-C2 y explica qué debo reforzar.`
+    : `[INICIAR_CURSO] Idioma objetivo: ${lang}. Nivel declarado: ${level}. Objetivo: ${focus}. Inmersión: ${immersion}%. Empieza una lección breve y activa. Presenta una sola actividad por turno, espera mi respuesta, corrige y continúa.`;
+  sendLanguageMessage(prompt,true);
+}
+
+async function sendLanguageMessage(forcedMessage=null,hideForced=false){
+  const input=$("#language-input"),message=forcedMessage||input.value.trim(); if(!message)return;
+  if(!hideForced)appendMessageTo("#language-messages","user",message); else appendMessageTo("#language-messages","user",forcedMessage?.startsWith("[PRUEBA")?"Iniciar prueba de nivel":"Iniciar lección");
+  input.value="";
+  const langSel=$("#lang-target"),lang=langSel.options[langSel.selectedIndex].text,langCode=langSel.value;
+  const level=$("#lang-level").value,focus=$("#lang-focus").value,immersion=$("#lang-immersion").value;
+  const subject=getSubjectByCode("LANG");
+  const thinking=appendMessageTo("#language-messages","ai","Preparando actividad...");thinking.classList.add("loading");
+  $("#language-send").disabled=true;
+  try{
+    const result=await streamSpecialAI({mode:"language",message:`Idioma objetivo: ${lang} (${langCode}). Nivel: ${level}. Objetivo: ${focus}. Inmersión: ${immersion}%. Idioma nativo del estudiante: español.\n\n${message}`,conversationId:state.languageConversation,subjectId:subject?.id||null,title:`${lang} — ${level}`,context:{language:lang,languageCode:langCode,level,focus,immersion},target:thinking});
+    state.languageConversation=result.conversationId;state.lastLanguageAnswer=result.answer;
+    if(subject)await saveResume({route:"/languages",subject_id:subject.id,topic_id:null,mode:"languages",progress_percent:0,context:{subject:"Idiomas",language:lang,level,focus}}).catch(()=>{});
+  }catch(err){thinking.classList.remove("loading");thinking.textContent=`Error: ${err.message}`}
+  finally{$("#language-send").disabled=false;input.focus()}
+}
+
+function appendMessageTo(selector,role,text){
+  const box=$(selector);const d=document.createElement("div");d.className=`message ${role}`;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;return d;
+}
+
+async function streamSpecialAI({mode,message,conversationId,subjectId,title,context,target}){
+  const response=await fetch("/api/ai/chat/stream",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({mode,message,conversation_id:conversationId,subject_id:subjectId,title,context})});
+  if(!response.ok){const d=await response.json().catch(()=>({}));throw new Error(d.error||`Error ${response.status}`)}
+  const newConversation=response.headers.get("x-medai-conversation-id")||conversationId;
+  target.classList.remove("loading");target.textContent="";
+  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer="",answer="";
+  while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const lines=buffer.split(/\r?\n/);buffer=lines.pop()||"";for(const line of lines){const t=line.trim();if(!t.startsWith("data:"))continue;const payload=t.slice(5).trim();if(!payload||payload==="[DONE]")continue;try{const obj=JSON.parse(payload),piece=extractStreamPieceClient(obj);if(piece){answer=smartAppendClient(answer,piece);target.textContent=answer;target.classList.add("streaming");target.parentElement.scrollTop=target.parentElement.scrollHeight}}catch{}}}
+  target.classList.remove("streaming");if(!answer.trim()){answer="No pude generar la respuesta en este momento.";target.textContent=answer}
+  return {conversationId:newConversation,answer};
+}
+
+function speakText(text,lang="en-US"){
+  if(!("speechSynthesis" in window))return toast("La lectura en voz alta no está disponible en este navegador.",true);
+  speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=lang;u.rate=.92;speechSynthesis.speak(u);
 }
 
 
@@ -348,7 +531,7 @@ async function renderCaseSolver(){
         <div class="panel-code">CASO PROPORCIONADO POR EL ESTUDIANTE</div>
         <h3>Información clínica</h3>
         <div class="grid two compact-fields">
-          <div class="field"><label>Materia</label><select id="case-subject">${subjectOptions()}</select></div>
+          <div class="field"><label>Materia</label><select id="case-subject">${subjectOptions(false,true)}</select></div>
           <div class="field"><label>Nivel de profundidad</label><select id="case-level"><option>Estudiante clínico</option><option>Internado</option><option>Médico general</option><option selected>Residencia</option><option>Internista</option></select></div>
         </div>
         <div class="field"><label>Caso clínico completo</label><textarea id="case-text" class="case-textarea" placeholder="Pega aquí el motivo de consulta, historia, antecedentes, examen físico, laboratorios, imágenes y cualquier otra información del caso..."></textarea></div>
@@ -423,7 +606,7 @@ async function renderAIStudio(mode){
       <div class="side-tools">
         <div class="card">
           <div class="eyebrow" style="margin-bottom:10px">CONFIGURACIÓN DE LA SESIÓN</div>
-          <div class="field"><label>Materia</label><select id="ai-subject">${subjectOptions()}</select></div>
+          <div class="field"><label>Materia</label><select id="ai-subject">${subjectOptions(false,true)}</select></div>
           <div class="field"><label>Nivel</label><select id="ai-level">
             <option>Primeros años</option><option>Ciencias básicas</option><option>Clínico</option>
             <option>Internado</option><option>Médico general</option><option>R1</option><option>R2</option><option>R3</option><option>Internista</option>
@@ -585,7 +768,7 @@ async function renderExams(){
     <div class="grid two">
       <div class="card">
         <div class="field"><label>Materia</label><select id="exam-subject">${subjectOptions()}</select></div>
-        <div class="field"><label>Tema específico</label><input id="exam-topic" placeholder="Ej. insuficiencia cardíaca, ácido-base..."></div>
+        <div class="field"><label>Tema específico</label><input id="exam-topic" placeholder="Ej. insuficiencia cardíaca, derivadas, cinemática, inglés A1..."></div>
         <div class="field"><label>Número de preguntas</label><select id="exam-count"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
         <div class="field"><label>Dificultad</label><select id="exam-difficulty">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option ${n===5?"selected":""}>${n}</option>`).join("")}</select></div>
         <button id="generate-exam" class="primary-btn wide">Generar examen</button>
@@ -596,7 +779,7 @@ async function renderExams(){
   $("#generate-exam").onclick=generateExam;
 }
 async function generateExam(){
-  const btn=$("#generate-exam");btn.disabled=true;$("#exam-area").innerHTML=`<div class="card empty">Generando examen médico... esto puede tardar unos segundos.</div>`;
+  const btn=$("#generate-exam");btn.disabled=true;$("#exam-area").innerHTML=`<div class="card empty">Generando examen... esto puede tardar unos segundos.</div>`;
   const subjectId=$("#exam-subject").value,subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
   const topic=$("#exam-topic").value.trim()||"general";
   try{
@@ -646,9 +829,9 @@ async function renderFlashcards(){
       <div class="eyebrow" style="margin-bottom:12px">CREAR NUEVO BLOQUE DE FLASHCARDS</div>
       <div class="grid two">
         <div class="field"><label>Materia</label><select id="card-subject">${subjectOptions()}</select></div>
-        <div class="field"><label>Tema específico</label><input id="card-topic" placeholder="Ej. huesos del cráneo, ciclo de Krebs, potencial de acción"></div>
-        <div class="field"><label>Nivel</label><select id="card-level"><option>Primeros años</option><option>Ciencias básicas</option><option>Clínico</option><option>Internado</option><option>Médico general</option><option>Residencia</option></select></div>
-        <div class="field"><label>Enfoque</label><select id="card-focus"><option value="fundamentos">Fundamentos esenciales</option><option value="definiciones y relaciones">Definiciones y relaciones</option><option value="memorización exacta">Memorización exacta</option><option value="aplicación clínica dentro del tema">Aplicación clínica dentro del tema</option><option value="preguntas tipo examen sin salir del tema">Tipo examen</option></select></div>
+        <div class="field"><label>Tema específico</label><input id="card-topic" placeholder="Ej. huesos del cráneo, derivadas, leyes de Newton, inglés A1"></div>
+        <div class="field"><label>Nivel</label><select id="card-level"><option>Fundamentos</option><option>Secundaria</option><option>Diversificado / Bachillerato</option><option selected>Universitario básico</option><option>Universitario avanzado</option><option>Clínico</option><option>Residencia médica</option><option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option><option>C2</option></select></div>
+        <div class="field"><label>Enfoque</label><select id="card-focus"><option value="fundamentos">Fundamentos esenciales</option><option value="definiciones y relaciones">Definiciones y relaciones</option><option value="memorización exacta">Memorización exacta</option><option value="aplicación práctica dentro del tema">Aplicación práctica</option><option value="problemas y ejercicios dentro del tema">Problemas y ejercicios</option><option value="preguntas tipo examen sin salir del tema">Tipo examen</option></select></div>
         <div class="field"><label>Cantidad</label><select id="card-count"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
       </div>
       <div class="info-box">La IA recibirá un alcance estricto: <strong>Materia + Tema + Nivel + Enfoque</strong>. Esto reduce muchísimo las mezclas entre contenidos.</div>
@@ -886,7 +1069,10 @@ function getDeviceId(){let id=localStorage.getItem("medai_device");if(!id){id=cr
 function metric(label,value,sub,icon="◦"){return `<div class="card metric-card"><div class="metric-icon">${icon}</div><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${escapeHtml(String(value))}</div><div class="metric-sub">${escapeHtml(sub)}</div></div>`}
 function modeCard(title,p,view,icon){return `<div class="card mode-card" data-view="${view}"><div class="metric-icon">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(p)}</p></div>`}
 function subjectCard(s){return `<div class="card subject-card" data-id="${s.id}"><div class="category">${escapeHtml(s.category||"Medicina")}</div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Abrir materia y comenzar entrenamiento.")}</p><span class="badge" style="margin-top:10px">Abrir materia</span></div>`}
-function subjectOptions(includeBlank=false){return `${includeBlank?'<option value="">Sin especificar</option>':""}${state.subjects.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}`}
+function subjectOptions(includeBlank=false,medicalOnly=false){
+  const list=medicalOnly?state.subjects.filter(s=>!['MATH','PHYS','ASTRO','LANG'].includes(s.code)):state.subjects;
+  return `${includeBlank?'<option value="">Sin especificar</option>':""}${list.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}`
+}
 function listRecent(items){return items?.length?`<div class="list">${items.map(x=>`<div class="list-item"><div class="grow"><strong>${escapeHtml(x.topic_name)}</strong><span>${escapeHtml(x.subject_name)}</span></div><span class="badge">${Math.round(x.mastery||0)}%</span></div>`).join("")}</div>`:`<div class="empty">Tu actividad aparecerá aquí.</div>`}
 function listDeadlinesCompact(items){return items?.length?`<div class="list">${items.map(x=>`<div class="list-item"><div class="grow"><strong>${escapeHtml(x.title)}</strong><span>${formatDate(x.due_at)}</span></div><span class="badge">P${x.importance}</span></div>`).join("")}</div>`:`<div class="empty">No hay fechas pendientes.</div>`}
 function noteItem(n){return `<div class="list-item"><div class="grow"><strong>${escapeHtml(n.title)}</strong><span>${formatDate(n.updated_at)}</span><p style="white-space:pre-wrap">${escapeHtml((n.body||"").slice(0,260))}</p></div><button class="danger-btn delete-note" data-id="${n.id}">Eliminar</button></div>`}
@@ -899,10 +1085,10 @@ function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;",
 function escapeAttr(s){return escapeHtml(s).replace(/`/g,"&#96;")}
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
 
-function startSpeechRecognition(target){
+function startSpeechRecognition(target,lang="es-GT"){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR)return toast("El reconocimiento de voz no está disponible en este navegador.",true);
-  const r=new SR();r.lang="es-GT";r.interimResults=false;r.maxAlternatives=1;
+  const r=new SR();r.lang=lang;r.interimResults=false;r.maxAlternatives=1;
   r.onresult=e=>{target.value=(target.value+" "+e.results[0][0].transcript).trim();target.focus()};
   r.onerror=()=>toast("No se pudo reconocer la voz.",true);r.start();
 }

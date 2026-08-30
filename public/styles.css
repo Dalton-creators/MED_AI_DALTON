@@ -530,3 +530,23 @@ body{
 .case-answer .message{max-width:100%;border-radius:2px;white-space:pre-wrap}
 @media(max-width:1100px){.patient-training-grid,.case-solver-grid{grid-template-columns:1fr}.case-output-panel{position:static}.patient-workspace{min-height:600px}}
 @media(max-width:560px){.simulation-status{align-items:flex-start;flex-direction:column}.patient-command-strip #evaluate-patient{margin-left:0}.case-actions{flex-direction:column;align-items:stretch}.case-answer{height:auto;min-height:420px}}
+
+
+/* V11 Sciences & Languages */
+.academic-expansion{margin-bottom:28px}
+.science-layout,.language-course-grid{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px}
+.science-controls,.language-controls{align-self:start;position:sticky;top:96px}
+.science-chat,.language-chat{min-height:690px}
+.learning-pillar-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--border);background:var(--surface)}
+.language-pillars{grid-template-columns:repeat(6,minmax(0,1fr))}
+.learning-pillar{padding:18px;border-right:1px solid var(--border);min-height:126px}
+.learning-pillar:last-child{border-right:0}
+.learning-pillar span{display:block;font-family:var(--font-mono);font-size:10px;color:var(--accent2);margin-bottom:12px}
+.learning-pillar strong,.learning-pillar small{display:block}
+.learning-pillar strong{font-family:var(--font-head);font-size:16px;color:var(--heading);margin-bottom:7px}
+.learning-pillar small{font-size:12px;line-height:1.5;color:var(--muted)}
+.language-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 2px 12px;margin-bottom:5px;border-bottom:1px solid var(--border)}
+.language-toolbar>span{font-family:var(--font-head);font-size:14px;font-weight:700;letter-spacing:.04em;color:var(--heading)}
+@media(max-width:1180px){.language-pillars{grid-template-columns:repeat(3,1fr)}.learning-pillar:nth-child(3n){border-right:0}}
+@media(max-width:980px){.science-layout,.language-course-grid{grid-template-columns:1fr}.science-controls,.language-controls{position:static}.learning-pillar-grid,.language-pillars{grid-template-columns:repeat(2,1fr)}.learning-pillar:nth-child(2n){border-right:0}}
+@media(max-width:560px){.learning-pillar-grid,.language-pillars{grid-template-columns:1fr}.learning-pillar{border-right:0;border-bottom:1px solid var(--border)}.learning-pillar:last-child{border-bottom:0}.language-toolbar{align-items:flex-start;flex-direction:column}}

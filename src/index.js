@@ -466,11 +466,37 @@ async function dashboard(env, user) {
 // -------------------- CURRICULUM / PROGRESS --------------------
 
 async function subjects(env) {
+  await ensureExpandedCurriculum(env);
   const rows = await env.DB.prepare(`
     SELECT id,code,name,description,category,icon,sort_order
     FROM subjects WHERE active=1 ORDER BY sort_order,name
   `).all();
   return json({ subjects: rows.results || [] });
+}
+
+async function ensureExpandedCurriculum(env){
+  const now=new Date().toISOString();
+  const subjects=[
+    ["subj_math","MATH","Matemática","Desde aritmética y álgebra hasta cálculo, estadística y ecuaciones diferenciales.","Ciencias","∑",210],
+    ["subj_physics","PHYS","Física","Mecánica, termodinámica, ondas, electricidad, magnetismo, óptica y física moderna.","Ciencias","Φ",220],
+    ["subj_astronomy","ASTRO","Astronomía","Sistema Solar, estrellas, galaxias, observación y cosmología.","Ciencias","✧",230],
+    ["subj_languages","LANG","Idiomas","Aprendizaje progresivo A1-C2 con comprensión, producción, conversación y pronunciación.","Idiomas","文",240]
+  ];
+  const topicMap={
+    subj_math:["Aritmética y proporciones","Álgebra","Ecuaciones e inecuaciones","Funciones y gráficas","Geometría","Trigonometría","Geometría analítica","Límites y continuidad","Derivadas","Integrales","Probabilidad y estadística","Vectores y matrices","Ecuaciones diferenciales"],
+    subj_physics:["Unidades, medición y vectores","Cinemática","Leyes de Newton","Trabajo y energía","Cantidad de movimiento","Rotación y torque","Fluidos","Termodinámica","Ondas y sonido","Electricidad","Magnetismo","Óptica","Relatividad","Física cuántica y moderna"],
+    subj_astronomy:["Esfera celeste y coordenadas","Gravedad y órbitas","Sistema Solar","El Sol","Propiedades de las estrellas","Evolución estelar","Exoplanetas","Vía Láctea","Galaxias","Cosmología","Telescopios y observación","Astrobiología"],
+    subj_languages:["A1 — Principiante","A2 — Elemental","B1 — Intermedio","B2 — Intermedio alto","C1 — Avanzado","C2 — Dominio"]
+  };
+  const statements=[];
+  for(const s of subjects){statements.push(env.DB.prepare(`INSERT OR IGNORE INTO subjects (id,code,name,description,category,icon,sort_order,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,1,?,?)`).bind(...s,now,now));}
+  for(const [subjectId,names] of Object.entries(topicMap)){
+    names.forEach((name,i)=>{
+      const slug=name.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+      statements.push(env.DB.prepare(`INSERT OR IGNORE INTO topics (id,subject_id,parent_topic_id,slug,name,description,difficulty_min,difficulty_max,estimated_minutes,sort_order,active,created_at,updated_at) VALUES (?,?,NULL,?,?,?,1,10,30,?,1,?,?)`).bind(`topic_${subjectId}_${i+1}`,subjectId,slug,name,`Ruta guiada de ${name}.`,i+1,now,now));
+    });
+  }
+  await env.DB.batch(statements);
 }
 
 async function topics(url, env) {
@@ -917,7 +943,7 @@ function selectChatModel(mode, message) {
   ]);
   if (advancedModes.has(mode)) return DEFAULT_TEXT_MODEL;
 
-  const complex = /diagn[oó]stic|diferencial|fisiopatolog|tratamiento|manejo|sepsis|shock|gasometr|electrolit|interacci[oó]n|contraindic|complicaci[oó]n|caso cl[ií]nico|internista|\bR[123]\b|urgencia|emergencia|interpretaci[oó]n|razonamiento cl[ií]nico/i;
+  const complex = /diagn[oó]stic|diferencial|fisiopatolog|tratamiento|manejo|sepsis|shock|gasometr|electrolit|interacci[oó]n|contraindic|complicaci[oó]n|caso cl[ií]nico|internista|\bR[123]\b|urgencia|emergencia|interpretaci[oó]n|razonamiento cl[ií]nico|demostraci[oó]n|derivaci[oó]n|ecuaci[oó]n diferencial|relatividad|cu[aá]ntic|c[aá]lculo avanzado|tensor/i;
   if (complex.test(message)) return DEFAULT_TEXT_MODEL;
 
   // Definitions, basic explanations, anatomy, memorization and ordinary study use the fast model.
@@ -1099,7 +1125,8 @@ async function aiExam(request, env, user) {
   const subject = cleanText(body.subject,120)||"Medicina";
   const topic = cleanText(body.topic,160)||"contenido general";
 
-  const prompt = `Genera ${count} preguntas de selección múltiple en español para ${subject}, tema ${topic}, dificultad ${difficulty}/10.
+  const prompt = `Genera ${count} preguntas de selección múltiple en español para la materia ${subject}, tema ${topic}, dificultad ${difficulty}/10.
+Adapta el tipo de pregunta a la materia: en Matemática y Física incluye razonamiento y cálculos cuando corresponda; en Astronomía combina conceptos y aplicación; en Idiomas evalúa comprensión, gramática, vocabulario y uso contextual; en Medicina conserva rigor clínico.
 Cada pregunta debe tener exactamente 4 opciones plausibles, una sola correcta y explicación educativa.
 Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, con esta forma:
 {"questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]}`;
@@ -1109,7 +1136,7 @@ Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, co
     messages:[
       {
         role:"system",
-        content:"Eres un examinador médico riguroso. El contenido es educativo. Produce preguntas clínicamente coherentes, sin ambigüedades y en español."
+        content:"Eres un examinador académico riguroso y multidisciplinario. Ajusta la evaluación a la materia solicitada, evita ambigüedades, verifica cálculos y conceptos, y responde en español salvo cuando una pregunta de idioma requiera usar el idioma objetivo."
       },
       {role:"user",content:prompt}
     ],
@@ -1154,7 +1181,7 @@ async function aiFlashcards(request, env, user) {
     return json({error:"Escribe un tema específico para las flashcards."},400);
   }
 
-  const prompt = `Crea exactamente ${count} flashcards médicas en español.
+  const prompt = `Crea exactamente ${count} flashcards académicas de alta calidad. Usa español como idioma de explicación, salvo que el tema sea aprendizaje de idiomas y convenga usar el idioma objetivo.
 
 ALCANCE ESTRICTO:
 - Materia: ${subject}
@@ -1182,7 +1209,7 @@ Devuelve SOLO JSON válido, sin markdown ni texto fuera del JSON:
     messages:[
       {
         role:"system",
-        content:`Eres un diseñador experto de flashcards médicas de repetición espaciada. Tu prioridad es la fidelidad temática: nunca mezcles contenido ajeno al tema solicitado. Mantén cada tarjeta atómica, clara, correcta y apropiada para el nivel indicado.`
+        content:`Eres un diseñador experto de flashcards de repetición espaciada para medicina, matemática, física, astronomía e idiomas. Tu prioridad es la fidelidad temática: nunca mezcles contenido ajeno al tema solicitado. Mantén cada tarjeta atómica, clara, correcta y apropiada para el nivel indicado. En matemáticas y física verifica los resultados; en idiomas favorece uso contextual y recuperación activa.`
       },
       {role:"user",content:prompt}
     ],
@@ -1342,6 +1369,10 @@ function extractCloudflareText(data) {
 }
 
 function medicalInstructions(mode){
+  if(mode==="science") return `Responde en español y actúa como profesor universitario excelente de Matemática, Física o Astronomía según el área indicada por el estudiante.
+REGLAS: enseña conceptos antes de fórmulas; no saltes pasos algebraicos importantes; define símbolos y unidades; verifica dimensiones y resultados; distingue intuición, derivación y aplicación; en problemas guía paso a paso y deja que el estudiante intente cuando la modalidad sea práctica o socrática. Corrige errores explicando exactamente dónde ocurrió el razonamiento incorrecto. Si el tema es avanzado, declara supuestos y límites de validez. Evita inventar datos o hechos científicos. Adapta la profundidad al nivel indicado.`;
+  if(mode==="language") return `Actúa como profesor experto en adquisición de idiomas. El idioma nativo del estudiante es español y el idioma objetivo, nivel CEFR e inmersión vienen indicados en cada mensaje.
+REGLAS OBLIGATORIAS: 1) prioriza comprensión y producción real, no listas aisladas; 2) presenta una actividad manejable por turno y espera respuesta; 3) corrige primero los errores que afectan significado o son repetitivos, explicando brevemente el porqué; 4) enseña gramática dentro de contexto; 5) recicla vocabulario previamente usado para repetición espaciada; 6) incluye conversación, lectura, escucha simulada, escritura y pronunciación de forma equilibrada; 7) respeta el porcentaje de inmersión indicado; 8) no traduzcas todo automáticamente; 9) cuando enseñes pronunciación, usa ejemplos claros y, si ayuda, IPA sin abrumar; 10) para pruebas de nivel aumenta dificultad gradualmente y estima A1-C2 solo después de suficiente evidencia. Mantén tono de profesor adulto, serio y paciente.`;
   const modeText={
     tutor:"Tutor médico personal: enseña de manera escalonada, clara y rigurosa; usa razonamiento socrático cuando sea útil.",
     patient:`Actúa como simulador de paciente virtual para entrenamiento de entrevista clínica. Mantén un caso clínico interno y coherente que el estudiante NO puede ver.
@@ -1378,7 +1409,7 @@ function humanMode(mode){
     tutor:"Tutor IA",patient:"Paciente virtual",case_solver:"Resolver caso clínico",grand_rounds:"Grand Rounds",
     emergency:"Emergencias",osce:"OSCE",pharmacology:"Farmacología",
     ecg:"ECG",radiology:"Radiología",laboratory:"Laboratorios",
-    differential:"Diagnóstico diferencial",socratic:"Modo socrático",ward_round:"Pase de visita"
+    differential:"Diagnóstico diferencial",socratic:"Modo socrático",ward_round:"Pase de visita",science:"Ciencias",language:"Idiomas"
   })[mode]||"Tutor IA";
 }
 

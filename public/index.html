@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=10.0.0">
+  <link rel="stylesheet" href="/styles.css?v=11.0.0">
 </head>
 <body>
   <div id="toast-root" aria-live="polite"></div>
@@ -21,7 +21,7 @@
     <div class="auth-card">
       <div class="brand-lockup">
         <div class="brand-mark"><span>M</span><b>+</b></div>
-        <div><h1>MED AI DALTON</h1><p>Sistema académico de entrenamiento clínico</p></div>
+        <div><h1>MED AI DALTON</h1><p>Sistema académico de aprendizaje avanzado</p></div>
       </div>
       <div class="loading-line"><i></i></div>
       <p class="auth-loading">Preparando tu espacio personal…</p>
@@ -32,7 +32,7 @@
     <aside class="sidebar">
       <div class="sidebar-brand">
         <div class="brand-mark small"><span>M</span><b>+</b></div>
-        <div class="brand-copy"><strong>MED AI DALTON</strong><span>MEDICAL LEARNING SYSTEM</span></div>
+        <div class="brand-copy"><strong>MED AI DALTON</strong><span>ACADEMIC LEARNING SYSTEM</span></div>
       </div>
 
       <div class="sidebar-profile">
@@ -67,6 +67,15 @@
           <button data-view="pharmacology" class="nav-item"><span>✚</span><em>Farmacología</em></button>
         </div>
 
+
+        <div class="nav-group">
+          <div class="nav-group-title">Ciencias y lenguas</div>
+          <button data-view="mathematics" class="nav-item"><span>∑</span><em>Matemática</em></button>
+          <button data-view="physics" class="nav-item"><span>Φ</span><em>Física</em></button>
+          <button data-view="astronomy" class="nav-item"><span>✧</span><em>Astronomía</em></button>
+          <button data-view="languages" class="nav-item"><span>文</span><em>Idiomas</em></button>
+        </div>
+
         <div class="nav-group">
           <div class="nav-group-title">Organización</div>
           <button data-view="library" class="nav-item"><span>▥</span><em>Biblioteca</em></button>
@@ -87,12 +96,12 @@
       <header class="topbar">
         <div class="topbar-start">
           <button id="menu-btn" class="icon-btn mobile-only" aria-label="Abrir menú">☰</button>
-          <div class="page-identity"><span>MED AI DALTON</span><small>Academic Clinical Training System</small></div>
+          <div class="page-identity"><span>MED AI DALTON</span><small>Academic Learning System</small></div>
         </div>
 
         <div class="global-search">
           <span class="search-icon">⌕</span>
-          <input id="global-search" placeholder="Buscar materia, tema, caso o apunte...">
+          <input id="global-search" placeholder="Buscar materia, ciencia, idioma, caso o apunte...">
           <kbd>Ctrl K</kbd>
           <div id="search-results" class="search-results hidden"></div>
         </div>
@@ -109,6 +118,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=10.0.0" defer></script>
+  <script src="/app.js?v=11.0.0" defer></script>
 </body>
 </html>
