@@ -817,11 +817,11 @@ async function aiCourseMaterialPack(request,env,user){
   const language=normalizeCourseLanguage(body.language||"en-US");
   const languageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
   const languageName=row.subject_code==="LANG"?languageNames[language]:null;
-  const materialTitle=`Material V18: ${row.topic_name}`;
+  const materialTitle=`Material V19: ${row.topic_name}`;
   const existing=await env.DB.prepare("SELECT id,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title=? ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id,row.topic_id,materialTitle).first();
   if(existing?.body){
     const parsed=parseJsonLoose(existing.body);
-    if(parsed?.version===18&&Array.isArray(parsed.sections)&&parsed.sections.length>=3&&Array.isArray(parsed.practice))return json({material:parsed,cached:true,updated_at:existing.updated_at});
+    if(parsed?.version===19&&Array.isArray(parsed.sections)&&parsed.sections.length>=3&&Array.isArray(parsed.practice))return json({material:parsed,cached:true,updated_at:existing.updated_at});
   }
   const seedObjectives=parseJsonLoose(row.learning_objectives_json)||[];
   const profile=courseTeachingProfile(row.subject_code,languageName);
@@ -839,7 +839,7 @@ La sesión debe poder estudiarse como un capítulo corto antes de hacer ejercici
 
 Devuelve EXCLUSIVAMENTE JSON válido con esta forma:
 {
- "version":18,
+ "version":19,
  "title":"título de la clase",
  "overview":"introducción de 2 a 4 oraciones que explique por qué importa el tema",
  "estimated_minutes":35,
@@ -848,6 +848,15 @@ Devuelve EXCLUSIVAMENTE JSON válido con esta forma:
    {"title":"subtema","content":"explicación clara y completa en varios párrafos separados por saltos de línea","key_points":["3 a 5 ideas"],"example":"ejemplo trabajado o aplicado","application":"cómo se usa o por qué importa"}
  ],
  "key_terms":["8 a 15 conceptos clave"],
+ "diagram":{
+   "title":"título del diagrama",
+   "caption":"qué representa",
+   "steps":[{"label":"bloque o paso","detail":"explicación corta del bloque"}]
+ },
+ "concept_map":{
+   "center":"concepto central",
+   "branches":[{"label":"rama principal","children":["idea relacionada","idea relacionada"]}]
+ },
  "practice":[
    {"type":"choice|true_false","question":"ejercicio","context":"dato o escenario opcional","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación educativa de la respuesta"}
  ],
@@ -857,6 +866,9 @@ Devuelve EXCLUSIVAMENTE JSON válido con esta forma:
 REGLAS ESTRICTAS:
 - 5 a 7 sections, ordenadas pedagógicamente.
 - Cada section debe enseñar de verdad: definición, mecanismo o razonamiento y ejemplo/aplicación cuando corresponda.
+- diagram debe tener entre 4 y 8 steps y representar un proceso, método, jerarquía o secuencia útil para ESTE tema; no debe ser decorativo.
+- concept_map debe tener entre 4 y 7 branches y cada rama entre 2 y 4 children. Debe conectar los conceptos más importantes de la clase.
+- Adapta los recursos visuales a la materia: mecanismos y rutas en Medicina; procedimientos y relaciones en Matemática; modelos, fuerzas o transformaciones en Física; escalas/procesos en Astronomía; patrones, estructura de frase o gramática en Idiomas.
 - EXACTAMENTE 8 ejercicios de práctica.
 - Todos los ejercicios deben poder autocorregirse. Usa 4 opciones en todos; para verdadero/falso usa ["Verdadero","Falso","No se puede determinar","Depende del contexto"] si hace falta.
 - correctIndex debe ser 0,1,2 o 3 y apuntar a la opción correcta.
@@ -869,7 +881,7 @@ REGLAS ESTRICTAS:
 - Sin markdown fuera de los valores JSON.`;
 
   async function run(model,temp){
-    const response=await callCloudflareAI(env,{model,messages:[{role:"system",content:"Eres un profesor universitario y diseñador instruccional. Creas clases autocontenidas, progresivas, correctas y orientadas a comprensión profunda y práctica activa. Devuelve solo JSON válido."},{role:"user",content:prompt}],max_tokens:4300,temperature:temp});
+    const response=await callCloudflareAI(env,{model,messages:[{role:"system",content:"Eres un profesor universitario y diseñador instruccional. Creas clases autocontenidas, progresivas, correctas y orientadas a comprensión profunda y práctica activa. Devuelve solo JSON válido."},{role:"user",content:prompt}],max_tokens:5200,temperature:temp});
     return parseJsonLoose(extractCloudflareText(response));
   }
   let parsed=null;
@@ -889,6 +901,21 @@ REGLAS ESTRICTAS:
       example:cleanText(sec.example,1600),application:cleanText(sec.application,1200)
     })).filter(x=>x.title&&x.content),
     key_terms:Array.isArray(parsed.key_terms)?parsed.key_terms.slice(0,15).map(x=>cleanText(x,220)).filter(Boolean):[],
+    diagram:{
+      title:cleanText(parsed.diagram?.title,260)||`Diagrama de ${row.topic_name}`,
+      caption:cleanText(parsed.diagram?.caption,700)||"Secuencia visual de los conceptos centrales.",
+      steps:Array.isArray(parsed.diagram?.steps)?parsed.diagram.steps.slice(0,8).map(x=>({
+        label:cleanText(x.label,260),
+        detail:cleanText(x.detail,900)
+      })).filter(x=>x.label):[]
+    },
+    concept_map:{
+      center:cleanText(parsed.concept_map?.center,260)||row.topic_name,
+      branches:Array.isArray(parsed.concept_map?.branches)?parsed.concept_map.branches.slice(0,7).map(x=>({
+        label:cleanText(x.label,260),
+        children:Array.isArray(x.children)?x.children.slice(0,4).map(y=>cleanText(y,350)).filter(Boolean):[]
+      })).filter(x=>x.label):[]
+    },
     practice:parsed.practice.slice(0,8).map(q=>({
       type:String(q.type||"choice")==="true_false"?"true_false":"choice",
       question:cleanText(q.question,900),context:cleanText(q.context,900),
@@ -904,8 +931,8 @@ REGLAS ESTRICTAS:
   };
   if(material.sections.length<3||material.practice.length<6)return json({error:"El material generado quedó incompleto. Intenta nuevamente."},502);
   const serialized=JSON.stringify(material),now=new Date().toISOString();
-  if(existing?.id)await env.DB.prepare("UPDATE notes SET body=?,tags_json=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?").bind(serialized,JSON.stringify(["curso","material_v18"]),JSON.stringify({course_material:true,version:18,lesson_id:row.lesson_id,language:languageName}),now,existing.id,user.id).run();
-  else await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(crypto.randomUUID(),user.id,row.subject_id,row.topic_id,materialTitle,serialized,JSON.stringify(["curso","material_v18"]),JSON.stringify({course_material:true,version:18,lesson_id:row.lesson_id,language:languageName}),now,now).run();
+  if(existing?.id)await env.DB.prepare("UPDATE notes SET body=?,tags_json=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?").bind(serialized,JSON.stringify(["curso","material_v19"]),JSON.stringify({course_material:true,version:19,lesson_id:row.lesson_id,language:languageName}),now,existing.id,user.id).run();
+  else await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(crypto.randomUUID(),user.id,row.subject_id,row.topic_id,materialTitle,serialized,JSON.stringify(["curso","material_v19"]),JSON.stringify({course_material:true,version:19,lesson_id:row.lesson_id,language:languageName}),now,now).run();
   return json({material,cached:false,updated_at:now});
 }
 

@@ -369,7 +369,7 @@ async function renderCourseLesson(){
     <div class="lesson-course-grid masterclass-grid">
       <main class="card lesson-main masterclass-main">
         <div id="course-learning-body" class="course-learning-body">
-          <div class="masterclass-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu clase</strong><span>${escapeHtml(item.topic_name)}</span><small>Organizando teoría, ejemplos, práctica y resumen…</small></div>
+          <div class="masterclass-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu clase</strong><span>${escapeHtml(item.topic_name)}</span><small>Organizando teoría, diagramas, mapa conceptual, videos, práctica y resumen…</small></div>
         </div>
         <section class="course-question-box">
           <div><div class="panel-code">¿TE QUEDÓ UNA DUDA?</div><strong>Pregunta sobre esta clase</strong><small>MED AI responderá sin sacarte del tema que estás estudiando.</small></div>
@@ -455,25 +455,247 @@ function renderCourseMasterclassMaterial(){
   if(!p)return;
   const body=$("#course-learning-body");
   body.innerHTML=`
-    <article class="masterclass-document" id="masterclass-document">
-      <header class="masterclass-document-head">
-        <div><div class="eyebrow">CLASE · ${escapeHtml(s.name.toUpperCase())}</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><p>${escapeHtml(p.overview||item.summary||"")}</p></div>
+    <article class="masterclass-document multimedia-masterclass" id="masterclass-document">
+      <header class="masterclass-document-head multimedia-doc-head">
+        <div><div class="eyebrow">CLASE MULTIMEDIA · ${escapeHtml(s.name.toUpperCase())}</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><p>${escapeHtml(p.overview||item.summary||"")}</p></div>
         <div class="masterclass-doc-actions"><span>${Number(p.estimated_minutes||35)} MIN</span><button id="course-pdf-main" class="secondary-btn">▣ GUARDAR PDF</button></div>
       </header>
-      <section class="masterclass-objectives"><div class="panel-code">AL TERMINAR PODRÁS</div><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
-      <nav class="masterclass-index"><span>CONTENIDO DE LA SESIÓN</span>${(p.sections||[]).map((x,i)=>`<a href="#mc-section-${i}"><b>${String(i+1).padStart(2,"0")}</b>${escapeHtml(x.title)}</a>`).join("")}</nav>
-      <div class="masterclass-sections">
-        ${(p.sections||[]).map((sec,i)=>`<section class="masterclass-section" id="mc-section-${i}"><div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div><div class="masterclass-section-content"><h2>${escapeHtml(sec.title||`Parte ${i+1}`)}</h2><div class="masterclass-prose">${renderStudyParagraphs(sec.content||"")}</div>${sec.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${sec.key_points.map(k=>`<li>${escapeHtml(k)}</li>`).join("")}</ul></div>`:""}${sec.example?`<div class="masterclass-example"><span>EJEMPLO</span>${renderStudyParagraphs(sec.example)}</div>`:""}${sec.application?`<div class="masterclass-application"><span>APLICACIÓN</span>${renderStudyParagraphs(sec.application)}</div>`:""}</div></section>`).join("")}
+
+      <section class="masterclass-objectives">
+        <div class="panel-code">AL TERMINAR PODRÁS</div>
+        <ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>
+      </section>
+
+      <div class="academy-learning-tabs" role="tablist" aria-label="Recursos de la clase">
+        <button class="academy-learning-tab active" data-academy-view="read"><span>📖</span><b>LECCIÓN</b><small>Texto completo</small></button>
+        <button class="academy-learning-tab" data-academy-view="diagram"><span>◈</span><b>DIAGRAMA</b><small>Ver el proceso</small></button>
+        <button class="academy-learning-tab" data-academy-view="map"><span>⌘</span><b>MAPA</b><small>Conectar ideas</small></button>
+        <button class="academy-learning-tab" data-academy-view="videos"><span>▶</span><b>VIDEOS</b><small>Recursos web</small></button>
       </div>
-      ${p.key_terms?.length?`<section class="masterclass-terms"><div class="panel-code">CONCEPTOS QUE DEBES DOMINAR</div><div>${p.key_terms.map(t=>`<span>${escapeHtml(t)}</span>`).join("")}</div></section>`:""}
-      <footer class="masterclass-next"><div><strong>¿Terminaste de estudiar?</strong><span>Ahora aplica lo aprendido sin mirar el texto.</span></div><button id="go-course-practice" class="primary-btn">IR A PRÁCTICA →</button></footer>
+
+      <div id="academy-learning-view" class="academy-learning-view"></div>
+
+      <footer class="masterclass-next">
+        <div><strong>¿Terminaste de estudiar y explorar los recursos?</strong><span>Ahora aplica lo aprendido con ejercicios antes del resumen y el examen.</span></div>
+        <button id="go-course-practice" class="primary-btn">IR A PRÁCTICA →</button>
+      </footer>
     </article>`;
+
   $("#course-pdf-main").onclick=printCourseMaterialPdf;
   $("#go-course-practice").onclick=async()=>{if(!Number(item.completed)&&Number(item.progress_percent||0)<40)await updateCourseLessonProgress(40,false,{stage:"practice_ready"});openCoursePhase("practice")};
+
+  $$(".academy-learning-tab").forEach(btn=>btn.onclick=()=>{
+    $$(".academy-learning-tab").forEach(x=>x.classList.toggle("active",x===btn));
+    renderAcademyLearningView(btn.dataset.academyView);
+  });
+  renderAcademyLearningView("read");
+}
+
+function renderAcademyLearningView(view){
+  const p=state.courseLearningPack,item=state.currentLesson,s=state.currentSubject;
+  const box=$("#academy-learning-view");if(!p||!box)return;
+
+  if(view==="diagram"){
+    box.innerHTML=renderCourseDiagram(p.diagram,p.sections||[]);
+    $$(".academy-diagram-step",box).forEach(step=>step.onclick=()=>{
+      const detail=step.querySelector(".academy-diagram-detail");
+      if(detail)detail.classList.toggle("open");
+      step.classList.toggle("selected");
+    });
+    return;
+  }
+
+  if(view==="map"){
+    box.innerHTML=renderCourseConceptMap(p.concept_map,p);
+    $$(".academy-map-branch",box).forEach(branch=>branch.onclick=()=>{
+      if(branch.classList.contains("expanded"))branch.classList.remove("expanded");
+      else{
+        $$(".academy-map-branch",box).forEach(x=>x.classList.remove("expanded"));
+        branch.classList.add("expanded");
+      }
+    });
+    return;
+  }
+
+  if(view==="videos"){
+    box.innerHTML=renderCourseVideoHub(s,item);
+    $$(".academy-video-search",box).forEach(btn=>btn.onclick=()=>{
+      const url=btn.dataset.url;
+      if(url)window.open(url,"_blank","noopener,noreferrer");
+    });
+    $("#academy-load-video")?.addEventListener("click",loadCourseYoutubeVideo);
+    $("#academy-video-url")?.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();loadCourseYoutubeVideo()}});
+    return;
+  }
+
+  box.innerHTML=`
+    <div class="academy-reading-layout">
+      <aside class="academy-reading-nav">
+        <span>CONTENIDO</span>
+        ${(p.sections||[]).map((x,i)=>`<button data-section="${i}"><b>${String(i+1).padStart(2,"0")}</b><small>${escapeHtml(x.title)}</small></button>`).join("")}
+        ${p.key_terms?.length?`<button data-section="terms"><b>◆</b><small>Conceptos clave</small></button>`:""}
+      </aside>
+      <div class="masterclass-sections academy-reading-content">
+        ${(p.sections||[]).map((sec,i)=>`
+          <section class="masterclass-section academy-study-section" id="mc-section-${i}">
+            <div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div>
+            <div class="masterclass-section-content">
+              <div class="academy-section-heading">
+                <h2>${escapeHtml(sec.title||`Parte ${i+1}`)}</h2>
+                <button class="academy-listen-section secondary-btn" data-section="${i}">🔊 ESCUCHAR</button>
+              </div>
+              <div class="masterclass-prose">${renderStudyParagraphs(sec.content||"")}</div>
+              ${sec.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${sec.key_points.map(k=>`<li>${escapeHtml(k)}</li>`).join("")}</ul></div>`:""}
+              ${sec.example?`<div class="masterclass-example"><span>EJEMPLO</span>${renderStudyParagraphs(sec.example)}</div>`:""}
+              ${sec.application?`<div class="masterclass-application"><span>APLICACIÓN</span>${renderStudyParagraphs(sec.application)}</div>`:""}
+              <button class="academy-understood-btn" data-understood="${i}">✓ MARCAR COMO REVISADO</button>
+            </div>
+          </section>`).join("")}
+        ${p.key_terms?.length?`<section class="masterclass-terms academy-keyterms" id="mc-terms"><div class="panel-code">CONCEPTOS QUE DEBES DOMINAR</div><div>${p.key_terms.map(t=>`<span>${escapeHtml(t)}</span>`).join("")}</div></section>`:""}
+      </div>
+    </div>`;
+
+  $$(".academy-reading-nav button",box).forEach(btn=>btn.onclick=()=>{
+    const target=btn.dataset.section==="terms"?$("#mc-terms"):$(`#mc-section-${btn.dataset.section}`);
+    target?.scrollIntoView({behavior:"smooth",block:"start"});
+  });
+  $$(".academy-listen-section",box).forEach(btn=>btn.onclick=()=>{
+    const sec=p.sections?.[Number(btn.dataset.section)];
+    if(!sec)return;
+    const lang=s.code==="LANG"?state.courseLanguage:"es-GT";
+    speakText(`${sec.title}. ${sec.content}. ${sec.example||""}`,lang);
+  });
+  $$(".academy-understood-btn",box).forEach(btn=>btn.onclick=()=>{
+    btn.classList.toggle("done");
+    btn.textContent=btn.classList.contains("done")?"✓ REVISADO":"✓ MARCAR COMO REVISADO";
+  });
 }
 
 function renderStudyParagraphs(text){
   return String(text||"").split(/\n{2,}|\n/).map(x=>x.trim()).filter(Boolean).map(x=>`<p>${formatInline(x)}</p>`).join("");
+}
+
+function renderCourseDiagram(diagram,sections=[]){
+  const fallback={
+    title:"Secuencia esencial del tema",
+    caption:"Toca cada bloque para ampliar la idea.",
+    steps:(sections||[]).slice(0,6).map((s,i)=>({label:s.title||`Paso ${i+1}`,detail:(s.key_points||[]).slice(0,2).join(" · ")||String(s.content||"").slice(0,180)}))
+  };
+  const d=diagram&&Array.isArray(diagram.steps)&&diagram.steps.length?diagram:fallback;
+  return `<section class="academy-visual-panel">
+    <header class="academy-resource-head"><div><span>DIAGRAMA INTERACTIVO</span><h2>${escapeHtml(d.title||"Diagrama del tema")}</h2><p>${escapeHtml(d.caption||"Selecciona un bloque para ver su explicación.")}</p></div><div class="academy-resource-icon">◈</div></header>
+    <div class="academy-diagram-flow">
+      ${(d.steps||[]).slice(0,8).map((step,i)=>`
+        <div class="academy-diagram-step" tabindex="0">
+          <div class="academy-diagram-index">${String(i+1).padStart(2,"0")}</div>
+          <strong>${escapeHtml(step.label||`Paso ${i+1}`)}</strong>
+          <div class="academy-diagram-detail">${escapeHtml(step.detail||"")}</div>
+        </div>
+        ${i<(d.steps||[]).slice(0,8).length-1?`<div class="academy-diagram-arrow">→</div>`:""}`).join("")}
+    </div>
+    <div class="academy-resource-note">Este diagrama resume relaciones del material generado para esta clase. Úsalo para recordar el orden o la lógica general; vuelve al texto para estudiar los detalles.</div>
+  </section>`;
+}
+
+function renderCourseConceptMap(map,p){
+  const fallback={
+    center:p.title||state.currentLesson?.topic_name||"Tema",
+    branches:(p.sections||[]).slice(0,6).map(s=>({label:s.title,children:(s.key_points||[]).slice(0,3)}))
+  };
+  const m=map&&Array.isArray(map.branches)&&map.branches.length?map:fallback;
+  return `<section class="academy-visual-panel">
+    <header class="academy-resource-head"><div><span>MAPA CONCEPTUAL</span><h2>Cómo se conectan las ideas</h2><p>Toca una rama para desplegar sus conceptos relacionados.</p></div><div class="academy-resource-icon map">⌘</div></header>
+    <div class="academy-concept-map">
+      <div class="academy-map-center"><span>TEMA CENTRAL</span><strong>${escapeHtml(m.center||p.title||"Tema")}</strong></div>
+      <div class="academy-map-branches">
+        ${(m.branches||[]).slice(0,7).map((branch,i)=>`
+          <button class="academy-map-branch branch-${i%5}">
+            <span>${String(i+1).padStart(2,"0")}</span>
+            <strong>${escapeHtml(branch.label||"Concepto")}</strong>
+            <div>${(branch.children||[]).slice(0,4).map(x=>`<small>${escapeHtml(x)}</small>`).join("")}</div>
+          </button>`).join("")}
+      </div>
+    </div>
+  </section>`;
+}
+
+function courseVideoRecommendations(subject,item){
+  const topic=item?.topic_name||"tema";
+  const code=subject?.code||"MED";
+  const langName=LANGUAGE_OPTIONS.find(x=>x[0]===state.courseLanguage)?.[1]||"Inglés";
+  let sources;
+  if(code==="MATH")sources=[
+    ["Khan Academy","Khan Academy Español",`${topic} Khan Academy Español`,"Fundamentos y práctica guiada."],
+    ["3Blue1Brown","3Blue1Brown",`${topic} 3Blue1Brown`,"Intuición visual para ideas matemáticas."],
+    ["julioprofe","julioprofe",`${topic} julioprofe`,"Problemas y procedimientos paso a paso."]
+  ];
+  else if(code==="PHYS")sources=[
+    ["Khan Academy","Khan Academy Física",`${topic} física Khan Academy Español`,"Conceptos, ecuaciones y ejercicios."],
+    ["QuantumFracture","QuantumFracture",`${topic} QuantumFracture`,"Explicaciones visuales de física."],
+    ["Flipping Physics","Flipping Physics",`${topic} Flipping Physics`,"Resolución de problemas y demostraciones."]
+  ];
+  else if(code==="ASTRO")sources=[
+    ["Crash Course Astronomy","Crash Course Astronomy",`${topic} Crash Course Astronomy`,"Curso visual y progresivo de astronomía."],
+    ["PBS Space Time","PBS Space Time",`${topic} PBS Space Time`,"Profundización en astrofísica y cosmología."],
+    ["Astrum","Astrum",`${topic} Astrum astronomy`,"Visualizaciones y exploración del universo."]
+  ];
+  else if(code==="LANG"){
+    const extra=state.courseLanguage==="la"?"Latintutorial":
+      state.courseLanguage==="he-IL"?"HebrewPod101":
+      state.courseLanguage==="ru-RU"?"RussianPod101":
+      state.courseLanguage==="fr-FR"?"Easy French":"BBC Learning English";
+    sources=[
+      ["Easy Languages","Easy Languages",`${langName} ${topic} Easy Languages`,"Conversaciones y situaciones reales."],
+      [extra,extra,`${topic} ${extra}`,"Explicación específica del idioma."],
+      ["Pronunciación","YouTube",`${langName} pronunciation ${topic}`,"Escucha y repetición del tema."]
+    ];
+  }else sources=[
+    ["Khan Academy","Khan Academy",`${topic} medicina Khan Academy`,"Fundamentos visuales de ciencias de la salud."],
+    ["Ninja Nerd","Ninja Nerd",`${topic} Ninja Nerd`,"Clases extensas con razonamiento y diagramas."],
+    ["Osmosis","Osmosis",`${topic} Osmosis`,"Repaso visual y clínico del tema."]
+  ];
+  return sources.map(([source,channel,query,description])=>({
+    source,channel,query,description,
+    url:`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+  }));
+}
+
+function renderCourseVideoHub(subject,item){
+  const videos=courseVideoRecommendations(subject,item);
+  return `<section class="academy-visual-panel">
+    <header class="academy-resource-head"><div><span>VIDEOTECA DEL TEMA</span><h2>Complementa la clase con videos</h2><p>Abre búsquedas preparadas para este tema en canales educativos conocidos. Los videos requieren internet y son material complementario.</p></div><div class="academy-resource-icon video">▶</div></header>
+    <div class="academy-video-grid">
+      ${videos.map((v,i)=>`<article class="academy-video-card">
+        <div class="academy-video-thumb thumb-${i%4}"><span>▶</span><small>VIDEO WEB</small></div>
+        <div class="academy-video-copy"><span>${escapeHtml(v.source)}</span><h3>${escapeHtml(v.query)}</h3><p>${escapeHtml(v.description)}</p><button class="academy-video-search primary-btn" data-url="${escapeAttr(v.url)}">BUSCAR VIDEOS →</button></div>
+      </article>`).join("")}
+    </div>
+    <div class="academy-embed-box">
+      <div><span>REPRODUCTOR DE LA CLASE</span><strong>¿Encontraste un video que te gustó?</strong><p>Pega aquí su enlace de YouTube para verlo dentro de MED AI mientras estudias.</p></div>
+      <div class="academy-video-loader"><input id="academy-video-url" type="url" placeholder="https://www.youtube.com/watch?v=..."><button id="academy-load-video" class="secondary-btn">CARGAR VIDEO</button></div>
+      <div id="academy-video-player" class="academy-video-player"><div><b>▶</b><span>El reproductor aparecerá aquí.</span></div></div>
+    </div>
+  </section>`;
+}
+
+function extractYoutubeId(value){
+  try{
+    const url=new URL(String(value||"").trim());
+    if(url.hostname==="youtu.be")return url.pathname.slice(1).split("/")[0];
+    if(url.hostname.includes("youtube.com")){
+      if(url.pathname.startsWith("/shorts/"))return url.pathname.split("/")[2];
+      if(url.pathname.startsWith("/embed/"))return url.pathname.split("/")[2];
+      return url.searchParams.get("v");
+    }
+  }catch{}
+  return null;
+}
+
+function loadCourseYoutubeVideo(){
+  const input=$("#academy-video-url"),holder=$("#academy-video-player");
+  const id=extractYoutubeId(input?.value);
+  if(!id||!/^[A-Za-z0-9_-]{6,20}$/.test(id||""))return toast("Pega un enlace válido de YouTube.",true);
+  holder.innerHTML=`<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?rel=0" title="Video educativo de la clase" loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
 }
 
 function renderCoursePracticeStart(){
@@ -597,7 +819,15 @@ function printCourseMaterialPdf(){
   const win=window.open("","_blank");if(!win)return toast("El navegador bloqueó la ventana. Permite ventanas emergentes para guardar el PDF.",true);try{win.opener=null}catch{}
   const summary=p.summary||{};
   const sections=(p.sections||[]).map((sec,i)=>`<section><h2>${i+1}. ${escapeHtml(sec.title||"")}</h2>${renderStudyParagraphs(sec.content||"")}${sec.key_points?.length?`<h3>Puntos clave</h3><ul>${sec.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${sec.example?`<div class="box"><b>Ejemplo</b>${renderStudyParagraphs(sec.example)}</div>`:""}${sec.application?`<div class="box"><b>Aplicación</b>${renderStudyParagraphs(sec.application)}</div>`:""}</section>`).join("");
-  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||item.topic_name)}</title><style>@page{margin:18mm}body{font-family:Arial,'Noto Sans',sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:12px;margin-bottom:20px}.brand{font-size:9pt;letter-spacing:.12em;color:#168c75;font-weight:bold}h1{font-size:25pt;margin:6px 0}h2{font-size:16pt;margin-top:24px;color:#153f47}h3{font-size:11pt;color:#168c75}p{margin:7px 0}li{margin:4px 0}.objectives,.box,.summary{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 13px;margin:12px 0}.meta{color:#5c6872;font-size:9pt}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:24px;padding-top:10px;border-top:1px solid #ccd6da;color:#69767f;font-size:8pt}@media print{button{display:none}}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL DE ESTUDIO</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><div class="meta">Materia: ${escapeHtml(s.name)} · Tema ${item.index+1} de ${state.currentCourse.total} · ${new Date().toLocaleDateString("es-GT")}</div><p>${escapeHtml(p.overview||"")}</p></header><div class="objectives"><h3>Objetivos</h3><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${sections}${p.key_terms?.length?`<section class="terms"><h2>Conceptos clave</h2>${p.key_terms.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section>`:""}<section class="summary"><h2>Resumen de la lección</h2><p>${escapeHtml(summary.overview||"")}</p><h3>Debes recordar</h3><ul>${(summary.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section><footer>Material educativo generado en MED AI DALTON. Para guardar: selecciona “Guardar como PDF” en el cuadro de impresión de tu dispositivo.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  const diagram=p.diagram&&p.diagram.steps?.length?p.diagram:{title:"Secuencia esencial del tema",steps:(p.sections||[]).slice(0,6).map(x=>({label:x.title,detail:(x.key_points||[]).slice(0,2).join(" · ")}))};
+  const map=p.concept_map&&p.concept_map.branches?.length?p.concept_map:{center:p.title,branches:(p.sections||[]).slice(0,6).map(x=>({label:x.title,children:(x.key_points||[]).slice(0,3)}))};
+  const videos=courseVideoRecommendations(s,item);
+
+  const diagramHtml=`<section class="visual"><h2>Diagrama del tema</h2><h3>${escapeHtml(diagram.title||"")}</h3><div class="flow">${(diagram.steps||[]).map((x,i)=>`<div><b>${i+1}. ${escapeHtml(x.label||"")}</b><span>${escapeHtml(x.detail||"")}</span></div>${i<(diagram.steps||[]).length-1?`<em>→</em>`:""}`).join("")}</div></section>`;
+  const mapHtml=`<section class="visual"><h2>Mapa conceptual</h2><div class="mapcenter">${escapeHtml(map.center||p.title||"")}</div><div class="mapbranches">${(map.branches||[]).map(b=>`<div><b>${escapeHtml(b.label||"")}</b><ul>${(b.children||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`).join("")}</div></section>`;
+  const videoHtml=`<section><h2>Videos complementarios</h2><p>Estos enlaces abren búsquedas del tema en YouTube. Requieren internet.</p><ul>${videos.map(v=>`<li><b>${escapeHtml(v.source)}:</b> ${escapeHtml(v.query)} — ${escapeHtml(v.url)}</li>`).join("")}</ul></section>`;
+
+  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||item.topic_name)}</title><style>@page{margin:18mm}body{font-family:Arial,'Noto Sans',sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:12px;margin-bottom:20px}.brand{font-size:9pt;letter-spacing:.12em;color:#168c75;font-weight:bold}h1{font-size:25pt;margin:6px 0}h2{font-size:16pt;margin-top:24px;color:#153f47}h3{font-size:11pt;color:#168c75}p{margin:7px 0}li{margin:4px 0}.objectives,.box,.summary,.visual{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 13px;margin:12px 0}.meta{color:#5c6872;font-size:9pt}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}.flow{display:flex;align-items:stretch;gap:5px;flex-wrap:wrap}.flow>div{border:1px solid #cad6da;background:white;padding:8px;min-width:110px;flex:1}.flow span,.flow b{display:block}.flow span{font-size:9pt;margin-top:4px;color:#52616b}.flow em{align-self:center;color:#168c75;font-weight:bold}.mapcenter{text-align:center;background:#153f47;color:white;padding:9px;font-weight:bold}.mapbranches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:7px}.mapbranches>div{background:white;border:1px solid #cad6da;padding:8px}footer{margin-top:24px;padding-top:10px;border-top:1px solid #ccd6da;color:#69767f;font-size:8pt}@media print{button{display:none}}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL MULTIMEDIA DE ESTUDIO</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><div class="meta">Materia: ${escapeHtml(s.name)} · Tema ${item.index+1} de ${state.currentCourse.total} · ${new Date().toLocaleDateString("es-GT")}</div><p>${escapeHtml(p.overview||"")}</p></header><div class="objectives"><h3>Objetivos</h3><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${sections}${diagramHtml}${mapHtml}${p.key_terms?.length?`<section class="terms"><h2>Conceptos clave</h2>${p.key_terms.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section>`:""}<section class="summary"><h2>Resumen de la lección</h2><p>${escapeHtml(summary.overview||"")}</p><h3>Debes recordar</h3><ul>${(summary.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${videoHtml}<footer>Material educativo generado en MED AI DALTON. Los videos son recursos web complementarios y su disponibilidad depende de terceros. Para guardar este documento selecciona “Guardar como PDF” en el cuadro de impresión.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
   win.document.open();win.document.write(doc);win.document.close();
 }
 
@@ -2212,7 +2442,7 @@ async function hardRefreshApplication(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=18.0.0",{updateViaCache:"none"}).catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=19.0.0",{updateViaCache:"none"}).catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
