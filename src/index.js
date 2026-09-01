@@ -546,9 +546,122 @@ async function topics(url, env) {
   return json({ topics: rows.results || [] });
 }
 
+function normalizeCourseLanguage(value){
+  const allowed=new Set(["he-IL","la","en-US","ru-RU","fr-FR"]);
+  return allowed.has(value)?value:"en-US";
+}
+
 function courseLanguageKey(value){
-  const allowed={"en-US":"en","fr-FR":"fr","pt-BR":"pt","it-IT":"it","de-DE":"de","ja-JP":"ja","ko-KR":"ko","zh-CN":"zh"};
-  return allowed[value]||"en";
+  const normalized=normalizeCourseLanguage(value);
+  const allowed={"he-IL":"he","la":"la","en-US":"en","ru-RU":"ru","fr-FR":"fr"};
+  return allowed[normalized];
+}
+
+const LANGUAGE_COURSE_PATHS={
+  "he":[
+    "Alef-bet: reconocimiento de las letras",
+    "Alef-bet: escritura y formas finales",
+    "Niqqud y pronunciación básica",
+    "Saludos, presentaciones y frases esenciales",
+    "Género, número y concordancia",
+    "Artículos, preposiciones y posesión",
+    "Raíces de palabras y formación de vocabulario",
+    "Verbos: presente y patrones básicos",
+    "Verbos: pasado",
+    "Verbos: futuro",
+    "Binyanim: introducción a los patrones verbales",
+    "Oraciones, preguntas y negación",
+    "Lectura de textos sencillos sin niqqud",
+    "Conversación cotidiana y comprensión auditiva",
+    "Hebreo académico y vocabulario formal",
+    "Lectura avanzada, expresiones y matices"
+  ],
+  "la":[
+    "Pronunciación y alfabeto latino",
+    "Concepto de caso, género y número",
+    "Primera declinación",
+    "Segunda declinación",
+    "Adjetivos y concordancia",
+    "Presente de indicativo y verbo sum",
+    "Tercera declinación",
+    "Cuarta y quinta declinación",
+    "Pronombres y demostrativos",
+    "Imperfecto y futuro",
+    "Perfecto, pluscuamperfecto y futuro perfecto",
+    "Voz pasiva",
+    "Infinitivos y participios",
+    "Subjuntivo",
+    "Proposiciones subordinadas",
+    "Acusativo con infinitivo y estilo indirecto",
+    "Sintaxis avanzada",
+    "Lectura guiada de textos latinos"
+  ],
+  "en":[
+    "Pronunciación, alfabeto y sonidos fundamentales",
+    "A1 · Saludos, presentaciones y verbo to be",
+    "A1 · Presente simple y vida cotidiana",
+    "A1 · Preguntas, negación y vocabulario esencial",
+    "A2 · Pasado simple y experiencias",
+    "A2 · Futuro, planes y situaciones prácticas",
+    "A2 · Modales y comparaciones",
+    "B1 · Presente perfecto y narración",
+    "B1 · Conversación independiente",
+    "B1 · Comprensión de textos y escucha",
+    "B2 · Condicionales y estructuras complejas",
+    "B2 · Argumentación y precisión",
+    "B2 · Phrasal verbs y expresiones",
+    "C1 · Escritura académica y profesional",
+    "C1 · Matices, registro y fluidez",
+    "C1 · Comprensión avanzada",
+    "C2 · Precisión idiomática y estilo",
+    "C2 · Dominio funcional avanzado"
+  ],
+  "ru":[
+    "Alfabeto cirílico",
+    "Pronunciación, acento y reducción vocálica",
+    "Saludos, presentaciones y frases esenciales",
+    "Género y número de sustantivos",
+    "Caso nominativo y estructura básica",
+    "Caso acusativo",
+    "Caso preposicional",
+    "Caso genitivo",
+    "Caso dativo",
+    "Caso instrumental",
+    "Verbos en presente y conjugaciones",
+    "Pasado y futuro",
+    "Aspecto verbal: perfectivo e imperfectivo",
+    "Verbos de movimiento",
+    "Adjetivos, pronombres y concordancia",
+    "Oraciones complejas y conectores",
+    "Conversación y comprensión intermedia",
+    "Ruso avanzado: registro, matices y textos auténticos"
+  ],
+  "fr":[
+    "Pronunciación, alfabeto y sonidos franceses",
+    "A1 · Saludos, presentaciones y être / avoir",
+    "A1 · Artículos, género y número",
+    "A1 · Presente y verbos frecuentes",
+    "A1 · Preguntas, negación y vida cotidiana",
+    "A2 · Passé composé",
+    "A2 · Imparfait y narración",
+    "A2 · Futuro y situaciones prácticas",
+    "B1 · Pronombres y estructuras frecuentes",
+    "B1 · Conversación independiente",
+    "B1 · Comprensión auditiva y lectura",
+    "B2 · Subjonctif y estructuras complejas",
+    "B2 · Argumentación y precisión",
+    "B2 · Expresiones idiomáticas",
+    "C1 · Escritura académica y profesional",
+    "C1 · Registro, matices y fluidez",
+    "C2 · Comprensión avanzada",
+    "C2 · Dominio funcional y estilo"
+  ]
+};
+
+function coursePathFor(subjectCode,language){
+  if(subjectCode!=="LANG") return COURSE_PATHS[subjectCode]||[];
+  const key=courseLanguageKey(language);
+  return LANGUAGE_COURSE_PATHS[key]||LANGUAGE_COURSE_PATHS.en;
 }
 
 function coursePrefix(subjectCode, language){
@@ -556,7 +669,7 @@ function coursePrefix(subjectCode, language){
 }
 
 async function ensureSubjectCourse(env, subject, language){
-  const names=COURSE_PATHS[subject.code]||[];
+  const names=coursePathFor(subject.code,language);
   if(!names.length) return;
   const prefix=coursePrefix(subject.code,language);
   const now=new Date().toISOString();
@@ -568,14 +681,15 @@ async function ensureSubjectCourse(env, subject, language){
     const difficulty=Math.max(1,Math.min(10,Math.ceil((index+1)/names.length*10)));
     const summary=`Lección guiada ${index+1} de ${names.length}. Avanza desde los fundamentos hasta la aplicación de ${name}.`;
     const objectives=[`Comprender los fundamentos de ${name}.`,`Explicar los conceptos clave con tus propias palabras.`,`Aplicar ${name} en preguntas, problemas o escenarios apropiados al nivel.`];
-    statements.push(env.DB.prepare(`INSERT INTO topics (id,subject_id,parent_topic_id,slug,name,description,difficulty_min,difficulty_max,estimated_minutes,sort_order,active,created_at,updated_at) VALUES (?,?,NULL,?,?,?, ?, ?,35,?,1,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,difficulty_min=excluded.difficulty_min,difficulty_max=excluded.difficulty_max,estimated_minutes=excluded.estimated_minutes,sort_order=excluded.sort_order,active=1,updated_at=excluded.updated_at`).bind(topicId,subject.id,`${subject.code.toLowerCase()}-curso-${n}`,name,summary,difficulty,difficulty,1000+index,now,now));
+    const slug=subject.code==="LANG"?`lang-${courseLanguageKey(language)}-curso-${n}`:`${subject.code.toLowerCase()}-curso-${n}`;
+    statements.push(env.DB.prepare(`INSERT INTO topics (id,subject_id,parent_topic_id,slug,name,description,difficulty_min,difficulty_max,estimated_minutes,sort_order,active,created_at,updated_at) VALUES (?,?,NULL,?,?,?, ?, ?,35,?,1,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,difficulty_min=excluded.difficulty_min,difficulty_max=excluded.difficulty_max,estimated_minutes=excluded.estimated_minutes,sort_order=excluded.sort_order,active=1,updated_at=excluded.updated_at`).bind(topicId,subject.id,slug,name,summary,difficulty,difficulty,1000+index,now,now));
     statements.push(env.DB.prepare(`INSERT INTO lessons (id,topic_id,title,summary,content_md,learning_objectives_json,clinical_pearls_json,common_errors_json,source_references_json,estimated_minutes,difficulty,version,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,35,?,1,1,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,summary=excluded.summary,learning_objectives_json=excluded.learning_objectives_json,difficulty=excluded.difficulty,active=1,updated_at=excluded.updated_at`).bind(lessonId,topicId,`${n} · ${name}`,summary,"Lección guiada por MED AI.",JSON.stringify(objectives),"[]","[]","[]",difficulty,now,now));
   });
   await env.DB.batch(statements);
 }
 
 async function getCourseSummaries(url,env,user){
-  const language=url.searchParams.get("language")||"en-US";
+  const language=normalizeCourseLanguage(url.searchParams.get("language")||"en-US");
   const subjectsRows=await env.DB.prepare("SELECT id,code,name FROM subjects WHERE active=1 ORDER BY sort_order,name").all();
   const progressRows=await env.DB.prepare(`
     SELECT t.subject_id,t.id AS topic_id,COALESCE(p.completed,0) AS completed
@@ -588,7 +702,7 @@ async function getCourseSummaries(url,env,user){
   const allProgress=progressRows.results||[];
   const summaries={};
   for(const subject of (subjectsRows.results||[])){
-    const path=COURSE_PATHS[subject.code]||[];
+    const path=coursePathFor(subject.code,language);
     if(!path.length) continue;
     const prefix=coursePrefix(subject.code,language)+"_";
     const completed=allProgress.filter(row=>
@@ -611,7 +725,7 @@ async function getCourseSummaries(url,env,user){
 
 async function getCourse(url, env, user){
   const subjectId=url.searchParams.get("subject_id");
-  const language=url.searchParams.get("language")||"en-US";
+  const language=normalizeCourseLanguage(url.searchParams.get("language")||"en-US");
   if(!subjectId) return json({error:"Falta subject_id."},400);
   const subject=await env.DB.prepare("SELECT id,code,name,description,category,icon FROM subjects WHERE id=? AND active=1").bind(subjectId).first();
   if(!subject) return json({error:"Materia no encontrada."},404);

@@ -4,7 +4,7 @@ const state = {
   dueCards:[], cardIndex:0, showingBack:false, visionDataUrl:null,
   patientConversation:null, patientActive:false, caseSolverConversation:null,
   scienceConversation:null, languageConversation:null, lastLanguageAnswer:"",
-  currentCourse:null,currentLesson:null,courseConversation:null,courseLanguage:localStorage.getItem("medai_course_language")||"en-US",
+  currentCourse:null,currentLesson:null,courseConversation:null,courseLanguage:(()=>{const v=localStorage.getItem("medai_course_language")||"en-US";return ["he-IL","la","en-US","ru-RU","fr-FR"].includes(v)?v:"en-US"})(),
   tutorTranscript:[],tutorSessionTitle:"",courseExam:null
 };
 
@@ -511,7 +511,11 @@ async function sendScienceMessage(code,forcedMessage=null,hideForced=false){
 }
 
 const LANGUAGE_OPTIONS=[
-  ["en-US","Inglés"],["fr-FR","Francés"],["pt-BR","Portugués"],["it-IT","Italiano"],["de-DE","Alemán"],["ja-JP","Japonés"],["ko-KR","Coreano"],["zh-CN","Chino mandarín"]
+  ["he-IL","Hebreo"],
+  ["la","Latín"],
+  ["en-US","Inglés"],
+  ["ru-RU","Ruso"],
+  ["fr-FR","Francés"]
 ];
 
 async function renderLanguageLab(){
