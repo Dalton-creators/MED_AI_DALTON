@@ -90,6 +90,10 @@ export default {
         return recordLanguagePractice(request, env, user);
       }
 
+      if (url.pathname === "/api/language/lesson-pack" && request.method === "POST") {
+        return aiLanguageLessonPack(request, env, user);
+      }
+
       if (url.pathname === "/api/lesson-progress" && request.method === "PUT") {
         return putLessonProgress(request, env, user);
       }
@@ -1497,6 +1501,124 @@ async function aiChat(request, env, user) {
     conversation_id:conversationId,
     model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
     provider:"Cloudflare Workers AI"
+  });
+}
+
+async function aiLanguageLessonPack(request,env,user){
+  ensureAI(env);
+  const body=await readJson(request);
+  const language=normalizeCourseLanguage(body.language||"en-US");
+  const languageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
+  const languageName=languageNames[language]||"Inglés";
+  const topic=cleanText(body.topic,220)||"fundamentos";
+  const level=cleanText(body.level,80)||"A1";
+  const dir=language==="he-IL"?"rtl":"ltr";
+
+  const prompt=`Diseña una microlección interactiva para un estudiante hispanohablante.
+IDIOMA OBJETIVO: ${languageName}
+TEMA: ${topic}
+NIVEL: ${level}
+
+La lección debe ENSEÑAR antes de evaluar. Usa vocabulario y gramática apropiados al tema y al nivel.
+Para Hebreo respeta el alfabeto hebreo y añade pronunciación/transliteración solo cuando ayude.
+Para Latín usa latín correcto y explica los elementos gramaticales en español.
+Para Ruso usa cirílico correcto y transliteración únicamente cuando sea pedagógicamente útil.
+Para Inglés y Francés aumenta progresivamente el uso del idioma objetivo.
+
+Devuelve EXCLUSIVAMENTE JSON válido con esta estructura:
+{
+  "title":"título breve",
+  "goal":"objetivo de aprendizaje",
+  "coach_tip":"consejo de estudio",
+  "vocabulary":[
+    {"target":"palabra o expresión","es":"significado en español","pronunciation":"pronunciación opcional"}
+  ],
+  "mini_lesson":[
+    {"title":"concepto","body":"explicación clara en español","example":"ejemplo en idioma objetivo"}
+  ],
+  "exercises":[
+    {
+      "type":"choice|listen|order|translate|fill|speak",
+      "instruction":"instrucción breve en español",
+      "prompt":"texto objetivo cuando aplique",
+      "prompt_es":"texto en español cuando aplique",
+      "target":"frase que debe escucharse o pronunciarse cuando aplique",
+      "options":["opción1","opción2","opción3","opción4"],
+      "words":["palabra","palabra"],
+      "answer":"respuesta correcta exacta",
+      "pronunciation":"guía opcional",
+      "explanation":"por qué es correcto o qué regla se practica"
+    }
+  ]
+}
+
+REGLAS:
+- Devuelve 5 a 8 elementos de vocabulary.
+- Devuelve 2 o 3 elementos de mini_lesson.
+- Devuelve EXACTAMENTE 8 exercises.
+- Debe haber al menos: 1 choice, 1 listen, 1 order, 1 translate, 1 fill y 1 speak.
+- Las opciones incorrectas deben ser plausibles, no absurdas.
+- En "order", words debe contener la frase correcta separada por palabras y answer debe ser la frase correcta.
+- En "listen", target es lo que se reproduce y answer debe coincidir exactamente con una de las 4 options.
+- En "choice", answer debe coincidir exactamente con una de las 4 options.
+- En "fill", el prompt debe incluir ____ y answer solo la palabra o expresión faltante.
+- En "speak", target y answer deben ser la misma frase.
+- Explica los errores en español.
+- No repitas el mismo ejercicio varias veces.
+- No incluyas markdown.`;
+
+  const response=await callCloudflareAI(env,{
+    model:DEFAULT_FAST_MODEL,
+    messages:[
+      {role:"system",content:"Eres diseñador experto de experiencias de aprendizaje de idiomas. Combinas explicación breve, recuperación activa, práctica contextual, corrección inmediata, escucha y producción oral. Tu salida debe ser JSON válido."},
+      {role:"user",content:prompt}
+    ],
+    max_tokens:3200,
+    temperature:.28
+  });
+
+  const parsed=parseJsonLoose(extractCloudflareText(response));
+  if(!parsed||!Array.isArray(parsed.exercises)||parsed.exercises.length<5){
+    return json({error:"No se pudo estructurar la lección interactiva."},502);
+  }
+
+  const exercises=parsed.exercises.slice(0,8).map((x,i)=>{
+    const type=["choice","listen","order","translate","fill","speak"].includes(String(x.type||"").toLowerCase())?String(x.type).toLowerCase():"choice";
+    return {
+      type,
+      instruction:cleanText(x.instruction,300)||"Resuelve el ejercicio.",
+      prompt:cleanText(x.prompt,1200),
+      prompt_es:cleanText(x.prompt_es,1200),
+      target:cleanText(x.target,1200),
+      options:Array.isArray(x.options)?x.options.slice(0,4).map(v=>cleanText(v,700)):[],
+      words:Array.isArray(x.words)?x.words.slice(0,20).map(v=>cleanText(v,200)).filter(Boolean):[],
+      answer:cleanText(x.answer,1200),
+      pronunciation:cleanText(x.pronunciation,500),
+      explanation:cleanText(x.explanation,1200)
+    };
+  }).filter(x=>x.answer||x.target);
+
+  if(exercises.length<5)return json({error:"La lección generada quedó incompleta."},502);
+
+  return json({
+    language,
+    language_name:languageName,
+    direction:dir,
+    title:cleanText(parsed.title,220)||topic,
+    goal:cleanText(parsed.goal,800)||`Dominar los fundamentos de ${topic}.`,
+    coach_tip:cleanText(parsed.coach_tip,800)||"Intenta responder antes de mirar la corrección.",
+    vocabulary:Array.isArray(parsed.vocabulary)?parsed.vocabulary.slice(0,8).map(v=>({
+      target:cleanText(v.target,500),
+      es:cleanText(v.es,500),
+      pronunciation:cleanText(v.pronunciation,300)
+    })).filter(v=>v.target):[],
+    mini_lesson:Array.isArray(parsed.mini_lesson)?parsed.mini_lesson.slice(0,3).map(v=>({
+      title:cleanText(v.title,180),
+      body:cleanText(v.body,1500),
+      example:cleanText(v.example,800)
+    })).filter(v=>v.title||v.body):[],
+    exercises,
+    model:response.__model||DEFAULT_FAST_MODEL
   });
 }
 

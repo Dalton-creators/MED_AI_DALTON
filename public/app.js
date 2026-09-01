@@ -6,7 +6,7 @@ const state = {
   scienceConversation:null, languageConversation:null, lastLanguageAnswer:"",
   currentCourse:null,currentLesson:null,courseConversation:null,courseLanguage:(()=>{const v=localStorage.getItem("medai_course_language")||"en-US";return ["he-IL","la","en-US","ru-RU","fr-FR"].includes(v)?v:"en-US"})(),
   tutorTranscript:[],tutorSessionTitle:"",courseExam:null,
-  languageCourse:null,languageStats:null,languageGame:null
+  languageCourse:null,languageStats:null,languageGame:null,languageLessonSession:null
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -72,7 +72,7 @@ function bindShell(){
     $(".sidebar").classList.remove("open");
   });
   $("#menu-btn").addEventListener("click",()=>$(".sidebar").classList.toggle("open"));
-  $("#logout-btn").addEventListener("click",()=>location.reload());
+  $("#logout-btn").addEventListener("click",hardRefreshApplication);
   $("#quick-study").addEventListener("click",()=>navigate("study"));
   $("#user-chip").addEventListener("click",()=>navigate("profile"));
   $("#theme-toggle")?.addEventListener("click",toggleTheme);
@@ -114,7 +114,7 @@ async function navigate(view){
       osce:()=>renderAIStudio("osce"),library:renderLibrary,mistakes:renderMistakes,
       plan:renderPlan,stats:renderStats,profile:renderProfile,
       mathematics:()=>renderScienceStudio("MATH"),physics:()=>renderScienceStudio("PHYS"),
-      astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLab,
+      astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLabV17,
       course:renderCourse,course_lesson:renderCourseLesson
     };
     await (renderers[view]||renderDashboard)();
@@ -129,17 +129,37 @@ async function renderDashboard(){
   const resumeSub=d.resume?.lesson_title||"Tu sesión académica queda sincronizada entre todos tus dispositivos.";
   const progress=Math.round(Number(d.resume?.progress_percent||0));
   root.innerHTML=`
-    <section class="institution-header">
-      <div class="institution-main">
-        <div class="institution-code">MED AI DALTON / ACADEMIC MEDICAL TRAINING SYSTEM</div>
-        <h1>Centro de entrenamiento clínico</h1>
-        <p>Buenos días, <strong>${escapeHtml(firstName(name))}</strong>. Continúa tu formación médica desde un entorno estructurado y sin distracciones.</p>
-        <div class="nova-inline"><div class="nova-buddy mini" aria-hidden="true"><span class="nova-antenna"></span><div class="nova-face"><i></i><i></i><b></b></div></div><div><strong>NOVA</strong><span>Tu guía académica · lista para estudiar contigo</span></div></div>
+    <section class="learning-home-hero">
+      <div class="learning-home-copy">
+        <div class="learning-home-chip"><span></span> MED AI DALTON · LEARNING PLATFORM V17</div>
+        <h1>Aprende practicando, no solo leyendo.</h1>
+        <p>Hola, <strong>${escapeHtml(firstName(name))}</strong>. Tu plataforma combina cursos progresivos, Tutor IA, práctica clínica, ciencias e idiomas interactivos en un mismo espacio.</p>
+        <div class="learning-home-actions">
+          <button id="home-course-btn" class="primary-btn">▶ CONTINUAR CURSO</button>
+          <button id="home-language-btn" class="home-color-btn language">🌍 IDIOMAS</button>
+          <button id="home-tutor-btn" class="home-color-btn tutor">✦ TUTOR IA</button>
+        </div>
+        <div class="learning-home-metrics">
+          <div><b>⚡</b><span><strong>${d.profile?.total_xp||0}</strong><small>XP acumulados</small></span></div>
+          <div><b>◎</b><span><strong>${progress}%</strong><small>sesión actual</small></span></div>
+          <div><b>✓</b><span><strong>${d.accuracy}%</strong><small>precisión</small></span></div>
+        </div>
       </div>
-      <div class="institution-id">
-        <span>PERFIL</span>
-        <strong>${escapeHtml(firstName(name)).toUpperCase()}</strong>
-        <small>Nivel ${d.profile?.current_medical_level||1} · ${d.profile?.total_xp||0} XP</small>
+      <div class="learning-home-art" aria-label="NOVA y LUMI, compañeros de aprendizaje">
+        <div class="learning-orbit-ring ring-one"></div>
+        <div class="learning-orbit-ring ring-two"></div>
+        <div class="v17-mascot nova-mascot">
+          <span class="mascot-ear left"></span><span class="mascot-ear right"></span>
+          <div class="mascot-head"><i class="mascot-eye left"></i><i class="mascot-eye right"></i><b class="mascot-mouth"></b></div>
+          <div class="mascot-body"><span>✦</span></div>
+          <i class="mascot-arm left"></i><i class="mascot-arm right"></i>
+        </div>
+        <div class="v17-mascot lumi-mascot small">
+          <span class="mascot-ear left"></span><span class="mascot-ear right"></span>
+          <div class="mascot-head"><i class="mascot-eye left"></i><i class="mascot-eye right"></i><b class="mascot-mouth"></b></div>
+          <div class="mascot-body"><span>●</span></div>
+        </div>
+        <div class="mascot-dialog"><strong>NOVA</strong><span>¿Qué habilidad subimos hoy?</span></div>
       </div>
     </section>
 
@@ -224,6 +244,9 @@ async function renderDashboard(){
   };
   $("#open-tutor-btn").onclick=()=>navigate("tutor");
   $("#open-exam-btn").onclick=()=>navigate("exams");
+  $("#home-course-btn")?.addEventListener("click",()=>$("#continue-btn")?.click());
+  $("#home-language-btn")?.addEventListener("click",()=>navigate("languages"));
+  $("#home-tutor-btn")?.addEventListener("click",()=>navigate("tutor"));
   $$(".clinical-module").forEach(c=>c.onclick=()=>navigate(c.dataset.view));
 }
 
@@ -807,6 +830,534 @@ function speakText(text,lang="en-US"){
   speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=lang;u.rate=.92;speechSynthesis.speak(u);
 }
 
+
+
+/* ============================================================
+   V17 · LANGUAGE LEARNING PLATFORM
+   Curso + mini-lección + ejercicios + pronunciación + IA
+   ============================================================ */
+
+async function renderLanguageLabV17(){
+  state.languageConversation=null;
+  state.lastLanguageAnswer="";
+  state.languageGame={mode:null,current:null,score:0,attempts:0,selectedWords:[]};
+  state.languageLessonSession=null;
+
+  const subject=getSubjectByCode("LANG");
+  state.currentSubject=subject;
+  const code=LANGUAGE_META[state.courseLanguage]?state.courseLanguage:"en-US";
+  state.courseLanguage=code;
+  const meta=LANGUAGE_META[code];
+
+  root.innerHTML=`
+    <div class="v17-language-page">
+      <section class="v17-lang-hero">
+        <div class="v17-lang-hero-copy">
+          <div class="v17-live-label"><i></i> LANGUAGE WORLD · APRENDIZAJE ACTIVO</div>
+          <h1><span id="v17-lang-hello">${escapeHtml(meta.hello)}</span> Aprende ${escapeHtml(meta.name)} haciendo.</h1>
+          <p>Lecciones cortas, explicación antes de practicar, escucha, escritura, pronunciación, conversación y repaso. Tu ruta y progreso siguen guardados por tema.</p>
+          <div class="v17-language-picker" id="v17-language-picker">
+            ${LANGUAGE_OPTIONS.map(([lang,name])=>{
+              const m=LANGUAGE_META[lang];
+              return `<button class="v17-language-pill ${lang===code?"active":""}" data-lang="${lang}">
+                <span class="v17-language-symbol ${m.accent}">${m.mark}</span>
+                <strong>${escapeHtml(name)}</strong>
+              </button>`;
+            }).join("")}
+          </div>
+          <div class="v17-lang-main-actions">
+            <button id="v17-start-lesson" class="v17-big-action primary"><span>▶</span><div><strong>LECCIÓN DEL TEMA ACTUAL</strong><small>Aprender → practicar → comprobar</small></div></button>
+            <button id="v17-pronunciation" class="v17-big-action violet"><span>🎙</span><div><strong>LAB. DE PRONUNCIACIÓN</strong><small>Escucha y habla con micrófono</small></div></button>
+          </div>
+        </div>
+
+        <div class="v17-coach-zone">
+          <div class="v17-coach-spark s1">✦</div><div class="v17-coach-spark s2">●</div><div class="v17-coach-spark s3">✧</div>
+          <div class="v17-mascot nova-mascot language-mascot" id="v17-coach-mascot">
+            <span class="mascot-ear left"></span><span class="mascot-ear right"></span>
+            <div class="mascot-head"><i class="mascot-eye left"></i><i class="mascot-eye right"></i><b class="mascot-mouth"></b></div>
+            <div class="mascot-body"><span>文</span></div>
+            <i class="mascot-arm left"></i><i class="mascot-arm right"></i>
+          </div>
+          <div class="v17-coach-bubble" id="v17-coach-bubble"><strong>NOVA</strong><span>Primero entiendo contigo, luego te hago practicar.</span></div>
+        </div>
+
+        <div class="v17-stats-bar">
+          <div><span class="stat-icon fire">🔥</span><b id="lang-streak">—</b><small>racha</small></div>
+          <div><span class="stat-icon bolt">⚡</span><b id="lang-today-xp">—</b><small>XP hoy</small></div>
+          <div><span class="stat-icon gem">◆</span><b id="lang-total-xp">—</b><small>XP total</small></div>
+          <div><span class="stat-icon target">◎</span><b id="lang-course-progress">—</b><small>curso</small></div>
+        </div>
+      </section>
+
+      <section class="v17-daily-plan">
+        <div class="v17-section-heading">
+          <div><span>PLAN DE HOY</span><h2>Tu sesión de aprendizaje</h2></div>
+          <small>Diseñada para combinar comprensión, memoria y producción.</small>
+        </div>
+        <div class="v17-mission-grid">
+          <button class="v17-mission green" id="v17-mission-lesson"><span class="mission-icon">📘</span><div><b>1</b><strong>Aprende el tema</strong><small>Mini-clase + ejemplos + vocabulario</small></div><em>10–15 min</em></button>
+          <button class="v17-mission blue" id="v17-mission-practice"><span class="mission-icon">🧠</span><div><b>2</b><strong>Práctica adaptativa</strong><small>Retos variados con corrección inmediata</small></div><em>8–10 min</em></button>
+          <button class="v17-mission purple" id="v17-mission-speak"><span class="mission-icon">🎙</span><div><b>3</b><strong>Habla en voz alta</strong><small>Pronunciación y producción real</small></div><em>5 min</em></button>
+          <button class="v17-mission coral" id="v17-mission-converse"><span class="mission-icon">💬</span><div><b>4</b><strong>Conversa con IA</strong><small>Usa lo aprendido en contexto</small></div><em>libre</em></button>
+        </div>
+      </section>
+
+      <section class="v17-learning-path card">
+        <div class="v17-section-heading compact">
+          <div><span>RUTA PROGRESIVA</span><h2 id="lang-route-title">Cargando tu ruta…</h2></div>
+          <button id="lang-open-course" class="ghost-btn">VER CURSO COMPLETO →</button>
+        </div>
+        <div id="language-route" class="language-route"><div class="route-loading"><i></i><span>Preparando progreso…</span></div></div>
+      </section>
+
+      <section class="v17-practice-studio">
+        <aside class="v17-skill-rail">
+          <div class="v17-skill-title"><span>ENTRENAR</span><strong>Habilidades</strong></div>
+          <button class="v17-skill active" data-v17-challenge="mixed"><span class="skill-icon green">✦</span><div><b>Lección completa</b><small>Explicación + 8 retos</small></div></button>
+          <button class="v17-skill" data-v17-challenge="listen"><span class="skill-icon blue">🎧</span><div><b>Escuchar</b><small>Comprensión auditiva</small></div></button>
+          <button class="v17-skill" data-v17-challenge="order"><span class="skill-icon yellow">🧩</span><div><b>Construir frases</b><small>Orden y sintaxis</small></div></button>
+          <button class="v17-skill" data-v17-challenge="speak"><span class="skill-icon purple">🎙</span><div><b>Pronunciar</b><small>Micrófono + comparación</small></div></button>
+          <button class="v17-skill" data-v17-challenge="translate"><span class="skill-icon coral">✍</span><div><b>Escribir</b><small>Producción activa</small></div></button>
+          <div class="v17-session-mini">
+            <span>SESIÓN RÁPIDA</span>
+            <strong><b id="lang-session-score">0</b> XP</strong>
+            <small id="lang-session-attempts">0 retos realizados</small>
+          </div>
+        </aside>
+
+        <main class="v17-lesson-stage" id="language-challenge">
+          <div class="v17-stage-welcome">
+            <div class="v17-stage-orb"><span>${escapeHtml(meta.mark)}</span></div>
+            <div class="eyebrow">AULA INTERACTIVA</div>
+            <h2>Tu próxima lección está lista.</h2>
+            <p id="v17-current-topic">Cargando el tema actual…</p>
+            <div class="v17-stage-benefits">
+              <span>✓ explicación breve</span><span>✓ ejemplos</span><span>✓ 8 ejercicios</span><span>✓ pronunciación</span>
+            </div>
+            <button id="v17-stage-start" class="primary-btn">COMENZAR LECCIÓN</button>
+          </div>
+        </main>
+      </section>
+
+      <section class="v17-coach-ai" id="v17-coach-ai">
+        <div class="v17-section-heading">
+          <div><span>COACH IA</span><h2>Conversa, pregunta y corrige tus errores</h2></div>
+          <small>El Coach IA no sustituye la ruta: la complementa con práctica libre.</small>
+        </div>
+        <div class="language-course-grid">
+          <aside class="card language-controls">
+            <div class="panel-code">CONFIGURAR SESIÓN</div>
+            <div class="field"><label>Nivel</label><select id="lang-level"><option>Empezar desde cero</option><option selected>A1 — Principiante</option><option>A2 — Elemental</option><option>B1 — Intermedio</option><option>B2 — Intermedio alto</option><option>C1 — Avanzado</option><option>C2 — Dominio</option></select></div>
+            <div class="field"><label>Objetivo</label><select id="lang-focus"><option>Curso completo equilibrado</option><option>Conversación</option><option>Comprensión auditiva</option><option>Pronunciación</option><option>Gramática en contexto</option><option>Vocabulario</option><option>Lectura</option><option>Escritura</option><option>Idioma médico y científico</option></select></div>
+            <div class="field"><label>Inmersión</label><select id="lang-immersion"><option value="30">30% · mucha explicación en español</option><option value="60" selected>60% · equilibrio</option><option value="85">85% · mucha práctica</option><option value="100">100% · inmersión</option></select></div>
+            <button id="lang-start" class="primary-btn wide">INICIAR CLASE GUIADA</button>
+            <button id="lang-placement" class="secondary-btn wide" style="margin-top:8px">PRUEBA DE NIVEL</button>
+            <button id="lang-new" class="ghost-btn wide" style="margin-top:8px">NUEVA CONVERSACIÓN</button>
+          </aside>
+          <div class="card chat-panel language-chat">
+            <div class="language-toolbar"><span id="language-session-label">Coach de ${escapeHtml(meta.name)}</span><div><button id="lang-listen" class="secondary-btn">🔊 Escuchar respuesta</button></div></div>
+            <div id="language-messages" class="messages"><div class="message ai">Estoy listo para ayudarte a usar el idioma de forma real. Pregunta, escribe o habla y corregiremos juntos.</div></div>
+            <div class="composer"><button id="lang-mic" class="icon-btn" title="Hablar">🎙</button><textarea id="language-input" rows="2" placeholder="Escribe o habla en el idioma que estás aprendiendo..."></textarea><button id="language-send" class="primary-btn">Enviar</button></div>
+          </div>
+        </div>
+      </section>
+    </div>`;
+
+  $$(".v17-language-pill").forEach(btn=>btn.onclick=()=>selectLanguageV17(btn.dataset.lang));
+  $("#v17-start-lesson").onclick=()=>startV17LanguageLesson();
+  $("#v17-mission-lesson").onclick=()=>startV17LanguageLesson();
+  $("#v17-mission-practice").onclick=()=>startV17LanguageLesson(true);
+  $("#v17-pronunciation").onclick=()=>startLanguageChallenge("speak");
+  $("#v17-mission-speak").onclick=()=>startLanguageChallenge("speak");
+  $("#v17-mission-converse").onclick=()=>$("#v17-coach-ai")?.scrollIntoView({behavior:"smooth",block:"start"});
+  $("#v17-stage-start").onclick=()=>startV17LanguageLesson();
+
+  $$(".v17-skill").forEach(btn=>btn.onclick=()=>{
+    $$(".v17-skill").forEach(x=>x.classList.toggle("active",x===btn));
+    const type=btn.dataset.v17Challenge;
+    if(type==="mixed") startV17LanguageLesson(true);
+    else startLanguageChallenge(type);
+  });
+
+  $("#lang-open-course").onclick=openSelectedLanguageCourse;
+  $("#lang-start").onclick=()=>startLanguageLesson(false);
+  $("#lang-placement").onclick=()=>startLanguageLesson(true);
+  $("#language-send").onclick=()=>sendLanguageMessage();
+  $("#language-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendLanguageMessage()}});
+  $("#lang-new").onclick=()=>{state.languageConversation=null;state.lastLanguageAnswer="";$("#language-messages").innerHTML=`<div class="message ai">Nueva sesión lista. Vamos a trabajar una habilidad concreta.</div>`};
+  $("#lang-mic").onclick=()=>startSpeechRecognition($("#language-input"),state.courseLanguage);
+  $("#lang-listen").onclick=()=>{if(!state.lastLanguageAnswer)return toast("Todavía no hay una respuesta para escuchar.",true);speakLanguageText(state.lastLanguageAnswer,state.courseLanguage)};
+  $("#lang-level").onchange=updateLanguageLabel;
+  updateLanguageLabel();
+
+  await refreshLanguageOverview();
+  updateV17LanguageCurrentTopic();
+}
+
+async function selectLanguageV17(code){
+  if(!LANGUAGE_META[code])return;
+  state.courseLanguage=code;
+  localStorage.setItem("medai_course_language",code);
+  state.languageConversation=null;
+  state.lastLanguageAnswer="";
+  state.languageLessonSession=null;
+  state.languageGame={mode:null,current:null,score:0,attempts:0,selectedWords:[]};
+
+  $$(".v17-language-pill").forEach(b=>b.classList.toggle("active",b.dataset.lang===code));
+  const m=LANGUAGE_META[code];
+  if($("#v17-lang-hello"))$("#v17-lang-hello").textContent=m.hello;
+  if($(".v17-lang-hero h1"))$(".v17-lang-hero h1").innerHTML=`<span id="v17-lang-hello">${escapeHtml(m.hello)}</span> Aprende ${escapeHtml(m.name)} haciendo.`;
+  if($("#language-session-label"))$("#language-session-label").textContent=`Coach de ${m.name}`;
+  if($("#language-messages"))$("#language-messages").innerHTML=`<div class="message ai">Idioma cambiado a ${escapeHtml(m.name)}. Su progreso se guarda de forma independiente.</div>`;
+  if($("#language-challenge"))$("#language-challenge").innerHTML=`<div class="v17-stage-welcome"><div class="v17-stage-orb"><span>${escapeHtml(m.mark)}</span></div><div class="eyebrow">AULA INTERACTIVA</div><h2>Tu próxima lección está lista.</h2><p id="v17-current-topic">Cargando el tema actual…</p><div class="v17-stage-benefits"><span>✓ explicación breve</span><span>✓ ejemplos</span><span>✓ 8 ejercicios</span><span>✓ pronunciación</span></div><button id="v17-stage-start" class="primary-btn">COMENZAR LECCIÓN</button></div>`;
+  $("#v17-stage-start").onclick=()=>startV17LanguageLesson();
+
+  updateV17Coach(`¡${m.hello.replace(/[!！]/g,"")}! Vamos a construir ${m.name} paso a paso.`);
+  await refreshLanguageOverview();
+  updateV17LanguageCurrentTopic();
+}
+
+function updateV17LanguageCurrentTopic(){
+  const course=state.languageCourse;
+  const idx=Math.max(0,Number(course?.next_index||0));
+  const item=course?.items?.[idx];
+  const text=item?`Tema actual: ${item.topic_name} · ${Math.round(Number(item.progress_percent||0))}% estudiado`:"Preparando tu ruta del idioma…";
+  if($("#v17-current-topic"))$("#v17-current-topic").textContent=text;
+}
+
+async function startV17LanguageLesson(practiceFirst=false){
+  const subject=getSubjectByCode("LANG");
+  if(!subject)return toast("No pude encontrar la materia Idiomas.",true);
+  if(!state.languageCourse){
+    await refreshLanguageOverview();
+  }
+  const course=state.languageCourse;
+  const idx=Math.max(0,Number(course?.next_index||0));
+  const item=course?.items?.[idx];
+  if(!item)return toast("No hay un tema disponible en este curso.",true);
+
+  const stage=$("#language-challenge");
+  stage.innerHTML=`<div class="v17-pack-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando una lección interactiva</strong><span>${escapeHtml(item.topic_name)}</span><small>Explicación + ejemplos + práctica variada</small></div>`;
+  updateV17Coach("Estoy preparando una clase corta y ejercicios distintos para que realmente practiques.");
+
+  let pack;
+  try{
+    pack=await api("/api/language/lesson-pack",{method:"POST",body:{
+      language:state.courseLanguage,
+      topic:item.topic_name,
+      level:$("#lang-level")?.value||"A1 — Principiante",
+      practice_first:practiceFirst
+    }});
+  }catch(err){
+    pack=buildV17FallbackLesson(item.topic_name);
+    toast("Usando una lección local de respaldo para evitar interrumpir el estudio.",false);
+  }
+
+  const exercises=Array.isArray(pack.exercises)&&pack.exercises.length?pack.exercises:buildV17FallbackLesson(item.topic_name).exercises;
+  state.languageLessonSession={
+    pack:{...pack,exercises},
+    item,
+    index:0,
+    hearts:5,
+    xp:0,
+    correct:0,
+    answered:false,
+    built:[]
+  };
+  if(practiceFirst) renderV17Exercise();
+  else renderV17LessonIntro();
+}
+
+function buildV17FallbackLesson(topic){
+  const bank=LANGUAGE_CHALLENGES[state.courseLanguage]||LANGUAGE_CHALLENGES["en-US"];
+  const items=languageShuffle(bank).slice(0,6);
+  const m=LANGUAGE_META[state.courseLanguage]||LANGUAGE_META["en-US"];
+  const first=items[0]||bank[0];
+  return {
+    title:topic,
+    goal:`Comprender y usar expresiones esenciales relacionadas con ${topic}.`,
+    coach_tip:"Lee los ejemplos en voz alta. Después intenta responder sin mirar la solución.",
+    vocabulary:items.slice(0,5).map(x=>({target:x.target,es:x.es,pronunciation:x.roman||""})),
+    mini_lesson:[
+      {title:"Idea clave",body:`Hoy trabajarás ${topic} mediante comprensión, recuperación activa y producción.`,example:first?.target||""},
+      {title:"Cómo estudiar",body:"Observa el patrón, repítelo, oculta la respuesta y trata de producirlo por tu cuenta.",example:first?.es||""}
+    ],
+    exercises:[
+      {type:"choice",instruction:"Elige el significado correcto.",prompt:items[0]?.target||first.target,options:languageShuffle([items[0]?.es||first.es,...languageShuffle(bank.filter(x=>x!==items[0])).slice(0,3).map(x=>x.es)]),answer:items[0]?.es||first.es,explanation:"Relaciona la frase completa con su significado."},
+      {type:"listen",instruction:"Escucha y elige lo que significa.",target:items[1]?.target||first.target,options:languageShuffle([items[1]?.es||first.es,...languageShuffle(bank.filter(x=>x!==items[1])).slice(0,3).map(x=>x.es)]),answer:items[1]?.es||first.es,explanation:"Escucha primero el ritmo general y después identifica las palabras clave."},
+      {type:"order",instruction:"Ordena las palabras.",prompt_es:items[2]?.es||first.es,words:String(items[2]?.target||first.target).replace(/[.,!?¿¡]/g,"").split(/\s+/),answer:String(items[2]?.target||first.target).replace(/[.,!?¿¡]/g,""),explanation:"Reconstruir la frase obliga a recordar el orden sintáctico."},
+      {type:"translate",instruction:"Escribe la frase en el idioma objetivo.",prompt_es:items[3]?.es||first.es,answer:items[3]?.target||first.target,explanation:"No busques traducir palabra por palabra: recupera la expresión completa."},
+      {type:"fill",instruction:"Completa la expresión.",prompt:`${String(items[4]?.target||first.target).split(/\s+/).slice(0,-1).join(" ")} ____`,answer:String(items[4]?.target||first.target).split(/\s+/).slice(-1)[0],explanation:"Recuerda qué palabra completa naturalmente la expresión."},
+      {type:"speak",instruction:"Escucha y repite.",target:items[4]?.target||first.target,pronunciation:items[4]?.roman||"",explanation:"Hablar en voz alta fortalece la producción y el reconocimiento auditivo."},
+      {type:"choice",instruction:"Selecciona la traducción correcta.",prompt:items[5]?.target||first.target,options:languageShuffle([items[5]?.es||first.es,...languageShuffle(bank.filter(x=>x!==items[5])).slice(0,3).map(x=>x.es)]),answer:items[5]?.es||first.es,explanation:"Comprueba el significado en contexto."},
+      {type:"translate",instruction:"Último reto: produce la frase sin ayuda.",prompt_es:first.es,answer:first.target,explanation:"La producción libre es la mejor comprobación de recuerdo."}
+    ]
+  };
+}
+
+function renderV17LessonIntro(){
+  const session=state.languageLessonSession;if(!session)return;
+  const p=session.pack;
+  const stage=$("#language-challenge");
+  stage.innerHTML=`
+    <div class="v17-lesson-intro">
+      <div class="v17-lesson-top">
+        <div><span>MINI-LECCIÓN</span><h2>${escapeHtml(p.title||session.item.topic_name)}</h2><p>${escapeHtml(p.goal||"Comprender el tema y usarlo activamente.")}</p></div>
+        <div class="v17-intro-badge">ANTES DE PRACTICAR</div>
+      </div>
+      <div class="v17-teach-grid">
+        ${(p.mini_lesson||[]).slice(0,3).map((x,i)=>`<article class="v17-teach-card"><span>${String(i+1).padStart(2,"0")}</span><h3>${escapeHtml(x.title||"Concepto")}</h3><p>${escapeHtml(x.body||"")}</p>${x.example?`<blockquote dir="${LANGUAGE_META[state.courseLanguage]?.dir||"ltr"}">${escapeHtml(x.example)}</blockquote>`:""}</article>`).join("")}
+      </div>
+      <div class="v17-vocab-board">
+        <div class="v17-vocab-head"><div><span>VOCABULARIO / PATRONES</span><strong>Recuerda estas piezas</strong></div><button id="v17-hear-vocab" class="secondary-btn">🔊 ESCUCHAR EJEMPLOS</button></div>
+        <div class="v17-vocab-list">${(p.vocabulary||[]).slice(0,8).map(v=>`<div class="v17-vocab-chip"><strong dir="${LANGUAGE_META[state.courseLanguage]?.dir||"ltr"}">${escapeHtml(v.target||"")}</strong><span>${escapeHtml(v.es||"")}</span>${v.pronunciation?`<small>${escapeHtml(v.pronunciation)}</small>`:""}</div>`).join("")}</div>
+      </div>
+      <div class="v17-coach-tip"><div class="mini-coach-face">✦</div><div><strong>Consejo de NOVA</strong><span>${escapeHtml(p.coach_tip||"Intenta responder antes de mirar la explicación.")}</span></div></div>
+      <button id="v17-begin-exercises" class="v17-continue-btn">EMPEZAR 8 RETOS <span>→</span></button>
+    </div>`;
+  $("#v17-begin-exercises").onclick=renderV17Exercise;
+  $("#v17-hear-vocab").onclick=()=>{
+    const text=(p.vocabulary||[]).slice(0,5).map(v=>v.target).filter(Boolean).join(". ");
+    if(text)speakLanguageText(text,state.courseLanguage);
+  };
+  updateV17Coach("Primero comprende el patrón. Después vamos a hacerte recuperar la información sin mirar.");
+}
+
+function renderV17Exercise(){
+  const s=state.languageLessonSession;if(!s)return;
+  if(s.index>=s.pack.exercises.length){renderV17LessonSummary();return}
+  s.answered=false;s.built=[];
+  const ex=s.pack.exercises[s.index];
+  const total=s.pack.exercises.length;
+  const progress=Math.round((s.index/total)*100);
+  const stage=$("#language-challenge");
+  const dir=LANGUAGE_META[state.courseLanguage]?.dir||"ltr";
+
+  stage.innerHTML=`
+    <div class="v17-exercise-shell">
+      <div class="v17-exercise-topbar">
+        <button id="v17-exit-lesson" class="v17-exit-btn">×</button>
+        <div class="v17-exercise-progress"><i style="width:${progress}%"></i></div>
+        <div class="v17-hearts" aria-label="${s.hearts} oportunidades">${Array.from({length:5},(_,i)=>`<span class="${i<s.hearts?"full":""}">♥</span>`).join("")}</div>
+        <div class="v17-live-xp">⚡ ${s.xp}</div>
+      </div>
+      <div class="v17-exercise-count">RETO ${s.index+1} DE ${total}</div>
+      <div id="v17-exercise-body" class="v17-exercise-body">${renderV17ExerciseBody(ex,dir)}</div>
+      <div id="v17-answer-feedback" class="v17-answer-feedback hidden"></div>
+    </div>`;
+
+  $("#v17-exit-lesson").onclick=()=>renderLanguageLabV17();
+  bindV17Exercise(ex);
+}
+
+function renderV17ExerciseBody(ex,dir){
+  const type=String(ex.type||"choice").toLowerCase();
+  const instruction=escapeHtml(ex.instruction||"Resuelve el ejercicio.");
+  if(type==="choice"){
+    const options=(ex.options||[]).slice(0,4);
+    return `<div class="v17-exercise-icon green">✓</div><h2>${instruction}</h2><div class="v17-target-text" dir="${dir}">${escapeHtml(ex.prompt||ex.target||"")}</div><div class="v17-choice-grid">${options.map((o,i)=>`<button class="v17-choice" data-answer="${escapeAttr(o)}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(o)}</strong></button>`).join("")}</div>`;
+  }
+  if(type==="listen"){
+    return `<div class="v17-exercise-icon blue">🎧</div><h2>${instruction}</h2><button id="v17-play-audio" class="v17-audio-orb">▶<small>ESCUCHAR</small></button><div class="v17-choice-grid">${(ex.options||[]).slice(0,4).map((o,i)=>`<button class="v17-choice" data-answer="${escapeAttr(o)}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(o)}</strong></button>`).join("")}</div>`;
+  }
+  if(type==="order"){
+    const words=languageShuffle((ex.words||String(ex.answer||"").split(/\s+/)).filter(Boolean));
+    return `<div class="v17-exercise-icon yellow">🧩</div><h2>${instruction}</h2>${ex.prompt_es?`<p class="v17-prompt-es">${escapeHtml(ex.prompt_es)}</p>`:""}<div id="v17-order-built" class="v17-order-built"><span>Toca las palabras para construir la frase</span></div><div id="v17-word-bank" class="v17-word-bank">${words.map((w,i)=>`<button class="v17-word" data-word="${escapeAttr(w)}" data-wid="${i}">${escapeHtml(w)}</button>`).join("")}</div><button id="v17-check-order" class="primary-btn" disabled>COMPROBAR</button>`;
+  }
+  if(type==="translate"){
+    return `<div class="v17-exercise-icon coral">✍</div><h2>${instruction}</h2><div class="v17-translate-prompt">${escapeHtml(ex.prompt_es||ex.prompt||"")}</div><input id="v17-text-answer" class="v17-answer-input" autocomplete="off" placeholder="Escribe tu respuesta..."><button id="v17-check-text" class="primary-btn">COMPROBAR</button>`;
+  }
+  if(type==="fill"){
+    return `<div class="v17-exercise-icon yellow">▱</div><h2>${instruction}</h2><div class="v17-target-text" dir="${dir}">${escapeHtml(ex.prompt||"")}</div><input id="v17-text-answer" class="v17-answer-input" autocomplete="off" placeholder="Completa la palabra o expresión..."><button id="v17-check-text" class="primary-btn">COMPROBAR</button>`;
+  }
+  if(type==="speak"){
+    return `<div class="v17-exercise-icon purple">🎙</div><h2>${instruction}</h2><button id="v17-speak-model" class="secondary-btn">🔊 ESCUCHAR MODELO</button><div class="v17-pronounce-target" dir="${dir}">${escapeHtml(ex.target||ex.answer||"")}</div>${ex.pronunciation?`<div class="v17-pronounce-guide">${escapeHtml(ex.pronunciation)}</div>`:""}<button id="v17-speak-now" class="v17-mic-orb">🎙<small>HABLAR</small></button><div id="v17-speech-live" class="v17-speech-live">Pulsa el micrófono y repite la frase.</div><button id="v17-manual-speak" class="ghost-btn">NO TENGO MICRÓFONO · YA LA REPETÍ</button>`;
+  }
+  return `<div class="v17-exercise-icon green">✦</div><h2>${instruction}</h2><p>${escapeHtml(ex.prompt||"")}</p>`;
+}
+
+function bindV17Exercise(ex){
+  const type=String(ex.type||"choice").toLowerCase();
+
+  $$(".v17-choice").forEach(btn=>btn.onclick=()=>finishV17Exercise(btn.dataset.answer,ex));
+
+  $("#v17-play-audio")?.addEventListener("click",()=>speakLanguageText(ex.target||ex.prompt||"",state.courseLanguage));
+
+  if(type==="order"){
+    $$(".v17-word").forEach(btn=>btn.onclick=()=>{
+      if(btn.disabled)return;
+      btn.disabled=true;
+      state.languageLessonSession.built.push({word:btn.dataset.word,id:btn.dataset.wid});
+      renderV17BuiltWords();
+    });
+    $("#v17-check-order").onclick=()=>finishV17Exercise(state.languageLessonSession.built.map(x=>x.word).join(" "),ex);
+  }
+
+  $("#v17-check-text")?.addEventListener("click",()=>finishV17Exercise($("#v17-text-answer").value.trim(),ex));
+  $("#v17-text-answer")?.addEventListener("keydown",e=>{if(e.key==="Enter")finishV17Exercise(e.currentTarget.value.trim(),ex)});
+
+  if(type==="speak"){
+    $("#v17-speak-model").onclick=()=>speakLanguageText(ex.target||ex.answer||"",state.courseLanguage);
+    $("#v17-speak-now").onclick=()=>runV17SpeechExercise(ex);
+    $("#v17-manual-speak").onclick=()=>finishV17Exercise("manual",ex,{manual:true});
+  }
+}
+
+function renderV17BuiltWords(){
+  const built=state.languageLessonSession.built;
+  const box=$("#v17-order-built");
+  box.innerHTML=built.length?built.map((x,i)=>`<button class="v17-built-word" data-index="${i}">${escapeHtml(x.word)} ×</button>`).join(""):`<span>Toca las palabras para construir la frase</span>`;
+  $$(".v17-built-word",box).forEach(btn=>btn.onclick=()=>{
+    const [removed]=built.splice(Number(btn.dataset.index),1);
+    const original=$(`.v17-word[data-wid="${removed.id}"]`);
+    if(original)original.disabled=false;
+    renderV17BuiltWords();
+  });
+  $("#v17-check-order").disabled=!built.length;
+}
+
+async function finishV17Exercise(userAnswer,ex,opts={}){
+  const s=state.languageLessonSession;
+  if(!s||s.answered)return;
+  s.answered=true;
+
+  let similarity=0,correct=false,evaluated=true;
+  const type=String(ex.type||"choice").toLowerCase();
+  const expected=String(ex.answer||ex.target||"").trim();
+
+  if(opts.manual){
+    evaluated=false;correct=true;similarity=.75;
+  }else if(type==="choice"||type==="listen"){
+    correct=normalizeLanguageText(userAnswer)===normalizeLanguageText(expected);
+    similarity=correct?1:0;
+  }else{
+    similarity=languageSimilarity(userAnswer,expected);
+    const threshold=type==="speak"?.64:type==="fill"?.72:.68;
+    correct=similarity>=threshold;
+  }
+
+  const xp=opts.manual?2:correct?(type==="speak"?15:10):1;
+  s.xp+=xp;
+  if(correct&&evaluated)s.correct++;
+  if(!correct)s.hearts=Math.max(0,s.hearts-1);
+
+  const feedback=$("#v17-answer-feedback");
+  feedback.classList.remove("hidden");
+  feedback.className=`v17-answer-feedback ${correct?"success":"retry"}`;
+  feedback.innerHTML=`
+    <div class="v17-feedback-icon">${correct?"✓":"↻"}</div>
+    <div class="v17-feedback-copy">
+      <strong>${correct?(opts.manual?"Práctica oral registrada":"¡Muy bien!"): "Todavía no. Revísalo."}</strong>
+      ${!correct?`<span><b>Respuesta esperada:</b> <span dir="${LANGUAGE_META[state.courseLanguage]?.dir||"ltr"}">${escapeHtml(expected)}</span></span>`:""}
+      ${ex.explanation?`<small>${escapeHtml(ex.explanation)}</small>`:""}
+      ${!opts.manual&&type!=="choice"&&type!=="listen"?`<small>Coincidencia aproximada: ${Math.round(similarity*100)}%</small>`:""}
+    </div>
+    <button id="v17-next-exercise" class="v17-feedback-next">${s.index+1>=s.pack.exercises.length?"VER RESULTADO":"CONTINUAR →"}</button>`;
+
+  disableV17ExerciseControls();
+
+  try{
+    await recordLanguagePractice(xp,correct&&evaluated?1:0,evaluated?1:0,45);
+    if(correct)await syncLanguagePracticeToCourse().catch(()=>{});
+    await refreshLanguageStatsOnly().catch(()=>{});
+  }catch{}
+
+  if(correct){
+    showLanguageCelebration();
+    updateV17Coach(["¡Exacto! Ahora tu cerebro tuvo que recuperar la respuesta.","Bien hecho. Esa recuperación activa vale más que releer.","¡Excelente! Vamos aumentando la dificultad."][Math.floor(Math.random()*3)],"happy");
+  }else{
+    updateV17Coach("Mira la corrección, compárala con lo que respondiste y vuelve a producirla mentalmente antes de continuar.","thinking");
+  }
+
+  $("#v17-next-exercise").onclick=()=>{s.index++;renderV17Exercise()};
+}
+
+function disableV17ExerciseControls(){
+  $$("#v17-exercise-body button,#v17-exercise-body input").forEach(el=>el.disabled=true);
+}
+
+function runV17SpeechExercise(ex){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const live=$("#v17-speech-live"),mic=$("#v17-speak-now");
+  if(!SR){
+    live.innerHTML=`<strong>Tu navegador no ofrece reconocimiento de voz para esta sesión.</strong><span>Escucha el modelo, repite en voz alta y usa el botón de práctica manual.</span>`;
+    return;
+  }
+  const rec=new SR();
+  rec.lang=state.courseLanguage;
+  rec.interimResults=true;
+  rec.continuous=false;
+  rec.maxAlternatives=3;
+  let final="";
+  mic.classList.add("listening");
+  live.textContent="Escuchando… habla ahora.";
+
+  rec.onresult=e=>{
+    let interim="";
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal)final+=t;else interim+=t;
+    }
+    live.textContent=final||interim||"Escuchando…";
+  };
+  rec.onerror=e=>{
+    mic.classList.remove("listening");
+    const msg=e.error==="not-allowed"?"Necesito permiso del micrófono para evaluar tu pronunciación.":e.error==="language-not-supported"?"El navegador no admite reconocimiento para este idioma. Puedes practicar escuchando y repitiendo.":"No pude reconocer la voz. Inténtalo otra vez.";
+    live.textContent=msg;
+  };
+  rec.onend=()=>{
+    mic.classList.remove("listening");
+    if(final.trim()){
+      live.innerHTML=`<span>Escuché:</span><strong>${escapeHtml(final)}</strong>`;
+      finishV17Exercise(final,ex);
+    }
+  };
+  try{rec.start()}catch{live.textContent="El micrófono ya está activo."}
+}
+
+function renderV17LessonSummary(){
+  const s=state.languageLessonSession;if(!s)return;
+  const total=s.pack.exercises.length;
+  const pct=total?Math.round((s.correct/total)*100):0;
+  const passed=pct>=70;
+  $("#language-challenge").innerHTML=`
+    <div class="v17-lesson-summary">
+      <div class="v17-summary-character ${passed?"celebrate":"encourage"}">
+        <div class="v17-mascot nova-mascot">
+          <span class="mascot-ear left"></span><span class="mascot-ear right"></span>
+          <div class="mascot-head"><i class="mascot-eye left"></i><i class="mascot-eye right"></i><b class="mascot-mouth"></b></div>
+          <div class="mascot-body"><span>${passed?"★":"✦"}</span></div>
+        </div>
+      </div>
+      <span class="v17-summary-label">LECCIÓN TERMINADA</span>
+      <h2>${passed?"¡Gran sesión!":"Buen trabajo: ahora refuerza lo difícil."}</h2>
+      <p>${escapeHtml(s.item.topic_name)}</p>
+      <div class="v17-summary-stats">
+        <div><strong>${pct}%</strong><small>precisión</small></div>
+        <div><strong>+${s.xp}</strong><small>XP</small></div>
+        <div><strong>${s.hearts}/5</strong><small>oportunidades</small></div>
+      </div>
+      <div class="v17-summary-note">${passed?"Ya practicaste el tema. El curso oficial se completa únicamente cuando apruebas su examen final.":"Repite la práctica o conversa con el Coach IA antes de ir al examen."}</div>
+      <div class="v17-summary-actions">
+        <button id="v17-repeat-lesson" class="secondary-btn">REPETIR PRÁCTICA</button>
+        <button id="v17-go-course-exam" class="primary-btn">IR AL TEMA Y EXAMEN →</button>
+      </div>
+    </div>`;
+  $("#v17-repeat-lesson").onclick=()=>startV17LanguageLesson(true);
+  $("#v17-go-course-exam").onclick=()=>openLanguageCourseLesson(Number(state.languageCourse?.next_index||0));
+  updateV17Coach(passed?"Terminaste la práctica. Cuando te sientas listo, aprueba el examen del tema para avanzar.":"Tus errores ya nos dicen qué repasar. Eso también es progreso.",passed?"happy":"thinking");
+}
+
+function updateV17Coach(text,mood="normal"){
+  const bubble=$("#v17-coach-bubble span");
+  if(bubble)bubble.textContent=text;
+  const mascot=$("#v17-coach-mascot");
+  if(mascot){
+    mascot.classList.remove("happy","thinking");
+    if(mood!=="normal")mascot.classList.add(mood);
+  }
+}
 
 async function renderPatientVirtual(){
   state.patientConversation=null;
@@ -1503,8 +2054,24 @@ async function searchGlobal(){
   }catch{}
 }
 
+async function hardRefreshApplication(){
+  try{
+    if("caches" in window){
+      const keys=await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+    if("serviceWorker" in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+  }catch{}
+  const url=new URL(location.href);
+  url.searchParams.set("v17",Date.now().toString());
+  location.replace(url.toString());
+}
+
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=4.0.0").catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=17.0.0",{updateViaCache:"none"}).catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
