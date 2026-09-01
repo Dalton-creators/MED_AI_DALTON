@@ -5,7 +5,8 @@ const state = {
   patientConversation:null, patientActive:false, caseSolverConversation:null,
   scienceConversation:null, languageConversation:null, lastLanguageAnswer:"",
   currentCourse:null,currentLesson:null,courseConversation:null,courseLanguage:(()=>{const v=localStorage.getItem("medai_course_language")||"en-US";return ["he-IL","la","en-US","ru-RU","fr-FR"].includes(v)?v:"en-US"})(),
-  tutorTranscript:[],tutorSessionTitle:"",courseExam:null
+  tutorTranscript:[],tutorSessionTitle:"",courseExam:null,
+  languageCourse:null,languageStats:null,languageGame:null
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -133,6 +134,7 @@ async function renderDashboard(){
         <div class="institution-code">MED AI DALTON / ACADEMIC MEDICAL TRAINING SYSTEM</div>
         <h1>Centro de entrenamiento clínico</h1>
         <p>Buenos días, <strong>${escapeHtml(firstName(name))}</strong>. Continúa tu formación médica desde un entorno estructurado y sin distracciones.</p>
+        <div class="nova-inline"><div class="nova-buddy mini" aria-hidden="true"><span class="nova-antenna"></span><div class="nova-face"><i></i><i></i><b></b></div></div><div><strong>NOVA</strong><span>Tu guía académica · lista para estudiar contigo</span></div></div>
       </div>
       <div class="institution-id">
         <span>PERFIL</span>
@@ -518,79 +520,272 @@ const LANGUAGE_OPTIONS=[
   ["fr-FR","Francés"]
 ];
 
+const LANGUAGE_META={
+  "he-IL":{name:"Hebreo",mark:"ע",hello:"שלום!",dir:"rtl",accent:"blue"},
+  "la":{name:"Latín",mark:"L",hello:"Salve!",dir:"ltr",accent:"gold"},
+  "en-US":{name:"Inglés",mark:"EN",hello:"Hello!",dir:"ltr",accent:"violet"},
+  "ru-RU":{name:"Ruso",mark:"Я",hello:"Привет!",dir:"ltr",accent:"coral"},
+  "fr-FR":{name:"Francés",mark:"FR",hello:"Bonjour!",dir:"ltr",accent:"cyan"}
+};
+
+const LANGUAGE_CHALLENGES={"he-IL":[{"target":"שלום","es":"Hola","roman":"shalom"},{"target":"תודה","es":"Gracias","roman":"todá"},{"target":"בבקשה","es":"Por favor / de nada","roman":"bevakashá"},{"target":"מה שלומך?","es":"¿Cómo estás?","roman":"ma shlomjá / ma shlomej"},{"target":"קוראים לי דלטון","es":"Me llamo Dalton","roman":"korím li Dalton"},{"target":"אני לומד עברית","es":"Estoy aprendiendo hebreo","roman":"aní lomed ivrít"},{"target":"איפה בית החולים?","es":"¿Dónde está el hospital?","roman":"eifó beit hajolím"},{"target":"אני מבין קצת","es":"Entiendo un poco","roman":"aní mevín ktsat"},{"target":"אפשר לחזור בבקשה?","es":"¿Puede repetir, por favor?","roman":"efshár lajzor bevakashá"},{"target":"היום אני לומד","es":"Hoy estudio","roman":"hayóm aní lomed"}],"la":[{"target":"Salve!","es":"¡Hola!","roman":"sal-we"},{"target":"Gratias tibi ago.","es":"Te doy las gracias.","roman":"grá-ti-as tí-bi á-go"},{"target":"Quid agis?","es":"¿Cómo estás?","roman":"kwid á-gis"},{"target":"Nomen mihi Dalton est.","es":"Me llamo Dalton.","roman":"nó-men mí-hi Dalton est"},{"target":"Latine disco.","es":"Aprendo latín.","roman":"lá-ti-ne dís-ko"},{"target":"Aqua vita est.","es":"El agua es vida.","roman":"á-kwa wí-ta est"},{"target":"Medicus aegrotum curat.","es":"El médico cuida al enfermo.","roman":"mé-di-kus ae-gró-tum kú-rat"},{"target":"Corpus humanum mirabile est.","es":"El cuerpo humano es admirable.","roman":"kór-pus hu-má-num mi-rá-bi-le est"},{"target":"Scientia potentia est.","es":"El conocimiento es poder.","roman":"ski-én-ti-a po-tén-ti-a est"},{"target":"Per aspera ad astra.","es":"Por las dificultades hacia las estrellas.","roman":"per ás-pe-ra ad ás-tra"}],"en-US":[{"target":"Hello, how are you?","es":"Hola, ¿cómo estás?"},{"target":"My name is Dalton.","es":"Me llamo Dalton."},{"target":"I am learning English.","es":"Estoy aprendiendo inglés."},{"target":"Could you repeat that, please?","es":"¿Podrías repetir eso, por favor?"},{"target":"Where is the hospital?","es":"¿Dónde está el hospital?"},{"target":"I would like a glass of water.","es":"Quisiera un vaso de agua."},{"target":"What does this word mean?","es":"¿Qué significa esta palabra?"},{"target":"I understand, but I need more practice.","es":"Entiendo, pero necesito más práctica."},{"target":"The patient has chest pain.","es":"El paciente tiene dolor en el pecho."},{"target":"I study every day to improve.","es":"Estudio todos los días para mejorar."}],"ru-RU":[{"target":"Привет!","es":"¡Hola!","roman":"privet"},{"target":"Спасибо.","es":"Gracias.","roman":"spasíbo"},{"target":"Как дела?","es":"¿Cómo estás?","roman":"kak dilá"},{"target":"Меня зовут Далтон.","es":"Me llamo Dalton.","roman":"menyá zavút Dalton"},{"target":"Я изучаю русский язык.","es":"Estoy aprendiendo ruso.","roman":"ya izucháyu rússkiy yazýk"},{"target":"Повторите, пожалуйста.","es":"Repita, por favor.","roman":"pavtaríte pazhálusta"},{"target":"Где находится больница?","es":"¿Dónde está el hospital?","roman":"gde najóditsa balnítsa"},{"target":"Я немного понимаю.","es":"Entiendo un poco.","roman":"ya nimnóga panimáyu"},{"target":"Сегодня я учусь.","es":"Hoy estudio.","roman":"sivódnya ya uchús"},{"target":"Практика очень важна.","es":"La práctica es muy importante.","roman":"práktika óchen vazhná"}],"fr-FR":[{"target":"Bonjour, comment allez-vous ?","es":"Hola, ¿cómo está?"},{"target":"Je m'appelle Dalton.","es":"Me llamo Dalton."},{"target":"J'apprends le français.","es":"Estoy aprendiendo francés."},{"target":"Pouvez-vous répéter, s'il vous plaît ?","es":"¿Puede repetir, por favor?"},{"target":"Où est l'hôpital ?","es":"¿Dónde está el hospital?"},{"target":"Je voudrais un verre d'eau.","es":"Quisiera un vaso de agua."},{"target":"Qu'est-ce que ce mot veut dire ?","es":"¿Qué significa esta palabra?"},{"target":"Je comprends un peu.","es":"Entiendo un poco."},{"target":"Le patient a mal à la poitrine.","es":"El paciente tiene dolor en el pecho."},{"target":"Je pratique tous les jours.","es":"Practico todos los días."}]};
+
 async function renderLanguageLab(){
-  state.languageConversation=null; state.lastLanguageAnswer="";
-  const subject=getSubjectByCode("LANG"); const presetLevel=state.currentTopic?.subject_id===subject?.id?state.currentTopic.name:null; state.currentSubject=subject;
+  state.languageConversation=null;state.lastLanguageAnswer="";
+  state.languageGame={mode:null,current:null,score:0,attempts:0,selectedWords:[]};
+  const subject=getSubjectByCode("LANG");state.currentSubject=subject;
+  const saved=LANGUAGE_OPTIONS.some(x=>x[0]===state.courseLanguage)?state.courseLanguage:"en-US";
+  state.courseLanguage=saved;
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">LABORATORIO DE IDIOMAS</div><h2>Aprender idiomas</h2><p>Un curso progresivo que combina comprensión, conversación, vocabulario, gramática, pronunciación y escritura. No se limita a traducir o memorizar palabras.</p></div></div>
-    <div class="language-course-grid">
-      <aside class="card language-controls">
-        <div class="panel-code">PLAN DE APRENDIZAJE</div>
-        <div class="field"><label>Idioma objetivo</label><select id="lang-target">${LANGUAGE_OPTIONS.map(([c,n])=>`<option value="${c}">${n}</option>`).join("")}</select></div>
-        <div class="field"><label>Nivel actual</label><select id="lang-level"><option>Empezar desde cero</option><option selected>A1 — Principiante</option><option>A2 — Elemental</option><option>B1 — Intermedio</option><option>B2 — Intermedio alto</option><option>C1 — Avanzado</option><option>C2 — Dominio</option></select></div>
-        <div class="field"><label>Objetivo de la sesión</label><select id="lang-focus"><option>Curso completo equilibrado</option><option>Conversación</option><option>Comprensión auditiva</option><option>Pronunciación</option><option>Gramática en contexto</option><option>Vocabulario útil</option><option>Lectura</option><option>Escritura</option><option>Viajes y situaciones reales</option><option>Académico / profesional</option></select></div>
-        <div class="field"><label>Inmersión</label><select id="lang-immersion"><option value="30">30% idioma objetivo — muchas explicaciones en español</option><option value="60" selected>60% idioma objetivo — equilibrio</option><option value="85">85% idioma objetivo — inmersión alta</option><option value="100">100% idioma objetivo — inmersión total</option></select></div>
-        <button id="lang-start" class="primary-btn wide">INICIAR LECCIÓN</button>
-        <button id="lang-placement" class="secondary-btn wide" style="margin-top:8px">PRUEBA DE NIVEL</button>
-        <button id="lang-new" class="secondary-btn wide" style="margin-top:8px">NUEVA SESIÓN</button>
-      </aside>
-      <div class="card chat-panel language-chat">
-        <div class="language-toolbar"><span id="language-session-label">Curso de idiomas</span><div><button id="lang-listen" class="secondary-btn">Escuchar respuesta</button></div></div>
-        <div id="language-messages" class="messages"><div class="message ai">Selecciona el idioma y tu nivel. Empezaremos con una lección corta y activa, y ajustaré la dificultad según tus respuestas.</div></div>
-        <div class="composer"><button id="lang-mic" class="icon-btn" title="Practicar hablando">🎙</button><textarea id="language-input" rows="2" placeholder="Escribe o habla en el idioma que estás aprendiendo..."></textarea><button id="language-send" class="primary-btn">Enviar</button></div>
+    <div class="page-head language-page-head"><div><div class="eyebrow">LANGUAGE LAB · APRENDIZAJE ACTIVO</div><h2>Idiomas que se practican de verdad</h2><p>Ruta progresiva, retos cortos, pronunciación, escucha, escritura y conversación con IA. Tu progreso del curso sigue guardándose tema por tema.</p></div></div>
+
+    <section class="language-next-hero card">
+      <div class="language-hero-copy">
+        <div class="language-kicker">ELIGE TU IDIOMA</div>
+        <div class="language-selector" id="language-selector">
+          ${LANGUAGE_OPTIONS.map(([code,name])=>{const m=LANGUAGE_META[code];return `<button class="language-choice ${code===saved?"active":""}" data-lang="${code}"><span class="language-mark ${m.accent}">${m.mark}</span><strong>${name}</strong></button>`}).join("")}
+        </div>
+        <h3 id="language-hero-title">${LANGUAGE_META[saved].hello} Vamos a aprender ${LANGUAGE_META[saved].name}.</h3>
+        <p id="language-hero-copy">Combina tu ruta académica con práctica diaria. Los retos mejoran tu dominio del tema actual, pero solo el examen final desbloquea el siguiente.</p>
+        <div class="language-hero-actions"><button id="lang-continue-course" class="primary-btn">CONTINUAR RUTA</button><button id="lang-start-mix" class="secondary-btn">⚡ RETO RÁPIDO</button></div>
       </div>
-    </div>
-    <div class="learning-pillar-grid language-pillars" style="margin-top:16px">
-      <div class="learning-pillar"><span>01</span><strong>Comprensión</strong><small>Lectura y escucha con dificultad progresiva.</small></div>
-      <div class="learning-pillar"><span>02</span><strong>Producción</strong><small>Hablar y escribir desde la primera sesión.</small></div>
-      <div class="learning-pillar"><span>03</span><strong>Corrección</strong><small>Errores explicados sin interrumpir la fluidez.</small></div>
-      <div class="learning-pillar"><span>04</span><strong>Retención</strong><small>Vocabulario en contexto y repaso espaciado.</small></div>
-      <div class="learning-pillar"><span>05</span><strong>Pronunciación</strong><small>Modelos de frases, ritmo y sonidos difíciles.</small></div>
-      <div class="learning-pillar"><span>06</span><strong>Uso real</strong><small>Conversaciones y situaciones auténticas.</small></div>
+      <div class="language-buddy-zone">
+        <div class="language-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="nova-buddy large" aria-label="NOVA, guía de aprendizaje"><span class="nova-antenna"></span><div class="nova-face"><i></i><i></i><b></b></div><span class="nova-glow"></span></div>
+        <div class="nova-speech" id="nova-speech"><strong>NOVA</strong><span>Hoy vamos a hablar, escuchar y pensar en el idioma.</span></div>
+      </div>
+      <div class="language-stats-strip">
+        <div><span>🔥</span><strong id="lang-streak">—</strong><small>racha</small></div>
+        <div><span>⚡</span><strong id="lang-today-xp">—</strong><small>XP hoy</small></div>
+        <div><span>◆</span><strong id="lang-total-xp">—</strong><small>XP total</small></div>
+        <div><span>◎</span><strong id="lang-course-progress">—</strong><small>curso</small></div>
+      </div>
+    </section>
+
+    <section class="language-path card">
+      <div class="language-section-title"><div><span>RUTA DEL IDIOMA</span><h3 id="lang-route-title">Preparando tu siguiente tema…</h3></div><button id="lang-open-course" class="ghost-btn">VER CURSO COMPLETO →</button></div>
+      <div id="language-route" class="language-route"><div class="route-loading"><i></i><span>Cargando progreso…</span></div></div>
+    </section>
+
+    <section class="language-game-shell">
+      <aside class="language-modes card">
+        <div class="panel-code">ENTRENAMIENTO RÁPIDO</div>
+        <h3>Elige un reto</h3>
+        <button class="language-mode" data-challenge="listen"><span>🎧</span><div><strong>Escuchar</strong><small>Comprende lo que oyes</small></div><b>+10 XP</b></button>
+        <button class="language-mode" data-challenge="order"><span>🧩</span><div><strong>Ordenar</strong><small>Construye la frase</small></div><b>+10 XP</b></button>
+        <button class="language-mode" data-challenge="speak"><span>🎙</span><div><strong>Pronunciar</strong><small>Habla con el micrófono</small></div><b>+15 XP</b></button>
+        <button class="language-mode" data-challenge="translate"><span>✍</span><div><strong>Traducir</strong><small>Produce el idioma</small></div><b>+10 XP</b></button>
+        <div class="language-game-score"><span>SESIÓN</span><strong><b id="lang-session-score">0</b> XP</strong><small id="lang-session-attempts">0 retos realizados</small></div>
+      </aside>
+      <main class="language-challenge card" id="language-challenge">
+        <div class="challenge-welcome">
+          <div class="challenge-icon">✦</div>
+          <div class="eyebrow">PRÁCTICA GAMIFICADA</div>
+          <h3>Entrena una habilidad a la vez</h3>
+          <p>Escucha, ordena, habla o traduce. Al acertar ganas XP y tu práctica queda registrada.</p>
+          <button id="challenge-welcome-start" class="primary-btn">EMPEZAR RETO MIXTO</button>
+        </div>
+      </main>
+    </section>
+
+    <section class="language-ai-section">
+      <div class="language-section-title"><div><span>PROFESOR IA</span><h3>Clase interactiva y conversación</h3></div><small>Una actividad por turno · corrección activa · vocabulario reciclado</small></div>
+      <div class="language-course-grid">
+        <aside class="card language-controls">
+          <div class="panel-code">CONFIGURAR CLASE</div>
+          <div class="field"><label>Nivel actual</label><select id="lang-level"><option>Empezar desde cero</option><option selected>A1 — Principiante</option><option>A2 — Elemental</option><option>B1 — Intermedio</option><option>B2 — Intermedio alto</option><option>C1 — Avanzado</option><option>C2 — Dominio</option></select></div>
+          <div class="field"><label>Objetivo</label><select id="lang-focus"><option>Curso completo equilibrado</option><option>Conversación</option><option>Comprensión auditiva</option><option>Pronunciación</option><option>Gramática en contexto</option><option>Vocabulario útil</option><option>Lectura</option><option>Escritura</option><option>Viajes y situaciones reales</option><option>Académico / profesional</option><option>Idioma médico / científico</option></select></div>
+          <div class="field"><label>Inmersión</label><select id="lang-immersion"><option value="30">30% · explicación amplia en español</option><option value="60" selected>60% · equilibrio</option><option value="85">85% · inmersión alta</option><option value="100">100% · inmersión total</option></select></div>
+          <button id="lang-start" class="primary-btn wide">INICIAR CLASE DEL TEMA ACTUAL</button>
+          <button id="lang-placement" class="secondary-btn wide" style="margin-top:8px">PRUEBA DE NIVEL</button>
+          <button id="lang-new" class="secondary-btn wide" style="margin-top:8px">NUEVA SESIÓN</button>
+        </aside>
+        <div class="card chat-panel language-chat">
+          <div class="language-toolbar"><span id="language-session-label">Profesor de ${LANGUAGE_META[saved].name}</span><div><button id="lang-listen" class="secondary-btn">🔊 Escuchar respuesta</button></div></div>
+          <div id="language-messages" class="messages"><div class="message ai">Selecciona una actividad o inicia la clase del tema actual. Voy a enseñarte con práctica, corrección y repetición activa.</div></div>
+          <div class="composer"><button id="lang-mic" class="icon-btn" title="Hablar">🎙</button><textarea id="language-input" rows="2" placeholder="Escribe o habla en el idioma que estás aprendiendo..."></textarea><button id="language-send" class="primary-btn">Enviar</button></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="learning-pillar-grid language-pillars premium-pillars">
+      <div class="learning-pillar"><span>01 · INPUT</span><strong>Comprender</strong><small>Escucha y lectura con dificultad progresiva.</small></div>
+      <div class="learning-pillar"><span>02 · OUTPUT</span><strong>Producir</strong><small>Hablar y escribir desde el inicio.</small></div>
+      <div class="learning-pillar"><span>03 · FEEDBACK</span><strong>Corregir</strong><small>Errores explicados y transformados en práctica.</small></div>
+      <div class="learning-pillar"><span>04 · RETRIEVAL</span><strong>Recordar</strong><small>Recuperación activa y repaso espaciado.</small></div>
+      <div class="learning-pillar"><span>05 · SPEAK</span><strong>Pronunciar</strong><small>Modelo de voz, micrófono y comparación.</small></div>
+      <div class="learning-pillar"><span>06 · REAL USE</span><strong>Usar</strong><small>Conversaciones y situaciones auténticas.</small></div>
     </div>`;
+
+  $$(".language-choice").forEach(btn=>btn.onclick=()=>selectLanguage(btn.dataset.lang));
+  $$(".language-mode").forEach(btn=>btn.onclick=()=>startLanguageChallenge(btn.dataset.challenge));
+  $("#challenge-welcome-start").onclick=()=>startLanguageChallenge(["listen","order","speak","translate"][Math.floor(Math.random()*4)]);
+  $("#lang-start-mix").onclick=()=>startLanguageChallenge(["listen","order","speak","translate"][Math.floor(Math.random()*4)]);
+  $("#lang-continue-course").onclick=openSelectedLanguageCourse;
+  $("#lang-open-course").onclick=openSelectedLanguageCourse;
   $("#lang-start").onclick=()=>startLanguageLesson(false);
   $("#lang-placement").onclick=()=>startLanguageLesson(true);
   $("#language-send").onclick=()=>sendLanguageMessage();
   $("#language-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendLanguageMessage()}});
-  $("#lang-new").onclick=()=>{state.languageConversation=null;state.lastLanguageAnswer="";$("#language-messages").innerHTML=`<div class="message ai">Nueva sesión lista. Elige tu objetivo y comienza.</div>`};
-  $("#lang-mic").onclick=()=>startSpeechRecognition($("#language-input"),$("#lang-target").value);
-  $("#lang-listen").onclick=()=>{if(!state.lastLanguageAnswer)return toast("Todavía no hay una respuesta para escuchar.",true);speakText(state.lastLanguageAnswer,$("#lang-target").value)};
-  $("#lang-target").onchange=()=>updateLanguageLabel();
-  $("#lang-level").onchange=()=>updateLanguageLabel();
-  if(presetLevel){const prefix=presetLevel.slice(0,2);const option=[...$("#lang-level").options].find(o=>o.text.startsWith(prefix));if(option)$("#lang-level").value=option.value}
+  $("#lang-new").onclick=()=>{state.languageConversation=null;state.lastLanguageAnswer="";$("#language-messages").innerHTML=`<div class="message ai">Nueva sesión lista. Vamos a trabajar una habilidad concreta.</div>`};
+  $("#lang-mic").onclick=()=>startSpeechRecognition($("#language-input"),state.courseLanguage);
+  $("#lang-listen").onclick=()=>{if(!state.lastLanguageAnswer)return toast("Todavía no hay una respuesta para escuchar.",true);speakLanguageText(state.lastLanguageAnswer,state.courseLanguage)};
+  $("#lang-level").onchange=updateLanguageLabel;
   updateLanguageLabel();
+  await refreshLanguageOverview();
+}
+
+async function selectLanguage(code){
+  if(!LANGUAGE_META[code])return;
+  state.courseLanguage=code;localStorage.setItem("medai_course_language",code);state.languageConversation=null;state.lastLanguageAnswer="";state.languageGame={mode:null,current:null,score:0,attempts:0,selectedWords:[]};
+  $$(".language-choice").forEach(b=>b.classList.toggle("active",b.dataset.lang===code));
+  const m=LANGUAGE_META[code];$("#language-hero-title").textContent=`${m.hello} Vamos a aprender ${m.name}.`;
+  $("#language-session-label").textContent=`Profesor de ${m.name}`;
+  $("#language-messages").innerHTML=`<div class="message ai">Idioma cambiado a ${escapeHtml(m.name)}. Tu progreso es independiente del resto de idiomas.</div>`;
+  $("#language-challenge").innerHTML=`<div class="challenge-welcome"><div class="challenge-icon">${m.mark}</div><div class="eyebrow">${escapeHtml(m.name.toUpperCase())}</div><h3>Listo para practicar</h3><p>Elige Escuchar, Ordenar, Pronunciar o Traducir.</p><button id="challenge-welcome-start" class="primary-btn">EMPEZAR RETO MIXTO</button></div>`;
+  $("#challenge-welcome-start").onclick=()=>startLanguageChallenge(["listen","order","speak","translate"][Math.floor(Math.random()*4)]);
+  updateLanguageLabel();await refreshLanguageOverview();
+}
+
+async function refreshLanguageOverview(){
+  const subject=getSubjectByCode("LANG");if(!subject)return;
+  const code=state.courseLanguage;
+  try{
+    const [course,stats]=await Promise.all([api(`/api/course?subject_id=${encodeURIComponent(subject.id)}&language=${encodeURIComponent(code)}`),api("/api/language-stats")]);
+    state.languageCourse=course;state.languageStats=stats;
+    if($("#lang-streak"))$("#lang-streak").textContent=stats.streak||0;
+    if($("#lang-today-xp"))$("#lang-today-xp").textContent=stats.today_xp||0;
+    if($("#lang-total-xp"))$("#lang-total-xp").textContent=stats.total_xp||0;
+    if($("#lang-course-progress"))$("#lang-course-progress").textContent=`${course.progress_percent||0}%`;
+    renderLanguageRoute(course);
+  }catch(err){
+    if($("#language-route"))$("#language-route").innerHTML=`<div class="notice">No pude cargar el progreso: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderLanguageRoute(course){
+  const box=$("#language-route");if(!box||!course)return;
+  const items=course.items||[];const current=Math.max(0,Number(course.next_index||0));
+  const start=Math.max(0,current-2),end=Math.min(items.length,start+7),slice=items.slice(start,end);
+  const currentItem=items[current];
+  if($("#lang-route-title"))$("#lang-route-title").textContent=currentItem?`Siguiente: ${currentItem.topic_name}`:"Ruta completada";
+  box.innerHTML=`<div class="route-line"></div>${slice.map((item,offset)=>{const idx=start+offset;const done=Number(item.completed)===1;const active=idx===current&&!done;const locked=!done&&!active;return `<button class="route-node ${done?"done":active?"active":"locked"}" data-index="${idx}" ${locked?"disabled":""}><span>${done?"✓":String(idx+1).padStart(2,"0")}</span><div><strong>${escapeHtml(item.topic_name)}</strong><small>${done?"Aprobado":active?`${Math.round(Number(item.progress_percent||0))}% estudiado · examen pendiente`:"Bloqueado"}</small></div></button>`}).join("")}`;
+  $$(".route-node:not([disabled])",box).forEach(btn=>btn.onclick=()=>openLanguageCourseLesson(Number(btn.dataset.index)));
+}
+
+function openSelectedLanguageCourse(){
+  const subject=getSubjectByCode("LANG");if(!subject)return;state.currentSubject=subject;state.currentCourse=state.languageCourse;state.currentLesson=null;navigate("course");
+}
+
+function openLanguageCourseLesson(index){
+  const subject=getSubjectByCode("LANG");if(!subject||!state.languageCourse)return;state.currentSubject=subject;state.currentCourse=state.languageCourse;openCourseLesson(index);
 }
 
 function updateLanguageLabel(){
-  const sel=$("#lang-target"); if(!sel)return; const name=sel.options[sel.selectedIndex]?.text||"Idioma";
-  $("#language-session-label").textContent=`${name} · ${$("#lang-level")?.value||"A1"}`;
+  const m=LANGUAGE_META[state.courseLanguage]||LANGUAGE_META["en-US"];
+  if($("#language-session-label"))$("#language-session-label").textContent=`Profesor de ${m.name} · ${$("#lang-level")?.value||"A1"}`;
 }
 
 function startLanguageLesson(placement=false){
-  const lang=$("#lang-target").options[$("#lang-target").selectedIndex].text;
-  const level=$("#lang-level").value,focus=$("#lang-focus").value,immersion=$("#lang-immersion").value;
+  const m=LANGUAGE_META[state.courseLanguage];const level=$("#lang-level").value,focus=$("#lang-focus").value,immersion=$("#lang-immersion").value;
+  const item=state.languageCourse?.items?.[Number(state.languageCourse?.next_index||0)];
+  const currentTopic=item?.topic_name||"fundamentos del idioma";
   const prompt=placement
-    ? `[PRUEBA_DE_NIVEL] Idioma objetivo: ${lang}. Evalúa mi nivel de manera progresiva, una pregunta o tarea por turno. No reveles todas las respuestas. Al terminar estima CEFR A1-C2 y explica qué debo reforzar.`
-    : `[INICIAR_CURSO] Idioma objetivo: ${lang}. Nivel declarado: ${level}. Objetivo: ${focus}. Inmersión: ${immersion}%. Empieza una lección breve y activa. Presenta una sola actividad por turno, espera mi respuesta, corrige y continúa.`;
+    ? `[PRUEBA_DE_NIVEL] Idioma objetivo: ${m.name}. Evalúa mi nivel de manera progresiva, una actividad por turno. Mezcla comprensión, producción, gramática, vocabulario y una breve tarea oral cuando sea posible. Al final estima el nivel y explica exactamente qué debo reforzar.`
+    : `[INICIAR_CURSO_ACTIVO] Idioma objetivo: ${m.name}. Tema actual de mi ruta: ${currentTopic}. Nivel declarado: ${level}. Objetivo: ${focus}. Inmersión: ${immersion}%. Enséñame este tema con método activo: explicación breve, ejemplo, una actividad, espera mi respuesta, corrige y continúa. Recicla vocabulario anterior y termina con producción propia.`;
   sendLanguageMessage(prompt,true);
 }
 
 async function sendLanguageMessage(forcedMessage=null,hideForced=false){
-  const input=$("#language-input"),message=forcedMessage||input.value.trim(); if(!message)return;
-  if(!hideForced)appendMessageTo("#language-messages","user",message); else appendMessageTo("#language-messages","user",forcedMessage?.startsWith("[PRUEBA")?"Iniciar prueba de nivel":"Iniciar lección");
+  const input=$("#language-input"),message=forcedMessage||input.value.trim();if(!message)return;
+  if(!hideForced)appendMessageTo("#language-messages","user",message);else appendMessageTo("#language-messages","user",forcedMessage?.startsWith("[PRUEBA")?"Iniciar prueba de nivel":"Iniciar clase del tema actual");
   input.value="";
-  const langSel=$("#lang-target"),lang=langSel.options[langSel.selectedIndex].text,langCode=langSel.value;
-  const level=$("#lang-level").value,focus=$("#lang-focus").value,immersion=$("#lang-immersion").value;
-  const subject=getSubjectByCode("LANG");
-  const thinking=appendMessageTo("#language-messages","ai","Preparando actividad...");thinking.classList.add("loading");
-  $("#language-send").disabled=true;
+  const m=LANGUAGE_META[state.courseLanguage],level=$("#lang-level").value,focus=$("#lang-focus").value,immersion=$("#lang-immersion").value;
+  const subject=getSubjectByCode("LANG");const currentTopic=state.languageCourse?.items?.[Number(state.languageCourse?.next_index||0)]?.topic_name||"Práctica libre";
+  const thinking=appendMessageTo("#language-messages","ai","Preparando actividad...");thinking.classList.add("loading");$("#language-send").disabled=true;
   try{
-    const result=await streamSpecialAI({mode:"language",message:`Idioma objetivo: ${lang} (${langCode}). Nivel: ${level}. Objetivo: ${focus}. Inmersión: ${immersion}%. Idioma nativo del estudiante: español.\n\n${message}`,conversationId:state.languageConversation,subjectId:subject?.id||null,title:`${lang} — ${level}`,context:{language:lang,languageCode:langCode,level,focus,immersion},target:thinking});
+    const result=await streamSpecialAI({mode:"language",message:`Idioma objetivo: ${m.name} (${state.courseLanguage}). Tema de ruta: ${currentTopic}. Nivel: ${level}. Objetivo: ${focus}. Inmersión: ${immersion}%. Idioma nativo: español.\n\n${message}`,conversationId:state.languageConversation,subjectId:subject?.id||null,title:`${m.name} — ${currentTopic}`,context:{language:m.name,languageCode:state.courseLanguage,level,focus,immersion,currentTopic},target:thinking});
     state.languageConversation=result.conversationId;state.lastLanguageAnswer=result.answer;
-    if(subject)await saveResume({route:"/languages",subject_id:subject.id,topic_id:null,mode:"languages",progress_percent:0,context:{subject:"Idiomas",language:lang,level,focus}}).catch(()=>{});
-  }catch(err){thinking.classList.remove("loading");thinking.textContent=`Error: ${err.message}`}
-  finally{$("#language-send").disabled=false;input.focus()}
+    await recordLanguagePractice(3,0,0,60).catch(()=>{});
+  }catch(err){thinking.classList.remove("loading");setMessageContent(thinking,"ai",`Error: ${err.message}`)}finally{$("#language-send").disabled=false;input.focus()}
 }
+
+function startLanguageChallenge(mode){
+  const bank=LANGUAGE_CHALLENGES[state.courseLanguage]||LANGUAGE_CHALLENGES["en-US"];
+  const item=bank[Math.floor(Math.random()*bank.length)];state.languageGame.mode=mode;state.languageGame.current=item;state.languageGame.selectedWords=[];
+  const m=LANGUAGE_META[state.courseLanguage];const dir=m.dir;const box=$("#language-challenge");
+  const common=`<div class="challenge-top"><span class="challenge-type">${mode==="listen"?"🎧 ESCUCHAR":mode==="order"?"🧩 ORDENAR":mode==="speak"?"🎙 PRONUNCIAR":"✍ TRADUCIR"}</span><span class="challenge-xp">+${mode==="speak"?15:10} XP</span></div>`;
+  if(mode==="listen"){
+    const answers=languageShuffle([item,...languageShuffle(bank.filter(x=>x!==item)).slice(0,3)]).map(x=>x.es);
+    box.innerHTML=`${common}<div class="challenge-body"><h3>Escucha y elige el significado</h3><p>No leas la respuesta: escucha primero y vuelve a reproducir si lo necesitas.</p><button id="challenge-play" class="sound-orb">▶</button><div class="challenge-options">${answers.map((a,i)=>`<button class="challenge-option" data-answer="${escapeAttr(a)}"><span>${String.fromCharCode(65+i)}</span>${escapeHtml(a)}</button>`).join("")}</div><div id="challenge-feedback" class="challenge-feedback hidden"></div></div>`;
+    $("#challenge-play").onclick=()=>speakLanguageText(item.target,state.courseLanguage);$$(".challenge-option").forEach(b=>b.onclick=()=>finishChoiceChallenge(b,b.dataset.answer===item.es,item));setTimeout(()=>speakLanguageText(item.target,state.courseLanguage),350);
+  }else if(mode==="translate"){
+    box.innerHTML=`${common}<div class="challenge-body"><h3>Escribe la frase en ${m.name}</h3><div class="translation-prompt">${escapeHtml(item.es)}</div><input id="challenge-translation" class="challenge-input" autocomplete="off" placeholder="Escribe tu respuesta…" dir="${dir}"><button id="challenge-check-translation" class="primary-btn">COMPROBAR</button><div id="challenge-feedback" class="challenge-feedback hidden"></div></div>`;
+    $("#challenge-check-translation").onclick=()=>{const val=$("#challenge-translation").value;const ok=languageSimilarity(val,item.target)>=.78;finishTypedChallenge(ok,item,val)};$("#challenge-translation").addEventListener("keydown",e=>{if(e.key==="Enter")$("#challenge-check-translation").click()});$("#challenge-translation").focus();
+  }else if(mode==="order"){
+    const words=item.target.replace(/[.!?؟]+$/g,"").split(/\s+/).filter(Boolean);let shuffled=languageShuffle(words);if(words.length>2&&shuffled.join(" ")===words.join(" "))shuffled=[...shuffled.slice(1),shuffled[0]];state.languageGame.orderTarget=words;
+    box.innerHTML=`${common}<div class="challenge-body"><h3>Construye la frase</h3><div class="translation-prompt">${escapeHtml(item.es)}</div><div id="order-built" class="order-built" dir="${dir}"><span>Selecciona las palabras…</span></div><div id="order-bank" class="word-bank" dir="${dir}">${shuffled.map((w,i)=>`<button class="word-chip" data-word="${escapeAttr(w)}" data-token="${i}">${escapeHtml(w)}</button>`).join("")}</div><div class="challenge-actions"><button id="order-reset" class="ghost-btn">REINICIAR</button><button id="order-check" class="primary-btn">COMPROBAR</button></div><div id="challenge-feedback" class="challenge-feedback hidden"></div></div>`;
+    $$(".word-chip").forEach(b=>b.onclick=()=>{b.disabled=true;state.languageGame.selectedWords.push({word:b.dataset.word,token:b.dataset.token});renderOrderBuilt(dir)});$("#order-reset").onclick=()=>{state.languageGame.selectedWords=[];$$(".word-chip").forEach(b=>b.disabled=false);renderOrderBuilt(dir)};$("#order-check").onclick=()=>{const value=state.languageGame.selectedWords.map(x=>x.word).join(" ");finishTypedChallenge(languageSimilarity(value,words.join(" "))>.97,item,value)};
+  }else{
+    box.innerHTML=`${common}<div class="challenge-body pronunciation-body"><h3>Di esta frase en voz alta</h3><div class="pronunciation-target" dir="${dir}">${escapeHtml(item.target)}</div>${item.roman?`<div class="pronunciation-guide">${escapeHtml(item.roman)}</div>`:""}<p>${escapeHtml(item.es)}</p><div class="pronunciation-actions"><button id="pronunciation-listen" class="secondary-btn">🔊 ESCUCHAR MODELO</button><button id="pronunciation-mic" class="mic-main">🎙<span>HABLAR</span></button></div><div id="pronunciation-live" class="pronunciation-live">Pulsa HABLAR y concede permiso al micrófono.</div><div id="challenge-feedback" class="challenge-feedback hidden"></div></div>`;
+    $("#pronunciation-listen").onclick=()=>speakLanguageText(item.target,state.courseLanguage);$("#pronunciation-mic").onclick=()=>runPronunciationChallenge(item);
+  }
+  updateNovaMessage(mode==="speak"?"Escucha primero y luego imita el ritmo, no solo cada palabra.":mode==="listen"?"Concéntrate en captar el significado general antes de traducir palabra por palabra.":mode==="order"?"Busca primero el verbo y la estructura de la oración.":"Piensa en la idea completa y luego construye la frase.");
+}
+
+function renderOrderBuilt(dir){
+  const built=$("#order-built");if(!built)return;const items=state.languageGame.selectedWords||[];built.dir=dir;built.innerHTML=items.length?items.map((x,i)=>`<button class="built-chip" data-built="${i}">${escapeHtml(x.word)}</button>`).join(""):`<span>Selecciona las palabras…</span>`;$$(".built-chip",built).forEach(b=>b.onclick=()=>{const idx=Number(b.dataset.built);const [removed]=state.languageGame.selectedWords.splice(idx,1);const original=$(`.word-chip[data-token="${removed.token}"]`);if(original)original.disabled=false;renderOrderBuilt(dir)});
+}
+
+function finishChoiceChallenge(button,ok,item){
+  $$(".challenge-option").forEach(b=>b.disabled=true);button.classList.add(ok?"correct":"wrong");if(!ok){const correct=$$(".challenge-option").find(b=>b.dataset.answer===item.es);correct?.classList.add("correct")}showChallengeFeedback(ok,item);completeLanguageChallenge(ok,ok?10:1);
+}
+
+function finishTypedChallenge(ok,item,value){
+  showChallengeFeedback(ok,item,value);completeLanguageChallenge(ok,ok?10:1);
+}
+
+function showChallengeFeedback(ok,item,value=""){
+  const f=$("#challenge-feedback");if(!f)return;f.className=`challenge-feedback ${ok?"success":"retry"}`;f.innerHTML=`<strong>${ok?"¡Excelente!":"Casi. Repásalo y vuelve a intentarlo."}</strong><span><b>${escapeHtml(item.target)}</b> · ${escapeHtml(item.es)}</span>${item.roman?`<small>Pronunciación aproximada: ${escapeHtml(item.roman)}</small>`:""}`;
+}
+
+async function completeLanguageChallenge(ok,xp){
+  state.languageGame.attempts=(state.languageGame.attempts||0)+1;state.languageGame.score=(state.languageGame.score||0)+xp;if($("#lang-session-score"))$("#lang-session-score").textContent=state.languageGame.score;if($("#lang-session-attempts"))$("#lang-session-attempts").textContent=`${state.languageGame.attempts} reto${state.languageGame.attempts===1?"":"s"} realizado${state.languageGame.attempts===1?"":"s"}`;
+  if(ok){showLanguageCelebration();updateNovaMessage("¡Muy bien! Acabas de recuperar la información activamente. Eso fortalece la memoria.");await syncLanguagePracticeToCourse().catch(()=>{})}else updateNovaMessage("El error también enseña. Mira la corrección y prueba otra vez antes de seguir.");
+  await recordLanguagePractice(xp,ok?1:0,1,45).catch(()=>{});await refreshLanguageStatsOnly().catch(()=>{});
+}
+
+async function syncLanguagePracticeToCourse(){
+  const course=state.languageCourse;if(!course)return;const idx=Number(course.next_index||0),item=course.items?.[idx];if(!item||Number(item.completed)===1)return;const next=Math.min(80,Math.max(10,Number(item.progress_percent||0)+8));const r=await api("/api/lesson-progress",{method:"PUT",body:{lesson_id:item.lesson_id,progress_percent:next,completed:false,last_position:{stage:"language_game",language:state.courseLanguage}}});item.progress_percent=Number(r.progress_percent||next);if($("#lang-course-progress"))$("#lang-course-progress").textContent=`${course.progress_percent||0}%`;renderLanguageRoute(course);
+}
+
+async function recordLanguagePractice(xp,correct,answered,seconds){
+  return api("/api/language-practice",{method:"POST",body:{xp,correct,answered,study_seconds:seconds,language:state.courseLanguage}});
+}
+
+async function refreshLanguageStatsOnly(){
+  const stats=await api("/api/language-stats");state.languageStats=stats;if($("#lang-streak"))$("#lang-streak").textContent=stats.streak||0;if($("#lang-today-xp"))$("#lang-today-xp").textContent=stats.today_xp||0;if($("#lang-total-xp"))$("#lang-total-xp").textContent=stats.total_xp||0;
+}
+
+function runPronunciationChallenge(item){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;const live=$("#pronunciation-live");if(!SR){live.innerHTML=`<strong>Micrófono no disponible en este navegador.</strong><span>Puedes usar “Escuchar modelo” y repetir en voz alta; la aplicación seguirá funcionando.</span>`;toast("Este navegador no ofrece reconocimiento de voz.",true);return}
+  const r=new SR();r.lang=state.courseLanguage;r.interimResults=true;r.continuous=false;r.maxAlternatives=3;let final="";const mic=$("#pronunciation-mic");mic.classList.add("listening");live.textContent="Escuchando… habla ahora.";
+  r.onresult=e=>{let interim="";for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)final+=t;else interim+=t}live.textContent=final||interim||"Escuchando…"};
+  r.onerror=e=>{mic.classList.remove("listening");const msg=e.error==="not-allowed"?"Permite el acceso al micrófono para practicar pronunciación.":e.error==="language-not-supported"?"Tu navegador no ofrece reconocimiento para este idioma. Usa Escuchar modelo y repite manualmente.":"No pude reconocer la voz. Inténtalo nuevamente.";live.textContent=msg;toast(msg,true)};
+  r.onend=()=>{mic.classList.remove("listening");if(!final.trim())return;const score=Math.round(languageSimilarity(final,item.target)*100);const ok=score>=68;live.innerHTML=`<span>Escuché:</span><strong>${escapeHtml(final)}</strong><b class="pronunciation-score ${ok?"good":"practice"}">${score}%</b>`;showChallengeFeedback(ok,item,final);completeLanguageChallenge(ok,ok?15:2)};
+  try{r.start()}catch{live.textContent="El micrófono ya está activo."}
+}
+
+function speakLanguageText(text,lang){
+  if(!("speechSynthesis" in window))return toast("La voz no está disponible en este navegador.",true);speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(stripMarkdownForSpeech(text));u.lang=lang;u.rate=lang==="he-IL"?.82:lang==="ru-RU"?.82:.88;const voices=speechSynthesis.getVoices();const exact=voices.find(v=>String(v.lang||"").toLowerCase().startsWith(lang.split("-")[0].toLowerCase()));if(exact)u.voice=exact;u.onerror=()=>toast("Este dispositivo no tiene una voz adecuada para ese idioma.",true);speechSynthesis.speak(u);
+}
+
+function stripMarkdownForSpeech(text){return String(text||"").replace(/[#*_`>]/g," ").replace(/\s+/g," ").trim()}
+function languageShuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function normalizeLanguageText(value){return String(value||"").normalize("NFD").replace(/[\u0300-\u036f\u0591-\u05C7]/g,"").toLowerCase().replace(/[^\p{L}\p{N}\s']/gu," ").replace(/\s+/g," ").trim()}
+function languageSimilarity(a,b){a=normalizeLanguageText(a);b=normalizeLanguageText(b);if(!a&&!b)return 1;if(!a||!b)return 0;const m=a.length,n=b.length,dp=Array.from({length:m+1},()=>Array(n+1).fill(0));for(let i=0;i<=m;i++)dp[i][0]=i;for(let j=0;j<=n;j++)dp[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return Math.max(0,1-dp[m][n]/Math.max(m,n))}
+function updateNovaMessage(text){const el=$("#nova-speech span");if(el)el.textContent=text}
+function showLanguageCelebration(){const host=$("#language-challenge");if(!host)return;const c=document.createElement("div");c.className="language-confetti";c.innerHTML=Array.from({length:14},(_,i)=>`<i style="--i:${i}"></i>`).join("");host.appendChild(c);setTimeout(()=>c.remove(),1100)}
 
 function appendMessageTo(selector,role,text){
   const box=$(selector);const d=document.createElement("div");d.className=`message ${role}`;setMessageContent(d,role,text);box.appendChild(d);box.scrollTop=box.scrollHeight;return d;

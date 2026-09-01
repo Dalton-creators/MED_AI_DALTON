@@ -82,6 +82,14 @@ export default {
         return getCourseSummaries(url, env, user);
       }
 
+      if (url.pathname === "/api/language-stats" && request.method === "GET") {
+        return languageStats(env, user);
+      }
+
+      if (url.pathname === "/api/language-practice" && request.method === "POST") {
+        return recordLanguagePractice(request, env, user);
+      }
+
       if (url.pathname === "/api/lesson-progress" && request.method === "PUT") {
         return putLessonProgress(request, env, user);
       }
@@ -686,6 +694,39 @@ async function ensureSubjectCourse(env, subject, language){
     statements.push(env.DB.prepare(`INSERT INTO lessons (id,topic_id,title,summary,content_md,learning_objectives_json,clinical_pearls_json,common_errors_json,source_references_json,estimated_minutes,difficulty,version,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,35,?,1,1,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,summary=excluded.summary,learning_objectives_json=excluded.learning_objectives_json,difficulty=excluded.difficulty,active=1,updated_at=excluded.updated_at`).bind(lessonId,topicId,`${n} · ${name}`,summary,"Lección guiada por MED AI.",JSON.stringify(objectives),"[]","[]","[]",difficulty,now,now));
   });
   await env.DB.batch(statements);
+}
+
+async function languageStatsData(env,user){
+  const profile=await env.DB.prepare("SELECT total_xp FROM profiles WHERE user_id=?").bind(user.id).first();
+  const rows=await env.DB.prepare(`SELECT metric_date,xp_earned,study_seconds,questions_answered FROM daily_metrics WHERE user_id=? AND (xp_earned>0 OR study_seconds>0 OR questions_answered>0) ORDER BY metric_date DESC LIMIT 180`).bind(user.id).all();
+  const metrics=rows.results||[];
+  const today=new Date().toISOString().slice(0,10);
+  const todayRow=metrics.find(x=>x.metric_date===today);
+  const active=new Set(metrics.map(x=>x.metric_date));
+  let cursor=new Date(`${today}T00:00:00Z`);
+  if(!active.has(today)) cursor=new Date(cursor.getTime()-86400000);
+  let streak=0;
+  while(streak<365){
+    const key=cursor.toISOString().slice(0,10);
+    if(!active.has(key))break;
+    streak++;cursor=new Date(cursor.getTime()-86400000);
+  }
+  return {total_xp:Number(profile?.total_xp||0),today_xp:Number(todayRow?.xp_earned||0),streak,today_study_seconds:Number(todayRow?.study_seconds||0)};
+}
+
+async function languageStats(env,user){
+  return json(await languageStatsData(env,user));
+}
+
+async function recordLanguagePractice(request,env,user){
+  const body=await readJson(request);
+  const xp=clamp(Math.round(Number(body.xp||0)),0,30);
+  const answered=clamp(Math.round(Number(body.answered||0)),0,5);
+  const correct=clamp(Math.round(Number(body.correct||0)),0,answered);
+  const studySeconds=clamp(Math.round(Number(body.study_seconds||0)),0,1800);
+  await bumpDailyMetric(env,user.id,{study_seconds:studySeconds,questions_answered:answered,questions_correct:correct,xp_earned:xp});
+  if(xp>0) await env.DB.prepare("UPDATE profiles SET total_xp=total_xp+?,current_medical_level=MAX(1,CAST((total_xp+?)/500 AS INTEGER)+1),updated_at=? WHERE user_id=?").bind(xp,xp,new Date().toISOString(),user.id).run();
+  return json({ok:true,...await languageStatsData(env,user)});
 }
 
 async function getCourseSummaries(url,env,user){
@@ -1713,8 +1754,9 @@ function extractCloudflareText(data) {
 function medicalInstructions(mode){
   if(mode==="science") return `Responde en español y actúa como profesor universitario excelente de Matemática, Física o Astronomía según el área indicada por el estudiante.
 REGLAS: enseña conceptos antes de fórmulas; no saltes pasos algebraicos importantes; define símbolos y unidades; verifica dimensiones y resultados; distingue intuición, derivación y aplicación; en problemas guía paso a paso y deja que el estudiante intente cuando la modalidad sea práctica o socrática. Corrige errores explicando exactamente dónde ocurrió el razonamiento incorrecto. Si el tema es avanzado, declara supuestos y límites de validez. Evita inventar datos o hechos científicos. Adapta la profundidad al nivel indicado. FORMATO: usa ## para el título principal y ### para subtítulos cuando sea útil, listas o pasos numerados y párrafos cortos. No uses encabezados subrayados con signos = o -. Nunca respondas solo con el título.`;
-  if(mode==="language") return `Actúa como profesor experto en adquisición de idiomas. El idioma nativo del estudiante es español y el idioma objetivo, nivel CEFR e inmersión vienen indicados en cada mensaje.
-REGLAS OBLIGATORIAS: 1) prioriza comprensión y producción real, no listas aisladas; 2) presenta una actividad manejable por turno y espera respuesta; 3) corrige primero los errores que afectan significado o son repetitivos, explicando brevemente el porqué; 4) enseña gramática dentro de contexto; 5) recicla vocabulario previamente usado para repetición espaciada; 6) incluye conversación, lectura, escucha simulada, escritura y pronunciación de forma equilibrada; 7) respeta el porcentaje de inmersión indicado; 8) no traduzcas todo automáticamente; 9) cuando enseñes pronunciación, usa ejemplos claros y, si ayuda, IPA sin abrumar; 10) para pruebas de nivel aumenta dificultad gradualmente y estima A1-C2 solo después de suficiente evidencia. Mantén tono de profesor adulto, serio y paciente. FORMATO: organiza explicaciones con títulos cortos, subtítulos, ejemplos y viñetas cuando sea útil.`;
+  if(mode==="language") return `Actúa como profesor experto en adquisición de idiomas para un estudiante hispanohablante. El idioma objetivo, el nivel, el tema de la ruta y el porcentaje de inmersión vienen indicados en cada mensaje.
+MÉTODO OBLIGATORIO: 1) usa input comprensible ligeramente superior al nivel actual; 2) exige producción activa, no aprendizaje pasivo; 3) trabaja UNA actividad principal por turno y espera la respuesta del estudiante; 4) después de una respuesta usa el patrón “Lo que hiciste bien → Corrección → Por qué → Repite o aplica”; 5) enseña gramática dentro de frases y situaciones reales; 6) recicla palabras y estructuras de turnos anteriores mediante recuperación activa y repetición espaciada; 7) alterna comprensión, conversación, lectura, escritura, escucha simulada y pronunciación; 8) respeta el nivel de inmersión y no traduzcas automáticamente todo; 9) para pronunciación señala sonido, sílaba tónica, ritmo y un ejemplo contrastivo; usa IPA o transliteración solo cuando ayude; 10) adapta el método al idioma: hebreo debe enseñar alef-bet, niqqud, raíces y binyanim; latín debe enseñar casos, declinaciones, conjugaciones, sintaxis y lectura; ruso debe enseñar cirílico, casos, aspecto y verbos de movimiento; inglés y francés deben progresar desde comunicación básica hasta registro avanzado; 11) no felicites de manera vacía: la retroalimentación debe ser concreta; 12) si el estudiante se equivoca, crea inmediatamente un microejercicio que ataque ese error; 13) al final de cada mini-lección incluye una producción libre breve que compruebe transferencia.
+FORMATO: explicaciones breves y visuales, ejemplos claros, negrita en patrones importantes, máximo unas pocas secciones por turno. Evita listas interminables. El objetivo es que el estudiante use el idioma, no solo que lea sobre él.`;
   const modeText={
     tutor:"Tutor médico personal: enseña de manera escalonada, clara y rigurosa; usa razonamiento socrático cuando sea útil.",
     patient:`Actúa como simulador de paciente virtual para entrenamiento de entrevista clínica. Mantén un caso clínico interno y coherente que el estudiante NO puede ver.
