@@ -78,6 +78,10 @@ export default {
         return getCourse(url, env, user);
       }
 
+      if (url.pathname === "/api/course-summaries" && request.method === "GET") {
+        return getCourseSummaries(url, env, user);
+      }
+
       if (url.pathname === "/api/lesson-progress" && request.method === "PUT") {
         return putLessonProgress(request, env, user);
       }
@@ -568,6 +572,41 @@ async function ensureSubjectCourse(env, subject, language){
     statements.push(env.DB.prepare(`INSERT INTO lessons (id,topic_id,title,summary,content_md,learning_objectives_json,clinical_pearls_json,common_errors_json,source_references_json,estimated_minutes,difficulty,version,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,35,?,1,1,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,summary=excluded.summary,learning_objectives_json=excluded.learning_objectives_json,difficulty=excluded.difficulty,active=1,updated_at=excluded.updated_at`).bind(lessonId,topicId,`${n} · ${name}`,summary,"Lección guiada por MED AI.",JSON.stringify(objectives),"[]","[]","[]",difficulty,now,now));
   });
   await env.DB.batch(statements);
+}
+
+async function getCourseSummaries(url,env,user){
+  const language=url.searchParams.get("language")||"en-US";
+  const subjectsRows=await env.DB.prepare("SELECT id,code,name FROM subjects WHERE active=1 ORDER BY sort_order,name").all();
+  const progressRows=await env.DB.prepare(`
+    SELECT t.subject_id,t.id AS topic_id,COALESCE(p.completed,0) AS completed
+    FROM topics t
+    JOIN lessons l ON l.topic_id=t.id AND l.active=1
+    LEFT JOIN user_lesson_progress p ON p.lesson_id=l.id AND p.user_id=?
+    WHERE t.active=1 AND t.id LIKE 'course_%'
+  `).bind(user.id).all();
+
+  const allProgress=progressRows.results||[];
+  const summaries={};
+  for(const subject of (subjectsRows.results||[])){
+    const path=COURSE_PATHS[subject.code]||[];
+    if(!path.length) continue;
+    const prefix=coursePrefix(subject.code,language)+"_";
+    const completed=allProgress.filter(row=>
+      row.subject_id===subject.id &&
+      String(row.topic_id||"").startsWith(prefix) &&
+      Number(row.completed)===1
+    ).length;
+    const total=path.length;
+    summaries[subject.id]={
+      subject_id:subject.id,
+      code:subject.code,
+      total,
+      completed,
+      progress_percent:total?Math.round(completed/total*100):0,
+      language:subject.code==="LANG"?language:null
+    };
+  }
+  return json({summaries,language});
 }
 
 async function getCourse(url, env, user){

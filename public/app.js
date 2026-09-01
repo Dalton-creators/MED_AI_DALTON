@@ -226,8 +226,10 @@ async function renderDashboard(){
 }
 
 async function renderStudy(){
+  const progressData=await api(`/api/course-summaries?language=${encodeURIComponent(state.courseLanguage)}`).catch(()=>({summaries:{}}));
+  const summaries=progressData.summaries||{};
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">CURSOS ESTRUCTURADOS</div><h2>Ruta académica con progreso fijo</h2><p>Los cursos avanzan de lo básico a lo avanzado. Cada tema termina con un examen y el siguiente se habilita cuando apruebas. Para estudiar cualquier tema libremente, usa Tutor IA.</p></div></div>
+    <div class="page-head"><div><div class="eyebrow">CURSOS ESTRUCTURADOS</div><h2>Ruta académica con progreso fijo</h2><p>Todos los cursos, incluyendo Matemática, Física, Astronomía e Idiomas, guardan el avance tema por tema. Cada tema termina con examen y el siguiente se habilita al aprobar.</p></div></div>
     <div class="course-intro card">
       <div><strong>Curso fijo + Tutor libre</strong><span>CURSOS · siguen una secuencia académica y guardan tu avance. &nbsp;&nbsp; TUTOR IA · puedes estudiar cualquier tema, en cualquier orden, sin alterar el progreso del curso.</span></div>
       <div class="course-intro-badge">PROGRESO EN D1</div>
@@ -238,13 +240,24 @@ async function renderStudy(){
       <div><b>03</b><span><strong>Examen final</strong><small>Aprueba 4 de 5 para desbloquear el siguiente tema.</small></span></div>
     </div>
     <h3 class="section-title">Selecciona un curso</h3>
-    <div class="grid three" id="subject-grid">${state.subjects.map(courseSubjectCard).join("")}</div>`;
+    <div class="grid three" id="subject-grid">${state.subjects.map(s=>courseSubjectCard(s,summaries[s.id])).join("")}</div>`;
   $$(".subject-card").forEach(c=>c.onclick=()=>openSubject(c.dataset.id));
 }
 
-function courseSubjectCard(s){
-  const special={MATH:"RAZONAMIENTO",PHYS:"CIENCIA",ASTRO:"UNIVERSO",LANG:"IDIOMAS"}[s.code]||s.category||"MEDICINA";
-  return `<div class="card subject-card course-subject-card" data-id="${s.id}"><div class="category">${escapeHtml(special)}</div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Curso progresivo guiado por MED AI.")}</p><div class="course-card-footer"><span>Ruta fija · examen por tema</span><b>ABRIR →</b></div></div>`;
+function courseSubjectCard(s,summary={}){
+  const special={MATH:"MATEMÁTICA",PHYS:"FÍSICA",ASTRO:"ASTRONOMÍA",LANG:"IDIOMAS"}[s.code]||s.category||"MEDICINA";
+  const progress=Math.max(0,Math.min(100,Number(summary.progress_percent||0)));
+  const done=Number(summary.completed||0);
+  const total=Number(summary.total||0);
+  const languageName=s.code==="LANG"?(LANGUAGE_OPTIONS.find(x=>x[0]===state.courseLanguage)?.[1]||"Inglés"):null;
+  return `<div class="card subject-card course-subject-card" data-id="${s.id}" data-code="${escapeAttr(s.code||"")}">
+    <div class="course-card-head"><div class="category">${escapeHtml(special)}</div><span class="course-card-percent">${progress}%</span></div>
+    <h3>${escapeHtml(s.name)}</h3>
+    <p>${escapeHtml(s.description||"Curso progresivo guiado por MED AI.")}</p>
+    <div class="course-card-progress"><i style="width:${progress}%"></i></div>
+    <div class="course-card-stats"><span>${done} / ${total||"—"} temas aprobados</span>${languageName?`<span>${escapeHtml(languageName)}</span>`:""}</div>
+    <div class="course-card-footer"><span>Ruta fija · examen por tema</span><b>ABRIR →</b></div>
+  </div>`;
 }
 
 async function openSubject(id){
