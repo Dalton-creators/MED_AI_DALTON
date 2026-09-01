@@ -82,6 +82,10 @@ export default {
         return getCourseSummaries(url, env, user);
       }
 
+      if (url.pathname === "/api/course/material-pack" && request.method === "POST") {
+        return aiCourseMaterialPack(request, env, user);
+      }
+
       if (url.pathname === "/api/language-stats" && request.method === "GET") {
         return languageStats(env, user);
       }
@@ -793,6 +797,116 @@ async function getCourse(url, env, user){
   const progress=total?Math.round(completed/total*100):0;
   const nextIndex=items.findIndex(x=>Number(x.completed)!==1);
   return json({subject,language:subject.code==="LANG"?language:null,items,total,completed,progress_percent:progress,next_index:nextIndex<0?Math.max(0,total-1):nextIndex});
+}
+
+function courseTeachingProfile(code,languageName){
+  if(code==="MATH")return "Enseña matemática desde intuición hasta formalización. Define símbolos, desarrolla procedimientos sin saltos, incluye fórmulas y ejemplos resueltos, comprueba resultados y señala errores algebraicos frecuentes.";
+  if(code==="PHYS")return "Enseña física conectando intuición, modelo, ecuaciones, unidades y aplicación. Incluye ejemplos resueltos y comprobación dimensional cuando corresponda.";
+  if(code==="ASTRO")return "Enseña astronomía con escalas, observaciones, evidencia, mecanismos físicos y relaciones cuantitativas cuando sean útiles. Distingue hechos observados, modelos e incertidumbre.";
+  if(code==="LANG")return `Enseña ${languageName||"el idioma objetivo"} a un hispanohablante. La clase debe explicar la regla o patrón antes de practicarlo, usar ejemplos auténticos, pronunciación cuando ayude, vocabulario contextual y producción activa. Mantén el idioma objetivo apropiado al nivel.`;
+  return "Enseña medicina y ciencias de la salud con rigor académico. Parte de fundamentos, conecta mecanismo con manifestaciones y aplicación clínica cuando corresponda. Distingue datos establecidos, razonamiento e incertidumbre. Es material educativo; evita presentar una recomendación como sustituto de atención clínica real.";
+}
+
+async function aiCourseMaterialPack(request,env,user){
+  ensureAI(env);
+  const body=await readJson(request);
+  const topicId=cleanText(body.topic_id,220),lessonId=cleanText(body.lesson_id,220),subjectId=cleanText(body.subject_id,220);
+  if(!topicId||!lessonId||!subjectId)return json({error:"Faltan datos de la lección."},400);
+  const row=await env.DB.prepare(`SELECT t.id AS topic_id,t.name AS topic_name,t.description,t.subject_id,l.id AS lesson_id,l.summary,l.learning_objectives_json,l.difficulty,s.name AS subject_name,s.code AS subject_code FROM topics t JOIN lessons l ON l.topic_id=t.id JOIN subjects s ON s.id=t.subject_id WHERE t.id=? AND l.id=? AND s.id=? AND t.active=1 AND l.active=1`).bind(topicId,lessonId,subjectId).first();
+  if(!row)return json({error:"No pude encontrar esta lección."},404);
+  const language=normalizeCourseLanguage(body.language||"en-US");
+  const languageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
+  const languageName=row.subject_code==="LANG"?languageNames[language]:null;
+  const materialTitle=`Material V18: ${row.topic_name}`;
+  const existing=await env.DB.prepare("SELECT id,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title=? ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id,row.topic_id,materialTitle).first();
+  if(existing?.body){
+    const parsed=parseJsonLoose(existing.body);
+    if(parsed?.version===18&&Array.isArray(parsed.sections)&&parsed.sections.length>=3&&Array.isArray(parsed.practice))return json({material:parsed,cached:true,updated_at:existing.updated_at});
+  }
+  const seedObjectives=parseJsonLoose(row.learning_objectives_json)||[];
+  const profile=courseTeachingProfile(row.subject_code,languageName);
+  const prompt=`Crea el material completo de UNA sesión de estudio para una plataforma educativa universitaria.
+MATERIA: ${row.subject_name}
+TEMA: ${row.topic_name}
+DIFICULTAD: ${Number(row.difficulty||4)}/10
+${languageName?`IDIOMA OBJETIVO: ${languageName}`:""}
+DESCRIPCIÓN BASE: ${row.description||row.summary||""}
+OBJETIVOS BASE: ${Array.isArray(seedObjectives)?seedObjectives.join("; "):""}
+
+ENFOQUE PEDAGÓGICO: ${profile}
+
+La sesión debe poder estudiarse como un capítulo corto antes de hacer ejercicios. Debe cubrir los subtemas esenciales del tema, de lo más sencillo a lo más complejo, sin convertirse en una enciclopedia ni omitir fundamentos necesarios.
+
+Devuelve EXCLUSIVAMENTE JSON válido con esta forma:
+{
+ "version":18,
+ "title":"título de la clase",
+ "overview":"introducción de 2 a 4 oraciones que explique por qué importa el tema",
+ "estimated_minutes":35,
+ "objectives":["5 a 7 objetivos concretos"],
+ "sections":[
+   {"title":"subtema","content":"explicación clara y completa en varios párrafos separados por saltos de línea","key_points":["3 a 5 ideas"],"example":"ejemplo trabajado o aplicado","application":"cómo se usa o por qué importa"}
+ ],
+ "key_terms":["8 a 15 conceptos clave"],
+ "practice":[
+   {"type":"choice|true_false","question":"ejercicio","context":"dato o escenario opcional","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación educativa de la respuesta"}
+ ],
+ "summary":{"overview":"síntesis final","must_remember":["6 a 10 ideas indispensables"],"common_errors":["3 a 6 errores o confusiones frecuentes"],"connection":"cómo conecta con el siguiente nivel o con otros temas"}
+}
+
+REGLAS ESTRICTAS:
+- 5 a 7 sections, ordenadas pedagógicamente.
+- Cada section debe enseñar de verdad: definición, mecanismo o razonamiento y ejemplo/aplicación cuando corresponda.
+- EXACTAMENTE 8 ejercicios de práctica.
+- Todos los ejercicios deben poder autocorregirse. Usa 4 opciones en todos; para verdadero/falso usa ["Verdadero","Falso","No se puede determinar","Depende del contexto"] si hace falta.
+- correctIndex debe ser 0,1,2 o 3 y apuntar a la opción correcta.
+- No incluyas preguntas del examen final dentro del texto.
+- No inventes referencias bibliográficas ni datos dudosos.
+- En Matemática/Física incluye fórmulas en texto legible y al menos un ejemplo resuelto paso a paso.
+- En Idiomas adapta ejemplos y explicación al idioma ${languageName||"seleccionado"}; si es Hebreo usa escritura hebrea, si es Ruso cirílico, si es Latín latín correcto.
+- En Medicina conserva propósito educativo y no sustituye valoración profesional.
+- Escribe en español salvo ejemplos necesarios del idioma objetivo.
+- Sin markdown fuera de los valores JSON.`;
+
+  async function run(model,temp){
+    const response=await callCloudflareAI(env,{model,messages:[{role:"system",content:"Eres un profesor universitario y diseñador instruccional. Creas clases autocontenidas, progresivas, correctas y orientadas a comprensión profunda y práctica activa. Devuelve solo JSON válido."},{role:"user",content:prompt}],max_tokens:4300,temperature:temp});
+    return parseJsonLoose(extractCloudflareText(response));
+  }
+  let parsed=null;
+  try{parsed=await run(DEFAULT_TEXT_MODEL,.22)}catch{}
+  if(!parsed?.sections?.length||!parsed?.practice?.length){try{parsed=await run(DEFAULT_FAST_MODEL,.18)}catch{}}
+  if(!parsed?.sections?.length||parsed.sections.length<3||!Array.isArray(parsed.practice)||parsed.practice.length<6)return json({error:"La IA no logró estructurar una clase completa. Intenta nuevamente."},502);
+
+  const material={
+    version:18,
+    title:cleanText(parsed.title,260)||row.topic_name,
+    overview:cleanText(parsed.overview,1600)||cleanText(row.summary||row.description,1600),
+    estimated_minutes:clamp(Number(parsed.estimated_minutes||40),20,90),
+    objectives:Array.isArray(parsed.objectives)?parsed.objectives.slice(0,7).map(x=>cleanText(x,500)).filter(Boolean):[],
+    sections:parsed.sections.slice(0,7).map(sec=>({
+      title:cleanText(sec.title,260),content:cleanText(sec.content,2300),
+      key_points:Array.isArray(sec.key_points)?sec.key_points.slice(0,5).map(x=>cleanText(x,450)).filter(Boolean):[],
+      example:cleanText(sec.example,1600),application:cleanText(sec.application,1200)
+    })).filter(x=>x.title&&x.content),
+    key_terms:Array.isArray(parsed.key_terms)?parsed.key_terms.slice(0,15).map(x=>cleanText(x,220)).filter(Boolean):[],
+    practice:parsed.practice.slice(0,8).map(q=>({
+      type:String(q.type||"choice")==="true_false"?"true_false":"choice",
+      question:cleanText(q.question,900),context:cleanText(q.context,900),
+      options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,600)):[],
+      correctIndex:clamp(Math.round(Number(q.correctIndex||0)),0,3),explanation:cleanText(q.explanation,1200)
+    })).filter(q=>q.question&&q.options.length===4),
+    summary:{
+      overview:cleanText(parsed.summary?.overview,1600),
+      must_remember:Array.isArray(parsed.summary?.must_remember)?parsed.summary.must_remember.slice(0,10).map(x=>cleanText(x,500)).filter(Boolean):[],
+      common_errors:Array.isArray(parsed.summary?.common_errors)?parsed.summary.common_errors.slice(0,6).map(x=>cleanText(x,500)).filter(Boolean):[],
+      connection:cleanText(parsed.summary?.connection,1000)
+    }
+  };
+  if(material.sections.length<3||material.practice.length<6)return json({error:"El material generado quedó incompleto. Intenta nuevamente."},502);
+  const serialized=JSON.stringify(material),now=new Date().toISOString();
+  if(existing?.id)await env.DB.prepare("UPDATE notes SET body=?,tags_json=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?").bind(serialized,JSON.stringify(["curso","material_v18"]),JSON.stringify({course_material:true,version:18,lesson_id:row.lesson_id,language:languageName}),now,existing.id,user.id).run();
+  else await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(crypto.randomUUID(),user.id,row.subject_id,row.topic_id,materialTitle,serialized,JSON.stringify(["curso","material_v18"]),JSON.stringify({course_material:true,version:18,lesson_id:row.lesson_id,language:languageName}),now,now).run();
+  return json({material,cached:false,updated_at:now});
 }
 
 async function putLessonProgress(request, env, user){
@@ -1629,8 +1743,11 @@ async function aiExam(request, env, user) {
   const difficulty = clamp(Math.round(Number(body.difficulty||3)),1,10);
   const subject = cleanText(body.subject,120)||"Medicina";
   const topic = cleanText(body.topic,160)||"contenido general";
+  const examLanguage=normalizeCourseLanguage(body.language||"en-US");
+  const examLanguageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
+  const languageInstruction=subject.toLowerCase().includes("idioma")?` El idioma objetivo es ${examLanguageNames[examLanguage]||"Inglés"}; evalúa específicamente ese idioma y no otro.`:"";
 
-  const prompt = `Genera ${count} preguntas de selección múltiple en español para la materia ${subject}, tema ${topic}, dificultad ${difficulty}/10.
+  const prompt = `Genera ${count} preguntas de selección múltiple en español para la materia ${subject}, tema ${topic}, dificultad ${difficulty}/10.${languageInstruction}
 Adapta el tipo de pregunta a la materia: en Matemática y Física incluye razonamiento y cálculos cuando corresponda; en Astronomía combina conceptos y aplicación; en Idiomas evalúa comprensión, gramática, vocabulario y uso contextual; en Medicina conserva rigor clínico.
 Cada pregunta debe tener exactamente 4 opciones plausibles, una sola correcta y explicación educativa.
 Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, con esta forma:

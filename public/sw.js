@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v17-edu-platform";
+const CACHE = "med-ai-dalton-v18-masterclass";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=17.0.0",
-  "/app.js?v=17.0.0",
+  "/styles.css?v=18.0.0",
+  "/app.js?v=18.0.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

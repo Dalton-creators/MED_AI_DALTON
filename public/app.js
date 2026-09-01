@@ -6,7 +6,8 @@ const state = {
   scienceConversation:null, languageConversation:null, lastLanguageAnswer:"",
   currentCourse:null,currentLesson:null,courseConversation:null,courseLanguage:(()=>{const v=localStorage.getItem("medai_course_language")||"en-US";return ["he-IL","la","en-US","ru-RU","fr-FR"].includes(v)?v:"en-US"})(),
   tutorTranscript:[],tutorSessionTitle:"",courseExam:null,
-  languageCourse:null,languageStats:null,languageGame:null,languageLessonSession:null
+  languageCourse:null,languageStats:null,languageGame:null,languageLessonSession:null,
+  courseLearningPack:null,coursePractice:null,coursePhase:"lesson"
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -260,9 +261,10 @@ async function renderStudy(){
       <div class="course-intro-badge">PROGRESO EN D1</div>
     </div>
     <div class="hybrid-progress-note fixed-progress-note">
-      <div><b>01</b><span><strong>Lección</strong><small>Estudia el tema completo con MED AI.</small></span></div>
-      <div><b>02</b><span><strong>Práctica</strong><small>Comprueba que entiendes antes del examen.</small></span></div>
-      <div><b>03</b><span><strong>Examen final</strong><small>Aprueba 4 de 5 para desbloquear el siguiente tema.</small></span></div>
+      <div><b>01</b><span><strong>Clase</strong><small>Texto completo y guardable en PDF.</small></span></div>
+      <div><b>02</b><span><strong>Práctica</strong><small>Ejercicios interactivos con corrección.</small></span></div>
+      <div><b>03</b><span><strong>Resumen</strong><small>Repasa lo esencial antes de evaluar.</small></span></div>
+      <div><b>04</b><span><strong>Examen</strong><small>10 preguntas · apruebas con 8.</small></span></div>
     </div>
     <h3 class="section-title">Selecciona un curso</h3>
     <div class="grid three" id="subject-grid">${state.subjects.map(s=>courseSubjectCard(s,summaries[s.id])).join("")}</div>`;
@@ -345,7 +347,7 @@ function openCourseLesson(index){
   if(!item)return;
   const unlocked=Number(item.completed)===1 || index===Number(course.next_index);
   if(!unlocked){toast("Este tema todavía está bloqueado. Aprueba primero el tema actual.",true);return}
-  state.currentLesson={...item,index};state.currentTopic={id:item.topic_id,name:item.topic_name,subject_id:state.currentSubject.id};state.courseConversation=null;state.courseExam=null;navigate("course_lesson");
+  state.currentLesson={...item,index};state.currentTopic={id:item.topic_id,name:item.topic_name,subject_id:state.currentSubject.id};state.courseConversation=null;state.courseExam=null;state.courseLearningPack=null;state.coursePractice=null;state.coursePhase="lesson";navigate("course_lesson");
 }
 
 async function renderCourseLesson(){
@@ -354,110 +356,249 @@ async function renderCourseLesson(){
   const objectives=safeJson(item.learning_objectives_json,[]);
   const noteData=await api(`/api/course-note?topic_id=${encodeURIComponent(item.topic_id)}`).catch(()=>({note:null}));
   const completed=Number(item.completed)===1;
+  const savedPos=safeJson(item.last_position_json,{});
+  state.coursePhase=completed?"summary":normalizeSavedCoursePhase(savedPos.stage,Number(item.progress_percent||0));
   root.innerHTML=`
     <div class="lesson-course-head"><button id="back-course" class="ghost-btn">← ${escapeHtml(s.name.toUpperCase())}</button><div><span>LECCIÓN ${String(item.index+1).padStart(2,"0")} / ${course.total}</span><strong>${escapeHtml(item.topic_name)}</strong></div><div class="lesson-course-percent">${completed?"100":Math.round(Number(item.progress_percent||0))}%</div></div>
-    <div class="lesson-course-grid">
-      <main class="card lesson-main">
-        <div class="eyebrow">LECCIÓN OBLIGATORIA · EXAMEN AL FINAL</div>
-        <h2>${escapeHtml(item.topic_name)}</h2>
-        <p class="lesson-summary">${escapeHtml(item.summary||item.description||"")}</p>
-        <div class="lesson-objectives"><strong>Objetivos de esta lección</strong><ul>${objectives.map(o=>`<li>${escapeHtml(o)}</li>`).join("")}</ul></div>
-        <div class="lesson-actions"><button id="start-guided-lesson" class="primary-btn">INICIAR CLASE COMPLETA</button><button id="practice-guided-lesson" class="secondary-btn">PRACTICAR TEMA</button><button id="course-final-exam" class="${completed?"secondary-btn":"primary-btn"}">${completed?"REPETIR EXAMEN":"EXAMEN FINAL DEL TEMA"}</button></div>
-        <div id="course-messages" class="messages course-messages"><div class="message ai rich"><div class="rich-response"><p>Estudia la clase, practica tus dudas y al finalizar realiza el <strong>examen del tema</strong>. Necesitas acertar al menos <strong>4 de 5 preguntas</strong> para aprobar y desbloquear la siguiente lección.</p></div></div></div>
-        <div class="composer"><textarea id="course-input" rows="2" placeholder="Pregunta algo sobre esta lección..."></textarea><button id="course-send" class="primary-btn">ENVIAR</button></div>
-        <div id="course-exam-area" class="course-exam-area"></div>
+    <div class="course-master-flow">
+      <button class="course-flow-step active" data-phase="lesson"><b>01</b><span>CLASE</span><small>Aprender</small></button>
+      <button class="course-flow-step" data-phase="practice"><b>02</b><span>PRÁCTICA</span><small>Aplicar</small></button>
+      <button class="course-flow-step" data-phase="summary"><b>03</b><span>RESUMEN</span><small>Recordar</small></button>
+      <button class="course-flow-step" data-phase="exam"><b>04</b><span>EXAMEN</span><small>10 preguntas</small></button>
+    </div>
+    <div class="lesson-course-grid masterclass-grid">
+      <main class="card lesson-main masterclass-main">
+        <div id="course-learning-body" class="course-learning-body">
+          <div class="masterclass-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu clase</strong><span>${escapeHtml(item.topic_name)}</span><small>Organizando teoría, ejemplos, práctica y resumen…</small></div>
+        </div>
+        <section class="course-question-box">
+          <div><div class="panel-code">¿TE QUEDÓ UNA DUDA?</div><strong>Pregunta sobre esta clase</strong><small>MED AI responderá sin sacarte del tema que estás estudiando.</small></div>
+          <div id="course-messages" class="messages course-messages compact-course-chat"></div>
+          <div class="composer"><textarea id="course-input" rows="2" placeholder="Ej. Explícame otra vez este concepto con un ejemplo más sencillo..."></textarea><button id="course-send" class="primary-btn">PREGUNTAR</button></div>
+        </section>
       </main>
       <aside class="lesson-side">
-        <section class="card lesson-progress-card"><div class="panel-code">PROGRESO DEL TEMA</div><div class="lesson-progress-number" id="lesson-progress-number">${completed?100:Math.round(Number(item.progress_percent||0))}%</div><div class="progress"><i id="lesson-progress-bar" style="width:${completed?100:Number(item.progress_percent||0)}%"></i></div><p>${completed?"Tema aprobado. Puedes repasarlo cuando quieras.":"El tema solo se marca como completado después de aprobar su examen final."}</p><div class="course-pass-status ${completed?"passed":""}" id="course-pass-status">${completed?"EXAMEN APROBADO ✓":"PENDIENTE DE EXAMEN"}</div><button id="next-course-topic" class="secondary-btn wide ${completed?"":"hidden"}" style="margin-top:8px">SIGUIENTE TEMA →</button></section>
+        <section class="card lesson-progress-card"><div class="panel-code">PROGRESO DEL TEMA</div><div class="lesson-progress-number" id="lesson-progress-number">${completed?100:Math.round(Number(item.progress_percent||0))}%</div><div class="progress"><i id="lesson-progress-bar" style="width:${completed?100:Number(item.progress_percent||0)}%"></i></div><div class="master-progress-stages"><span class="${Number(item.progress_percent||0)>=35||completed?'done':''}">✓ Clase</span><span class="${Number(item.progress_percent||0)>=65||completed?'done':''}">✓ Práctica</span><span class="${Number(item.progress_percent||0)>=80||completed?'done':''}">✓ Resumen</span><span class="${completed?'done':''}">✓ Examen</span></div><p>${completed?"Tema aprobado. Puedes volver a estudiar cualquier sección.":"El tema se completa únicamente después de aprobar 8 de 10 preguntas en el examen final."}</p><div class="course-pass-status ${completed?"passed":""}" id="course-pass-status">${completed?"TEMA APROBADO ✓":"RUTA EN PROGRESO"}</div><button id="next-course-topic" class="secondary-btn wide ${completed?"":"hidden"}" style="margin-top:8px">SIGUIENTE TEMA →</button></section>
+        <section class="card masterclass-info-card"><div class="panel-code">MATERIAL DE CLASE</div><strong>Tu clase queda guardada</strong><p>El contenido generado para este tema se conserva en tu cuenta. También puedes abrirlo como documento y guardarlo en PDF.</p><button id="course-pdf-side" class="secondary-btn wide" disabled>GUARDAR / IMPRIMIR PDF</button><small id="course-material-status">Cargando material…</small></section>
         <section class="card"><div class="panel-code">MIS NOTAS DEL TEMA</div><textarea id="course-note" class="course-note" placeholder="Escribe aquí lo que quieras recordar...">${escapeHtml(noteData.note?.body||"")}</textarea><button id="save-course-note" class="secondary-btn wide">GUARDAR NOTAS</button><small id="course-note-status">${noteData.note?.updated_at?`Último guardado: ${formatDate(noteData.note.updated_at)}`:"Tus notas quedan sincronizadas en D1."}</small></section>
       </aside>
     </div>`;
+
   $("#back-course").onclick=()=>navigate("course");
-  $("#start-guided-lesson").onclick=()=>sendCourseLessonMessage("[INICIAR_CURSO_GUIADO] Imparte esta clase de forma completa y progresiva. Antes de explicar, crea un índice de todos los subtemas esenciales que pertenecen a esta lección según el currículo académico actual. Luego desarrolla cada subtema desde fundamentos hasta aplicación, sin omitir conceptos nucleares. Termina con un resumen y preguntas de comprobación.",true,false);
-  $("#practice-guided-lesson").onclick=()=>sendCourseLessonMessage("[PRACTICA_CURSO] Evalúame sobre esta lección con preguntas progresivas, una por una. Cubre distintos subtemas de la clase y corrige mi razonamiento.",true,true);
-  $("#course-final-exam").onclick=startCourseFinalExam;
   $("#course-send").onclick=()=>sendCourseLessonMessage();
   $("#course-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendCourseLessonMessage()}});
   $("#next-course-topic").onclick=()=>{const ni=item.index+1;if(ni<course.items.length)openCourseLesson(ni);else navigate("course")};
   $("#save-course-note").onclick=saveCourseNote;
+  $("#course-pdf-side").onclick=printCourseMaterialPdf;
+  $$(".course-flow-step").forEach(btn=>btn.onclick=()=>openCoursePhase(btn.dataset.phase));
+  await loadCourseMasterclass();
 }
 
-async function sendCourseLessonMessage(forced=null,hide=false,practice=false){
-  const input=$("#course-input"),raw=forced||input.value.trim();if(!raw)return;
-  if(!hide)appendMessageTo("#course-messages","user",raw);else appendMessageTo("#course-messages","user",practice?"Practicar esta lección":"Iniciar clase completa");
-  input.value="";
+function phaseFromCourseProgress(progress){
+  if(progress>=80)return"summary";
+  if(progress>=65)return"practice";
+  return"lesson";
+}
+
+function normalizeSavedCoursePhase(stage,progress){
+  if(["lesson","practice","summary","exam"].includes(stage))return stage;
+  if(stage==="exam_retry"||stage==="exam_passed")return"summary";
+  if(stage==="practice_ready")return"practice";
+  return phaseFromCourseProgress(progress);
+}
+
+function coursePhaseAllowed(phase){
+  const item=state.currentLesson;
+  const progress=Number(item?.progress_percent||0);
+  const completed=Number(item?.completed)===1;
+  if(completed)return true;
+  if(phase==="lesson")return true;
+  if(phase==="practice")return progress>=35;
+  if(phase==="summary")return progress>=65;
+  if(phase==="exam")return progress>=80;
+  return false;
+}
+
+async function openCoursePhase(phase){
+  if(!state.courseLearningPack)return;
+  if(!coursePhaseAllowed(phase)){
+    const msg={practice:"Primero estudia la clase.",summary:"Primero completa los ejercicios de práctica.",exam:"Primero revisa el resumen de la lección."}[phase]||"Completa la etapa anterior.";
+    toast(msg,true);return;
+  }
+  state.coursePhase=phase;
+  $$(".course-flow-step").forEach(b=>b.classList.toggle("active",b.dataset.phase===phase));
+  if(phase==="lesson")renderCourseMasterclassMaterial();
+  if(phase==="practice")renderCoursePracticeStart();
+  if(phase==="summary")renderCourseMasterclassSummary();
+  if(phase==="exam")startCourseFinalExam();
+}
+
+async function loadCourseMasterclass(){
   const item=state.currentLesson,s=state.currentSubject;
-  const target=appendMessageTo("#course-messages","ai","Preparando la lección...");target.classList.add("loading");
+  try{
+    const pack=await api("/api/course/material-pack",{method:"POST",body:{subject_id:s.id,topic_id:item.topic_id,lesson_id:item.lesson_id,language:s.code==="LANG"?state.courseLanguage:null}});
+    state.courseLearningPack=pack.material;
+    $("#course-pdf-side").disabled=false;
+    $("#course-material-status").textContent=pack.cached?"Clase recuperada de tu cuenta.":"Clase creada y guardada automáticamente.";
+    if(!Number(item.completed)&&Number(item.progress_percent||0)<35)await updateCourseLessonProgress(35,false,{stage:"lesson",material_saved:true},false);
+    const desired=coursePhaseAllowed(state.coursePhase)?state.coursePhase:"lesson";
+    openCoursePhase(desired);
+  }catch(err){
+    $("#course-learning-body").innerHTML=`<div class="masterclass-error"><strong>No pude preparar el material de esta clase.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-pack" class="primary-btn">INTENTAR DE NUEVO</button></div>`;
+    $("#retry-course-pack").onclick=loadCourseMasterclass;
+    $("#course-material-status").textContent="Material pendiente.";
+  }
+}
+
+function renderCourseMasterclassMaterial(){
+  const p=state.courseLearningPack,item=state.currentLesson,s=state.currentSubject;
+  if(!p)return;
+  const body=$("#course-learning-body");
+  body.innerHTML=`
+    <article class="masterclass-document" id="masterclass-document">
+      <header class="masterclass-document-head">
+        <div><div class="eyebrow">CLASE · ${escapeHtml(s.name.toUpperCase())}</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><p>${escapeHtml(p.overview||item.summary||"")}</p></div>
+        <div class="masterclass-doc-actions"><span>${Number(p.estimated_minutes||35)} MIN</span><button id="course-pdf-main" class="secondary-btn">▣ GUARDAR PDF</button></div>
+      </header>
+      <section class="masterclass-objectives"><div class="panel-code">AL TERMINAR PODRÁS</div><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
+      <nav class="masterclass-index"><span>CONTENIDO DE LA SESIÓN</span>${(p.sections||[]).map((x,i)=>`<a href="#mc-section-${i}"><b>${String(i+1).padStart(2,"0")}</b>${escapeHtml(x.title)}</a>`).join("")}</nav>
+      <div class="masterclass-sections">
+        ${(p.sections||[]).map((sec,i)=>`<section class="masterclass-section" id="mc-section-${i}"><div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div><div class="masterclass-section-content"><h2>${escapeHtml(sec.title||`Parte ${i+1}`)}</h2><div class="masterclass-prose">${renderStudyParagraphs(sec.content||"")}</div>${sec.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${sec.key_points.map(k=>`<li>${escapeHtml(k)}</li>`).join("")}</ul></div>`:""}${sec.example?`<div class="masterclass-example"><span>EJEMPLO</span>${renderStudyParagraphs(sec.example)}</div>`:""}${sec.application?`<div class="masterclass-application"><span>APLICACIÓN</span>${renderStudyParagraphs(sec.application)}</div>`:""}</div></section>`).join("")}
+      </div>
+      ${p.key_terms?.length?`<section class="masterclass-terms"><div class="panel-code">CONCEPTOS QUE DEBES DOMINAR</div><div>${p.key_terms.map(t=>`<span>${escapeHtml(t)}</span>`).join("")}</div></section>`:""}
+      <footer class="masterclass-next"><div><strong>¿Terminaste de estudiar?</strong><span>Ahora aplica lo aprendido sin mirar el texto.</span></div><button id="go-course-practice" class="primary-btn">IR A PRÁCTICA →</button></footer>
+    </article>`;
+  $("#course-pdf-main").onclick=printCourseMaterialPdf;
+  $("#go-course-practice").onclick=async()=>{if(!Number(item.completed)&&Number(item.progress_percent||0)<40)await updateCourseLessonProgress(40,false,{stage:"practice_ready"});openCoursePhase("practice")};
+}
+
+function renderStudyParagraphs(text){
+  return String(text||"").split(/\n{2,}|\n/).map(x=>x.trim()).filter(Boolean).map(x=>`<p>${formatInline(x)}</p>`).join("");
+}
+
+function renderCoursePracticeStart(){
+  const p=state.courseLearningPack;
+  if(!p)return;
+  state.coursePractice={index:0,score:0,answers:{},questions:(p.practice||[]).slice(0,8)};
+  if(!state.coursePractice.questions.length){
+    $("#course-learning-body").innerHTML=`<div class="masterclass-error"><strong>No hay ejercicios disponibles.</strong><button id="back-to-class" class="secondary-btn">VOLVER A LA CLASE</button></div>`;
+    $("#back-to-class").onclick=()=>openCoursePhase("lesson");return;
+  }
+  renderCoursePracticeQuestion();
+}
+
+function renderCoursePracticeQuestion(){
+  const st=state.coursePractice,q=st?.questions?.[st.index];
+  if(!st||!q){finishCoursePractice();return}
+  const total=st.questions.length;
+  $("#course-learning-body").innerHTML=`<section class="master-practice-shell"><div class="master-practice-top"><button id="practice-back-class" class="ghost-btn">← CLASE</button><div class="master-practice-progress"><i style="width:${Math.round(st.index/total*100)}%"></i></div><span>${st.index+1} / ${total}</span></div><div class="master-practice-card"><div class="master-practice-icon">${q.type==="true_false"?"◐":"?"}</div><div class="eyebrow">PRÁCTICA · SIN CALIFICACIÓN FINAL</div><h2>${escapeHtml(q.question||"")}</h2>${q.context?`<p class="practice-context">${escapeHtml(q.context)}</p>`:""}<div class="master-practice-options">${(q.options||[]).map((o,i)=>`<button class="master-practice-option" data-i="${i}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(o)}</strong></button>`).join("")}</div><div id="practice-feedback" class="master-practice-feedback hidden"></div></div></section>`;
+  $("#practice-back-class").onclick=()=>openCoursePhase("lesson");
+  $$(".master-practice-option").forEach(btn=>btn.onclick=()=>answerCoursePractice(Number(btn.dataset.i)));
+}
+
+function answerCoursePractice(choice){
+  const st=state.coursePractice,q=st.questions[st.index];
+  if(st.answers[st.index]!==undefined)return;
+  st.answers[st.index]=choice;
+  const correct=choice===Number(q.correctIndex);
+  if(correct)st.score++;
+  $$(".master-practice-option").forEach((btn,i)=>{btn.disabled=true;if(i===Number(q.correctIndex))btn.classList.add("correct");if(i===choice&&!correct)btn.classList.add("wrong")});
+  const feedback=$("#practice-feedback");feedback.classList.remove("hidden");feedback.innerHTML=`<div><strong>${correct?"✓ Correcto":"↻ Revisa este concepto"}</strong><p>${escapeHtml(q.explanation||"")}</p></div><button id="practice-next" class="primary-btn">${st.index+1>=st.questions.length?"VER RESULTADO":"SIGUIENTE →"}</button>`;
+  $("#practice-next").onclick=()=>{st.index++;if(st.index>=st.questions.length)finishCoursePractice();else renderCoursePracticeQuestion()};
+}
+
+async function finishCoursePractice(){
+  const st=state.coursePractice,item=state.currentLesson;
+  const pct=st?.questions?.length?Math.round(st.score/st.questions.length*100):0;
+  if(!Number(item.completed))await updateCourseLessonProgress(65,false,{stage:"practice",practice_score:pct});
+  $("#course-learning-body").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">✓</div><div class="eyebrow">PRÁCTICA COMPLETADA</div><h2>${st.score} de ${st.questions.length} correctas</h2><p>${pct>=75?"Buen dominio inicial. Ahora condensa la información antes del examen.":"La práctica detectó puntos que conviene repasar. Lee el resumen y vuelve a la clase si algo no está claro."}</p><div class="master-result-meter"><i style="width:${pct}%"></i></div><div class="master-stage-actions"><button id="practice-review-class" class="secondary-btn">REPASAR CLASE</button><button id="practice-go-summary" class="primary-btn">VER RESUMEN →</button></div></section>`;
+  $("#practice-review-class").onclick=()=>openCoursePhase("lesson");
+  $("#practice-go-summary").onclick=()=>openCoursePhase("summary");
+}
+
+async function renderCourseMasterclassSummary(){
+  const p=state.courseLearningPack,item=state.currentLesson;
+  if(!p)return;
+  if(!Number(item.completed)&&Number(item.progress_percent||0)<80)await updateCourseLessonProgress(80,false,{stage:"summary"});
+  const sm=p.summary||{};
+  $("#course-learning-body").innerHTML=`<article class="master-summary"><header><div class="eyebrow">RESUMEN DE LA LECCIÓN</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><p>${escapeHtml(sm.overview||p.overview||"")}</p></header><section class="master-summary-grid"><div class="master-summary-box remember"><span>01</span><strong>Lo que debes recordar</strong><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div><div class="master-summary-box errors"><span>02</span><strong>Errores frecuentes</strong><ul>${(sm.common_errors||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div></section>${sm.connection?`<section class="master-summary-connection"><span>CONEXIÓN</span><p>${escapeHtml(sm.connection)}</p></section>`:""}${p.key_terms?.length?`<section class="master-summary-terms"><span>PALABRAS / IDEAS CLAVE</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}<footer class="master-summary-footer"><div><strong>¿Listo para comprobar que lo dominas?</strong><span>El examen tiene 10 preguntas y necesitas 8 correctas.</span></div><button id="summary-go-exam" class="primary-btn">INICIAR EXAMEN DE 10 PREGUNTAS →</button></footer></article>`;
+  $("#summary-go-exam").onclick=()=>openCoursePhase("exam");
+}
+
+async function sendCourseLessonMessage(){
+  const input=$("#course-input"),raw=input.value.trim();if(!raw)return;
+  appendMessageTo("#course-messages","user",raw);input.value="";
+  const item=state.currentLesson,s=state.currentSubject;
+  const target=appendMessageTo("#course-messages","ai","Pensando...");target.classList.add("loading");
   const mode=["MATH","PHYS","ASTRO"].includes(s.code)?"science":s.code==="LANG"?"language":"tutor";
   const lang=s.code==="LANG"?` Idioma objetivo: ${LANGUAGE_OPTIONS.find(x=>x[0]===state.courseLanguage)?.[1]||"Inglés"}.`:"";
-  const message=`CURSO OFICIAL GUIADO. Materia: ${s.name}. Tema actual: ${item.topic_name}. Lección ${item.index+1} de ${state.currentCourse.total}.${lang}\n\n${raw}\n\nREGLAS: mantente estrictamente dentro del tema. Enséñalo de lo fácil a lo difícil. Cubre el temario esencial de forma completa antes de considerar finalizada la clase.`;
-  try{
-    const r=await streamSpecialAI({mode,message,conversationId:state.courseConversation,subjectId:s.id,title:`Curso — ${item.topic_name}`,context:{course:true,topic:item.topic_name,language:state.courseLanguage},target});
-    state.courseConversation=r.conversationId;
-    const nextProgress=Math.max(Number(item.progress_percent||0),practice?80:60);
-    if(!Number(item.completed))await updateCourseLessonProgress(nextProgress,false,{stage:practice?"practice":"lesson"});
-  }catch(err){target.classList.remove("loading");setMessageContent(target,"ai",`Error: ${err.message}`)}
+  const message=`Duda dentro de un curso oficial. Materia: ${s.name}. Tema: ${item.topic_name}.${lang}\n\nPregunta del estudiante: ${raw}\n\nResponde únicamente sobre este tema. Explica con claridad y ejemplos, pero no adelantes el examen ni reveles sus respuestas.`;
+  try{const r=await streamSpecialAI({mode,message,conversationId:state.courseConversation,subjectId:s.id,title:`Dudas — ${item.topic_name}`,context:{course:true,topic:item.topic_name},target});state.courseConversation=r.conversationId}catch(err){target.classList.remove("loading");setMessageContent(target,"ai",`Error: ${err.message}`)}
 }
 
 async function updateCourseLessonProgress(progress,completed=false,lastPosition={},updateUI=true){
   const item=state.currentLesson;if(!item)return null;
   const r=await api("/api/lesson-progress",{method:"PUT",body:{lesson_id:item.lesson_id,progress_percent:progress,completed,last_position:lastPosition}});
-  item.progress_percent=Math.max(Number(item.progress_percent||0),Number(r.progress_percent||0));item.completed=r.completed?1:item.completed;
+  item.progress_percent=Math.max(Number(item.progress_percent||0),Number(r.progress_percent||0));item.completed=r.completed?1:item.completed;item.last_position_json=JSON.stringify(lastPosition||{});
   if(state.currentCourse){const ci=item.index;state.currentCourse.items[ci]={...state.currentCourse.items[ci],...item};state.currentCourse.progress_percent=r.course_progress;if(r.completed)state.currentCourse.next_index=Math.min(ci+1,state.currentCourse.items.length-1)}
-  if(updateUI){if($("#lesson-progress-number"))$("#lesson-progress-number").textContent=`${Math.round(item.progress_percent)}%`;if($("#lesson-progress-bar"))$("#lesson-progress-bar").style.width=`${item.progress_percent}%`}
+  if(updateUI){if($("#lesson-progress-number"))$("#lesson-progress-number").textContent=`${Math.round(item.progress_percent)}%`;if($("#lesson-progress-bar"))$("#lesson-progress-bar").style.width=`${item.progress_percent}%`;updateMasterProgressStages()}
   return r;
 }
 
+function updateMasterProgressStages(){
+  const p=Number(state.currentLesson?.progress_percent||0),done=Number(state.currentLesson?.completed)===1;
+  const nodes=$$(".master-progress-stages span");
+  const checks=[p>=35||done,p>=65||done,p>=80||done,done];
+  nodes.forEach((n,i)=>n.classList.toggle("done",checks[i]));
+}
+
 async function startCourseFinalExam(){
+  if(!coursePhaseAllowed("exam")){toast("Primero completa clase, práctica y resumen.",true);return}
   const item=state.currentLesson,s=state.currentSubject;
-  const area=$("#course-exam-area");
-  area.innerHTML=`<div class="course-exam-loading">Generando el examen final de <strong>${escapeHtml(item.topic_name)}</strong>...</div>`;
-  $("#course-final-exam").disabled=true;
+  const area=$("#course-learning-body");
+  area.innerHTML=`<div class="course-exam-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando examen final</strong><span>${escapeHtml(item.topic_name)}</span><small>10 preguntas · necesitas 8 correctas para aprobar</small></div>`;
   try{
-    const d=await api("/api/ai/exam",{method:"POST",body:{subject:s.name,topic:item.topic_name,count:5,difficulty:Number(item.difficulty||item.difficulty_min||5)}});
-    state.courseExam={questions:d.questions,answers:{},started_at:new Date().toISOString(),subject:s.name,topic:item.topic_name};
+    const d=await api("/api/ai/exam",{method:"POST",body:{subject:s.name,topic:item.topic_name,count:10,difficulty:Number(item.difficulty||item.difficulty_min||5),language:s.code==="LANG"?state.courseLanguage:null}});
+    state.courseExam={questions:(d.questions||[]).slice(0,10),answers:{},started_at:new Date().toISOString(),subject:s.name,topic:item.topic_name,current:0};
+    if(state.courseExam.questions.length<10)throw new Error("El examen no pudo generar las 10 preguntas completas. Inténtalo otra vez.");
     renderCourseFinalExam();
-  }catch(err){area.innerHTML=`<div class="notice">${escapeHtml(err.message)}</div>`}
-  finally{$("#course-final-exam").disabled=false}
+  }catch(err){area.innerHTML=`<div class="masterclass-error"><strong>No pude generar el examen completo.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-exam" class="primary-btn">INTENTAR DE NUEVO</button></div>`;$("#retry-course-exam").onclick=startCourseFinalExam}
 }
 
 function renderCourseFinalExam(){
   const e=state.courseExam;if(!e)return;
-  $("#course-exam-area").innerHTML=`<section class="course-final-exam"><div class="panel-code">EXAMEN FINAL DEL TEMA</div><h3>${escapeHtml(e.topic)}</h3><p>Responde las 5 preguntas. Apruebas con 4 respuestas correctas.</p>
-    ${e.questions.map((q,i)=>`<div class="exam-question course-exam-question" data-cq="${i}"><div class="eyebrow">PREGUNTA ${i+1}</div><h4>${escapeHtml(q.stem)}</h4>${q.options.map((op,j)=>`<label class="option"><input type="radio" name="cq${i}" value="${j}"><span>${escapeHtml(op)}</span></label>`).join("")}<div class="explanation hidden"></div></div>`).join("")}
-    <button id="finish-course-exam" class="primary-btn">CALIFICAR EXAMEN</button></section>`;
-  $$('input[type="radio"]',$("#course-exam-area")).forEach(r=>r.onchange=()=>{state.courseExam.answers[r.name]=Number(r.value)});
-  $("#finish-course-exam").onclick=finishCourseFinalExam;
+  const i=e.current,q=e.questions[i],selected=e.answers[`cq${i}`];
+  $("#course-learning-body").innerHTML=`<section class="master-exam-shell"><div class="master-exam-head"><div><div class="eyebrow">EXAMEN FINAL · ${escapeHtml(e.subject.toUpperCase())}</div><strong>${escapeHtml(e.topic)}</strong></div><span>${i+1} / 10</span></div><div class="master-exam-progress"><i style="width:${i*10}%"></i></div><article class="master-exam-question"><div class="master-exam-number">${String(i+1).padStart(2,"0")}</div><h2>${escapeHtml(q.stem)}</h2><div class="master-exam-options">${q.options.map((op,j)=>`<button class="master-exam-option ${selected===j?'selected':''}" data-i="${j}"><span>${String.fromCharCode(65+j)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div></article><footer class="master-exam-footer"><button id="exam-back-summary" class="ghost-btn">← RESUMEN</button><button id="exam-next-question" class="primary-btn" ${selected===undefined?'disabled':''}>${i===9?'CALIFICAR EXAMEN':'SIGUIENTE →'}</button></footer></section>`;
+  $$(".master-exam-option").forEach(btn=>btn.onclick=()=>{e.answers[`cq${i}`]=Number(btn.dataset.i);renderCourseFinalExam()});
+  $("#exam-back-summary").onclick=()=>openCoursePhase("summary");
+  $("#exam-next-question").onclick=()=>{if(e.answers[`cq${i}`]===undefined)return;if(i<9){e.current++;renderCourseFinalExam()}else finishCourseFinalExam()};
 }
 
 async function finishCourseFinalExam(){
   const e=state.courseExam;if(!e)return;
   let score=0;
-  e.questions.forEach((q,i)=>{
-    const chosen=e.answers[`cq${i}`];
-    const block=$(`.course-exam-question[data-cq="${i}"]`);
-    const labels=$$(".option",block);
-    labels.forEach((lab,j)=>{lab.classList.toggle("correct",j===Number(q.correctIndex));lab.classList.toggle("wrong",chosen===j&&j!==Number(q.correctIndex))});
-    if(chosen===Number(q.correctIndex))score++;
-    const exp=$(".explanation",block);exp.classList.remove("hidden");exp.innerHTML=`<strong>Respuesta correcta:</strong> ${escapeHtml(q.options[q.correctIndex]||"")}<br>${escapeHtml(q.explanation||"")}`;
-  });
-  const pct=Math.round(score/e.questions.length*100);
-  const passed=score>=4;
-  await api("/api/exams/record",{method:"POST",body:{title:`Curso · ${e.subject} · ${e.topic}`,settings:{course:true,topic_id:state.currentLesson.topic_id,lesson_id:state.currentLesson.lesson_id},started_at:e.started_at,score,max_score:e.questions.length,percentage:pct,questions:e.questions,answers:Object.fromEntries(Object.entries(e.answers).map(([k,v])=>[k.replace("cq","q"),v]))}}).catch(()=>{});
+  e.questions.forEach((q,i)=>{if(e.answers[`cq${i}`]===Number(q.correctIndex))score++});
+  const pct=Math.round(score/10*100),passed=score>=8;
+  await api("/api/exams/record",{method:"POST",body:{title:`Curso · ${e.subject} · ${e.topic}`,settings:{course:true,topic_id:state.currentLesson.topic_id,lesson_id:state.currentLesson.lesson_id,pass_score:80,question_count:10},started_at:e.started_at,score,max_score:10,percentage:pct,questions:e.questions,answers:Object.fromEntries(Object.entries(e.answers).map(([k,v])=>[k.replace("cq","q"),v]))}}).catch(()=>{});
   if(passed){
-    await updateCourseLessonProgress(100,true,{stage:"exam_passed",score,max_score:e.questions.length,percentage:pct});
-    $("#course-pass-status").textContent=`APROBADO · ${score}/${e.questions.length} ✓`;
-    $("#course-pass-status").classList.add("passed");
-    $("#next-course-topic").classList.remove("hidden");
-    $("#course-final-exam").textContent="REPETIR EXAMEN";
-    $("#course-exam-area").insertAdjacentHTML("afterbegin",`<div class="course-exam-result passed"><strong>APROBADO · ${pct}%</strong><span>Has desbloqueado el siguiente tema.</span></div>`);
-    toast("Examen aprobado. Siguiente tema desbloqueado.");
-  }else{
-    await updateCourseLessonProgress(Math.max(Number(state.currentLesson.progress_percent||0),80),false,{stage:"exam_retry",score,max_score:e.questions.length,percentage:pct});
-    $("#course-exam-area").insertAdjacentHTML("afterbegin",`<div class="course-exam-result failed"><strong>AÚN NO APROBADO · ${pct}%</strong><span>Repasa la explicación y vuelve a intentarlo. Necesitas 4 de 5.</span></div>`);
-    toast("Repasa el tema y vuelve a intentar el examen.",true);
-  }
-  $("#finish-course-exam")?.setAttribute("disabled","disabled");
+    await updateCourseLessonProgress(100,true,{stage:"exam_passed",score,max_score:10,percentage:pct});
+    $("#course-pass-status").textContent=`APROBADO · ${score}/10 ✓`;$("#course-pass-status").classList.add("passed");$("#next-course-topic").classList.remove("hidden");
+  }else await updateCourseLessonProgress(80,false,{stage:"exam_retry",score,max_score:10,percentage:pct});
+  const review=e.questions.map((q,i)=>{const chosen=e.answers[`cq${i}`],ok=chosen===Number(q.correctIndex);return `<details class="master-exam-review ${ok?'correct':'wrong'}"><summary><span>${ok?'✓':'×'} Pregunta ${i+1}</span><strong>${escapeHtml(q.stem)}</strong></summary><div><p><b>Tu respuesta:</b> ${escapeHtml(q.options[chosen]||"Sin respuesta")}</p><p><b>Correcta:</b> ${escapeHtml(q.options[q.correctIndex]||"")}</p><p>${escapeHtml(q.explanation||"")}</p></div></details>`}).join("");
+  $("#course-learning-body").innerHTML=`<section class="master-exam-result"><div class="master-result-badge ${passed?'passed':'failed'}">${passed?'✓':'↻'}</div><div class="eyebrow">RESULTADO DEL EXAMEN</div><h1>${score} / 10 · ${pct}%</h1><p>${passed?'Aprobaste el tema. El siguiente ya está desbloqueado.':'Aún no alcanzas 8/10. Revisa tus errores, repasa la clase y vuelve a intentarlo.'}</p><div class="master-exam-review-list">${review}</div><div class="master-stage-actions"><button id="result-summary" class="secondary-btn">VOLVER AL RESUMEN</button>${passed?`<button id="result-next-topic" class="primary-btn">SIGUIENTE TEMA →</button>`:`<button id="result-retry-exam" class="primary-btn">REPETIR EXAMEN</button>`}</div></section>`;
+  $("#result-summary").onclick=()=>openCoursePhase("summary");
+  $("#result-next-topic")?.addEventListener("click",()=>{$("#next-course-topic").click()});
+  $("#result-retry-exam")?.addEventListener("click",startCourseFinalExam);
+  updateMasterProgressStages();
+}
+
+function printCourseMaterialPdf(){
+  const p=state.courseLearningPack,item=state.currentLesson,s=state.currentSubject;if(!p)return toast("La clase todavía no está lista.",true);
+  const win=window.open("","_blank");if(!win)return toast("El navegador bloqueó la ventana. Permite ventanas emergentes para guardar el PDF.",true);try{win.opener=null}catch{}
+  const summary=p.summary||{};
+  const sections=(p.sections||[]).map((sec,i)=>`<section><h2>${i+1}. ${escapeHtml(sec.title||"")}</h2>${renderStudyParagraphs(sec.content||"")}${sec.key_points?.length?`<h3>Puntos clave</h3><ul>${sec.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${sec.example?`<div class="box"><b>Ejemplo</b>${renderStudyParagraphs(sec.example)}</div>`:""}${sec.application?`<div class="box"><b>Aplicación</b>${renderStudyParagraphs(sec.application)}</div>`:""}</section>`).join("");
+  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||item.topic_name)}</title><style>@page{margin:18mm}body{font-family:Arial,'Noto Sans',sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:12px;margin-bottom:20px}.brand{font-size:9pt;letter-spacing:.12em;color:#168c75;font-weight:bold}h1{font-size:25pt;margin:6px 0}h2{font-size:16pt;margin-top:24px;color:#153f47}h3{font-size:11pt;color:#168c75}p{margin:7px 0}li{margin:4px 0}.objectives,.box,.summary{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 13px;margin:12px 0}.meta{color:#5c6872;font-size:9pt}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:24px;padding-top:10px;border-top:1px solid #ccd6da;color:#69767f;font-size:8pt}@media print{button{display:none}}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL DE ESTUDIO</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><div class="meta">Materia: ${escapeHtml(s.name)} · Tema ${item.index+1} de ${state.currentCourse.total} · ${new Date().toLocaleDateString("es-GT")}</div><p>${escapeHtml(p.overview||"")}</p></header><div class="objectives"><h3>Objetivos</h3><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${sections}${p.key_terms?.length?`<section class="terms"><h2>Conceptos clave</h2>${p.key_terms.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section>`:""}<section class="summary"><h2>Resumen de la lección</h2><p>${escapeHtml(summary.overview||"")}</p><h3>Debes recordar</h3><ul>${(summary.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section><footer>Material educativo generado en MED AI DALTON. Para guardar: selecciona “Guardar como PDF” en el cuadro de impresión de tu dispositivo.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  win.document.open();win.document.write(doc);win.document.close();
 }
 
 async function saveCourseNote(){
@@ -2066,12 +2207,12 @@ async function hardRefreshApplication(){
     }
   }catch{}
   const url=new URL(location.href);
-  url.searchParams.set("v17",Date.now().toString());
+  url.searchParams.set("v18",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=17.0.0",{updateViaCache:"none"}).catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=18.0.0",{updateViaCache:"none"}).catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
