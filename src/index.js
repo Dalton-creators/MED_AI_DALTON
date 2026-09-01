@@ -807,8 +807,95 @@ function courseTeachingProfile(code,languageName){
   return "Enseña medicina y ciencias de la salud con rigor académico. Parte de fundamentos, conecta mecanismo con manifestaciones y aplicación clínica cuando corresponda. Distingue datos establecidos, razonamiento e incertidumbre. Es material educativo; evita presentar una recomendación como sustituto de atención clínica real.";
 }
 
+
+function courseMaterialDiagramFallback(material,topicName){
+  const sections=Array.isArray(material?.sections)?material.sections:[];
+  return {
+    title:`Diagrama de ${topicName}`,
+    caption:"Secuencia visual de los conceptos centrales.",
+    steps:sections.slice(0,7).map((sec,i)=>({
+      label:cleanText(sec?.title,260)||`Parte ${i+1}`,
+      detail:cleanText((Array.isArray(sec?.key_points)&&sec.key_points.length?sec.key_points.join(" · "):sec?.content)||"",900)
+    })).filter(x=>x.label)
+  };
+}
+
+function courseMaterialMapFallback(material,topicName){
+  const sections=Array.isArray(material?.sections)?material.sections:[];
+  return {
+    center:topicName,
+    branches:sections.slice(0,7).map(sec=>({
+      label:cleanText(sec?.title,260)||"Concepto",
+      children:Array.isArray(sec?.key_points)?sec.key_points.slice(0,4).map(x=>cleanText(x,350)).filter(Boolean):[]
+    })).filter(x=>x.label)
+  };
+}
+
+function upgradeCourseMaterialV19(material,row){
+  if(!material||typeof material!=="object")return null;
+  const sections=Array.isArray(material.sections)?material.sections:[];
+  const practice=Array.isArray(material.practice)?material.practice:[];
+  if(sections.length<3||practice.length<6)return null;
+  return {
+    ...material,
+    version:19,
+    title:cleanText(material.title,260)||row.topic_name,
+    overview:cleanText(material.overview,1600)||cleanText(row.summary||row.description,1600),
+    diagram:(material.diagram&&Array.isArray(material.diagram.steps)&&material.diagram.steps.length)
+      ? material.diagram
+      : courseMaterialDiagramFallback(material,row.topic_name),
+    concept_map:(material.concept_map&&Array.isArray(material.concept_map.branches)&&material.concept_map.branches.length)
+      ? material.concept_map
+      : courseMaterialMapFallback(material,row.topic_name)
+  };
+}
+
+async function saveCourseMaterialV19(env,user,row,languageName,title,material,existingId=null){
+  const serialized=JSON.stringify(material),now=new Date().toISOString();
+  const tags=JSON.stringify(["curso","material_v19"]);
+  const metadata=JSON.stringify({course_material:true,version:19,lesson_id:row.lesson_id,language:languageName});
+  if(existingId){
+    await env.DB.prepare("UPDATE notes SET title=?,body=?,tags_json=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?")
+      .bind(title,serialized,tags,metadata,now,existingId,user.id).run();
+    return {updated_at:now,id:existingId};
+  }
+  const id=crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`)
+    .bind(id,user.id,row.subject_id,row.topic_id,title,serialized,tags,metadata,now,now).run();
+  return {updated_at:now,id};
+}
+
+function aiErrorString(err){
+  try{
+    const pieces=[
+      err?.message,err?.stack,err?.cause?.message,
+      typeof err?.cause==="string"?err.cause:"",
+      JSON.stringify(err?.cause||{})
+    ].filter(Boolean);
+    return pieces.join(" ").toLowerCase();
+  }catch{return String(err||"").toLowerCase()}
+}
+
+function classifyWorkersAIError(err){
+  const t=aiErrorString(err);
+  if(t.includes("3036")||t.includes("daily free allocation")||t.includes("10,000 neurons")||t.includes("used up your daily"))return "quota";
+  if(t.includes("3040")||t.includes("out of capacity")||t.includes("capacity"))return "capacity";
+  if(t.includes("5035")||t.includes("requires workers paid"))return "paid_model";
+  if(t.includes("429"))return "rate";
+  return "other";
+}
+
+function workersAIUserMessage(err){
+  const kind=classifyWorkersAIError(err);
+  if(kind==="quota")return "Se agotó la cuota gratuita diaria de Cloudflare Workers AI. Cloudflare la reinicia diariamente a las 00:00 UTC. Tus datos y tu progreso están seguros.";
+  if(kind==="capacity")return "Cloudflare Workers AI está temporalmente sin capacidad. MED AI intentó un modelo alternativo; vuelve a intentarlo en unos minutos.";
+  if(kind==="paid_model")return "El modelo solicitado requiere un plan de pago. MED AI intentará utilizar únicamente modelos compatibles con el plan gratuito.";
+  if(kind==="rate")return "Cloudflare está limitando temporalmente las solicitudes de IA. Espera unos segundos e inténtalo otra vez.";
+  return "Workers AI no pudo responder en este momento.";
+}
+
 async function aiCourseMaterialPack(request,env,user){
-  ensureAI(env);
   const body=await readJson(request);
   const topicId=cleanText(body.topic_id,220),lessonId=cleanText(body.lesson_id,220),subjectId=cleanText(body.subject_id,220);
   if(!topicId||!lessonId||!subjectId)return json({error:"Faltan datos de la lección."},400);
@@ -818,11 +905,36 @@ async function aiCourseMaterialPack(request,env,user){
   const languageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
   const languageName=row.subject_code==="LANG"?languageNames[language]:null;
   const materialTitle=`Material V19: ${row.topic_name}`;
-  const existing=await env.DB.prepare("SELECT id,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title=? ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id,row.topic_id,materialTitle).first();
+
+  // First reuse anything already generated. This does NOT consume Workers AI.
+  const existing=await env.DB.prepare("SELECT id,title,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title=? ORDER BY datetime(updated_at) DESC LIMIT 1")
+    .bind(user.id,row.topic_id,materialTitle).first();
   if(existing?.body){
     const parsed=parseJsonLoose(existing.body);
-    if(parsed?.version===19&&Array.isArray(parsed.sections)&&parsed.sections.length>=3&&Array.isArray(parsed.practice))return json({material:parsed,cached:true,updated_at:existing.updated_at});
+    const upgraded=upgradeCourseMaterialV19(parsed,row);
+    if(upgraded){
+      if(parsed?.version!==19){
+        const saved=await saveCourseMaterialV19(env,user,row,languageName,materialTitle,upgraded,existing.id);
+        return json({material:upgraded,cached:true,migrated:true,updated_at:saved.updated_at});
+      }
+      return json({material:upgraded,cached:true,updated_at:existing.updated_at});
+    }
   }
+
+  // V18 material is valuable and should be migrated instead of regenerated.
+  const legacyTitle=`Material V18: ${row.topic_name}`;
+  const legacy=await env.DB.prepare("SELECT id,title,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title=? ORDER BY datetime(updated_at) DESC LIMIT 1")
+    .bind(user.id,row.topic_id,legacyTitle).first();
+  if(legacy?.body){
+    const oldParsed=parseJsonLoose(legacy.body);
+    const upgraded=upgradeCourseMaterialV19(oldParsed,row);
+    if(upgraded){
+      const saved=await saveCourseMaterialV19(env,user,row,languageName,materialTitle,upgraded,null);
+      return json({material:upgraded,cached:true,migrated:true,updated_at:saved.updated_at});
+    }
+  }
+
+  ensureAI(env);
   const seedObjectives=parseJsonLoose(row.learning_objectives_json)||[];
   const profile=courseTeachingProfile(row.subject_code,languageName);
   const prompt=`Crea el material completo de UNA sesión de estudio para una plataforma educativa universitaria.
@@ -880,17 +992,32 @@ REGLAS ESTRICTAS:
 - Escribe en español salvo ejemplos necesarios del idioma objetivo.
 - Sin markdown fuera de los valores JSON.`;
 
-  async function run(model,temp){
-    const response=await callCloudflareAI(env,{model,messages:[{role:"system",content:"Eres un profesor universitario y diseñador instruccional. Creas clases autocontenidas, progresivas, correctas y orientadas a comprensión profunda y práctica activa. Devuelve solo JSON válido."},{role:"user",content:prompt}],max_tokens:5200,temperature:temp});
+  async function run(model,temp,jsonMode=false){
+    const response=await callCloudflareAI(env,{
+      model,
+      fallback:false,
+      messages:[
+        {role:"system",content:"Eres un profesor universitario y diseñador instruccional. Creas clases autocontenidas, progresivas, correctas y orientadas a comprensión profunda y práctica activa. Devuelve solo JSON válido."},
+        {role:"user",content:prompt}
+      ],
+      max_tokens:model===DEFAULT_FAST_MODEL?3600:4000,
+      temperature:temp,
+      response_format:jsonMode?{type:"json_object"}:undefined
+    });
     return parseJsonLoose(extractCloudflareText(response));
   }
-  let parsed=null;
-  try{parsed=await run(DEFAULT_TEXT_MODEL,.22)}catch{}
-  if(!parsed?.sections?.length||!parsed?.practice?.length){try{parsed=await run(DEFAULT_FAST_MODEL,.18)}catch{}}
-  if(!parsed?.sections?.length||parsed.sections.length<3||!Array.isArray(parsed.practice)||parsed.practice.length<6)return json({error:"La IA no logró estructurar una clase completa. Intenta nuevamente."},502);
+  let parsed=null,lastAIError=null;
+  try{parsed=await run(DEFAULT_FAST_MODEL,.16,true)}catch(err){lastAIError=err}
+  if(!parsed?.sections?.length||!parsed?.practice?.length){
+    try{parsed=await run(DEFAULT_TEXT_MODEL,.18,false)}catch(err){lastAIError=err}
+  }
+  if(!parsed?.sections?.length||parsed.sections.length<3||!Array.isArray(parsed.practice)||parsed.practice.length<6){
+    if(lastAIError)return json({error:workersAIUserMessage(lastAIError)},classifyWorkersAIError(lastAIError)==="quota"?429:503);
+    return json({error:"La IA no logró estructurar una clase completa. Intenta nuevamente."},502);
+  }
 
   const material={
-    version:18,
+    version:19,
     title:cleanText(parsed.title,260)||row.topic_name,
     overview:cleanText(parsed.overview,1600)||cleanText(row.summary||row.description,1600),
     estimated_minutes:clamp(Number(parsed.estimated_minutes||40),20,90),
@@ -930,10 +1057,8 @@ REGLAS ESTRICTAS:
     }
   };
   if(material.sections.length<3||material.practice.length<6)return json({error:"El material generado quedó incompleto. Intenta nuevamente."},502);
-  const serialized=JSON.stringify(material),now=new Date().toISOString();
-  if(existing?.id)await env.DB.prepare("UPDATE notes SET body=?,tags_json=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?").bind(serialized,JSON.stringify(["curso","material_v19"]),JSON.stringify({course_material:true,version:19,lesson_id:row.lesson_id,language:languageName}),now,existing.id,user.id).run();
-  else await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(crypto.randomUUID(),user.id,row.subject_id,row.topic_id,materialTitle,serialized,JSON.stringify(["curso","material_v19"]),JSON.stringify({course_material:true,version:19,lesson_id:row.lesson_id,language:languageName}),now,now).run();
-  return json({material,cached:false,updated_at:now});
+  const saved=await saveCourseMaterialV19(env,user,row,languageName,materialTitle,material,existing?.id||null);
+  return json({material,cached:false,updated_at:saved.updated_at});
 }
 
 async function putLessonProgress(request, env, user){
@@ -1428,25 +1553,37 @@ async function aiChatStream(request, env, user, ctx) {
     VALUES (?,?,?,'user',?,'{}',NULL,?)
   `).bind(crypto.randomUUID(),user.id,conversationId,message,now).run();
 
-  let aiStream;
-  try {
-    aiStream = await env.AI.run(model, {
-      messages,
-      max_tokens:maxTokens,
-      temperature:0.28,
-      stream:true,
-      chat_template_kwargs:{ enable_thinking:false }
-    });
-  } catch(err) {
-    console.error("CLOUDFLARE_AI_STREAM_START_ERROR",err?.stack||err);
-    return json({
-      error:"Workers AI no pudo iniciar la respuesta. Inténtalo de nuevo en unos segundos."
-    },500);
+  let aiStream=null,usedModel=model,lastStreamErr=null;
+  const streamModels=[model];
+  const alternate=model===DEFAULT_FAST_MODEL?DEFAULT_TEXT_MODEL:DEFAULT_FAST_MODEL;
+  if(!streamModels.includes(alternate))streamModels.push(alternate);
+
+  for(const candidate of streamModels){
+    try {
+      aiStream=await env.AI.run(candidate,{
+        messages,
+        max_tokens:candidate===DEFAULT_FAST_MODEL?1250:maxTokens,
+        temperature:0.28,
+        stream:true,
+        chat_template_kwargs:{enable_thinking:false}
+      });
+      usedModel=candidate;
+      break;
+    } catch(err) {
+      lastStreamErr=err;
+      console.error("CLOUDFLARE_AI_STREAM_MODEL_ERROR",candidate,err?.stack||err);
+      if(classifyWorkersAIError(err)==="quota")break;
+    }
+  }
+
+  if(!aiStream){
+    const kind=classifyWorkersAIError(lastStreamErr);
+    return json({error:workersAIUserMessage(lastStreamErr)},kind==="quota"?429:503);
   }
 
   const [clientStream, archiveStream] = aiStream.tee();
   ctx.waitUntil(saveStreamedAssistantMessage(
-    archiveStream, env, user.id, conversationId, model
+    archiveStream, env, user.id, conversationId, usedModel
   ));
 
   return new Response(clientStream, {
@@ -1456,8 +1593,8 @@ async function aiChatStream(request, env, user, ctx) {
       "cache-control":"no-cache, no-store",
       "x-accel-buffering":"no",
       "x-medai-conversation-id":conversationId,
-      "x-medai-model":model,
-      "x-medai-speed-mode":model === DEFAULT_FAST_MODEL ? "fast" : "advanced"
+      "x-medai-model":usedModel,
+      "x-medai-speed-mode":usedModel === DEFAULT_FAST_MODEL ? "fast" : "advanced"
     }
   });
 }
@@ -1954,29 +2091,39 @@ async function aiVision(request, env, user) {
 
 async function callCloudflareAI(env, options) {
   ensureAI(env);
-  const model = options.model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL;
-
-  try {
-    const response = await env.AI.run(model,{
-      messages:options.messages,
-      max_tokens:options.max_tokens || 2500,
-      temperature:options.temperature ?? 0.3,
-      chat_template_kwargs:{
-        enable_thinking:false
-      }
-    });
-
-    if (response && typeof response === "object") {
-      response.__model = model;
-    }
-
-    return response;
-  } catch(err) {
-    console.error("CLOUDFLARE_AI_ERROR",err?.stack||err);
-    throw new Error(
-      "Workers AI no pudo responder. Si superaste la asignación gratuita diaria, vuelve a intentarlo cuando se reinicie el límite."
-    );
+  const requested = options.model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL;
+  const models=[requested];
+  if(options.fallback!==false){
+    const alternate=requested===DEFAULT_FAST_MODEL?DEFAULT_TEXT_MODEL:DEFAULT_FAST_MODEL;
+    if(!models.includes(alternate))models.push(alternate);
   }
+
+  let lastErr=null;
+  for(const model of models){
+    try {
+      const input={
+        messages:options.messages,
+        max_tokens:options.max_tokens || 2500,
+        temperature:options.temperature ?? 0.3,
+        chat_template_kwargs:{enable_thinking:false}
+      };
+      // JSON mode is documented for the fast Llama model. Do not pass it to
+      // models that may not support it.
+      if(options.response_format && model===DEFAULT_FAST_MODEL){
+        input.response_format=options.response_format;
+      }
+
+      const response=await env.AI.run(model,input);
+      if(response && typeof response==="object")response.__model=model;
+      return response;
+    } catch(err) {
+      lastErr=err;
+      console.error("CLOUDFLARE_AI_MODEL_ERROR",model,err?.stack||err);
+      if(classifyWorkersAIError(err)==="quota")break;
+    }
+  }
+
+  throw new Error(workersAIUserMessage(lastErr));
 }
 
 function ensureAI(env) {
