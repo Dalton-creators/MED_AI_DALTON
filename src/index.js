@@ -86,6 +86,26 @@ export default {
         return aiCourseMaterialPack(request, env, user);
       }
 
+      if (url.pathname === "/api/course/sources" && request.method === "GET") {
+        return listUniversitySources(url, env, user);
+      }
+
+      if (url.pathname === "/api/course/source" && request.method === "GET") {
+        return getUniversitySource(url, env, user);
+      }
+
+      if (url.pathname === "/api/course/source" && request.method === "DELETE") {
+        return deleteUniversitySourceApi(url, env, user);
+      }
+
+      if (url.pathname === "/api/course/source-import" && request.method === "POST") {
+        return importUniversitySourceApi(request, env, user);
+      }
+
+      if (url.pathname === "/api/course/source-chat" && request.method === "POST") {
+        return universitySourceChat(request, env, user);
+      }
+
       if (url.pathname === "/api/language-stats" && request.method === "GET") {
         return languageStats(env, user);
       }
@@ -144,6 +164,30 @@ export default {
 
       if (url.pathname === "/api/flashcards/review" && request.method === "POST") {
         return reviewFlashcard(request, env, user);
+      }
+
+      if (url.pathname === "/api/library" && request.method === "GET") {
+        return listStudyLibrary(url, env, user);
+      }
+
+      if (url.pathname === "/api/library/folder" && request.method === "POST") {
+        return createStudyLibraryFolder(request, env, user);
+      }
+
+      if (url.pathname === "/api/library/upload" && request.method === "POST") {
+        return uploadStudyLibraryFile(request, env, user);
+      }
+
+      if (url.pathname === "/api/library/file" && request.method === "GET") {
+        return getStudyLibraryFile(url, env, user);
+      }
+
+      if (url.pathname === "/api/library/item" && request.method === "PUT") {
+        return updateStudyLibraryItem(request, env, user);
+      }
+
+      if (url.pathname === "/api/library/item" && request.method === "DELETE") {
+        return deleteStudyLibraryItemApi(url, env, user);
       }
 
       if (url.pathname === "/api/notes" && request.method === "GET") {
@@ -899,6 +943,332 @@ function workersAIUserMessage(err){
   return "AI Gateway no pudo completar la respuesta en este momento.";
 }
 
+
+async function getCourseTopicRow(env,topicId,lessonId=null,subjectId=null){
+  let sql=`SELECT t.id AS topic_id,t.name AS topic_name,t.description,t.subject_id,l.id AS lesson_id,l.summary,l.difficulty,s.name AS subject_name,s.code AS subject_code
+    FROM topics t JOIN lessons l ON l.topic_id=t.id JOIN subjects s ON s.id=t.subject_id
+    WHERE t.id=? AND t.active=1 AND l.active=1`;
+  const args=[topicId];
+  if(lessonId){sql+=" AND l.id=?";args.push(lessonId)}
+  if(subjectId){sql+=" AND s.id=?";args.push(subjectId)}
+  sql+=" LIMIT 1";
+  return env.DB.prepare(sql).bind(...args).first();
+}
+
+async function listUniversitySources(url,env,user){
+  const topicId=cleanText(url.searchParams.get("topic_id"),220);
+  if(!topicId)return json({sources:[]});
+  const rows=await env.DB.prepare(`
+    SELECT id,title,metadata_json,created_at,updated_at
+    FROM notes
+    WHERE user_id=? AND topic_id=? AND tags_json LIKE '%university_source%'
+    ORDER BY datetime(updated_at) DESC LIMIT 100
+  `).bind(user.id,topicId).all();
+  return json({sources:rows.results||[]});
+}
+
+async function getUniversitySource(url,env,user){
+  const id=cleanText(url.searchParams.get("id"),220);
+  if(!id)return json({error:"Falta el identificador del material."},400);
+  const row=await env.DB.prepare(`
+    SELECT id,title,body,metadata_json,created_at,updated_at
+    FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%university_source%' LIMIT 1
+  `).bind(id,user.id).first();
+  if(!row)return json({error:"No encontré esta clase guardada."},404);
+  const pack=parseJsonLoose(row.body);
+  if(!pack)return json({error:"El material guardado no se pudo leer."},500);
+  return json({source:{id:row.id,title:row.title,metadata_json:row.metadata_json,created_at:row.created_at,updated_at:row.updated_at},pack});
+}
+
+async function deleteUniversitySourceApi(url,env,user){
+  const id=cleanText(url.searchParams.get("id"),220);
+  if(!id)return json({error:"Falta el identificador."},400);
+  await env.DB.prepare("DELETE FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%university_source%'").bind(id,user.id).run();
+  return json({ok:true});
+}
+
+function universitySourcePrompt(row,body){
+  const sourceType=body.source_type||"text";
+  const languageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
+  const targetLanguage=row.subject_code==="LANG"?languageNames[normalizeCourseLanguage(body.language||"en-US")]:null;
+  return `Eres un profesor universitario excelente y diseñador instruccional de MED AI DALTON.
+
+TAREA: convierte el MATERIAL PROPORCIONADO POR EL ESTUDIANTE en una clase de estudio fiel y reutilizable.
+
+MATERIA DEL CURSO: ${row.subject_name}
+TEMA DEL CURSO: ${row.topic_name}
+TIPO DE FUENTE: ${sourceType}
+${targetLanguage?`IDIOMA DEL CURSO: ${targetLanguage}`:""}
+
+REGLA PRINCIPAL DE FIDELIDAD:
+- La prioridad absoluta es enseñar lo que aparece en el material proporcionado.
+- No atribuyas al documento información que no esté allí.
+- Si agregas una explicación necesaria para comprender mejor, identifícala como explicación complementaria y no como contenido literal de la fuente.
+- No inventes páginas, citas, profesores, autores, datos, diagnósticos o resultados.
+- Si el material es insuficiente o ambiguo, dilo en el resumen.
+${body.exam_focus!==false?"- Identifica hechos, definiciones, relaciones, pasos y conceptos que razonablemente podrían evaluarse, sin afirmar que conoces el examen real del docente.":""}
+${body.deep_explanation!==false?"- Enseña para comprensión profunda: explica mecanismos, relaciones y ejemplos, no solo una lista para memorizar.":""}
+
+OBJETIVO DE AHORRO:
+Todo lo necesario para los repasos posteriores debe quedar en ESTA salida: resumen, clase, diagrama, mapa, práctica y examen. Así el estudiante no necesita regenerarlo cada vez.
+
+Devuelve EXCLUSIVAMENTE JSON válido:
+{
+  "version":21,
+  "title":"título claro de la clase",
+  "overview":"qué cubre la fuente y por qué importa",
+  "estimated_minutes":30,
+  "source_digest":"resumen denso y autosuficiente de los hechos, explicaciones, definiciones y relaciones más importantes de la fuente; servirá como contexto compacto para preguntas futuras",
+  "objectives":["5 a 7 objetivos"],
+  "sections":[
+    {
+      "title":"subtema",
+      "content":"explicación clara en varios párrafos, fiel a la fuente",
+      "key_points":["3 a 5 puntos"],
+      "example":"ejemplo o aplicación cuando sea útil"
+    }
+  ],
+  "key_terms":["8 a 18 conceptos"],
+  "exam_focus":["5 a 10 elementos de alto rendimiento para repasar"],
+  "diagram":{
+    "title":"título",
+    "caption":"qué representa",
+    "steps":[{"label":"bloque o paso","detail":"explicación breve"}]
+  },
+  "concept_map":{
+    "center":"concepto central",
+    "branches":[{"label":"rama","children":["idea","idea"]}]
+  },
+  "summary":{
+    "overview":"síntesis final",
+    "must_remember":["6 a 10 ideas"],
+    "common_errors":["3 a 6 confusiones o errores"],
+    "connection":"cómo se conecta con el tema del curso"
+  },
+  "practice":[
+    {"question":"pregunta","context":"","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación"}
+  ],
+  "exam":[
+    {"stem":"pregunta","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación"}
+  ],
+  "video_searches":[
+    {"query":"búsqueda precisa para YouTube","channel_hint":"tipo de canal o canal educativo si procede","why":"qué debería reforzar"}
+  ]
+}
+
+REQUISITOS:
+- 4 a 7 sections.
+- 8 preguntas EXACTAS en practice.
+- 10 preguntas EXACTAS en exam.
+- Todas las preguntas deben poder responderse estudiando esta clase/fuente.
+- 4 a 8 pasos en diagram.
+- 4 a 7 ramas en concept_map.
+- 3 a 5 video_searches. Son consultas de búsqueda, no inventes URLs de videos.
+- Para Medicina: conserva precisión anatómica/fisiológica/clínica y distingue educación de atención a pacientes.
+- Para Matemática/Física: incluye relaciones, procedimiento, símbolos/unidades y ejemplos cuando estén en la fuente.
+- Para Idiomas: conserva el idioma objetivo, traducción/gramática/pronunciación que aparezcan en la fuente.
+- No uses Markdown fuera de los strings JSON.`;
+}
+
+function sanitizeUniversityStudyPack(parsed,row,body){
+  const sections=Array.isArray(parsed?.sections)?parsed.sections.slice(0,7).map(s=>({
+    title:cleanText(s.title,260),
+    content:cleanText(s.content,7000),
+    key_points:Array.isArray(s.key_points)?s.key_points.slice(0,6).map(x=>cleanText(x,600)).filter(Boolean):[],
+    example:cleanText(s.example,2500)
+  })).filter(s=>s.title&&s.content):[];
+  const practice=Array.isArray(parsed?.practice)?parsed.practice.slice(0,8).map(q=>({
+    question:cleanText(q.question||q.stem,1200),
+    context:cleanText(q.context,1200),
+    options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,700)):[],
+    correctIndex:clamp(Number(q.correctIndex),0,3),
+    explanation:cleanText(q.explanation,1800)
+  })).filter(q=>q.question&&q.options.length===4):[];
+  const exam=Array.isArray(parsed?.exam)?parsed.exam.slice(0,10).map(q=>({
+    stem:cleanText(q.stem||q.question,1200),
+    options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,700)):[],
+    correctIndex:clamp(Number(q.correctIndex),0,3),
+    explanation:cleanText(q.explanation,1800)
+  })).filter(q=>q.stem&&q.options.length===4):[];
+  if(sections.length<3||practice.length<6||exam.length<10)return null;
+
+  const diagramSteps=Array.isArray(parsed?.diagram?.steps)?parsed.diagram.steps.slice(0,8).map(x=>({
+    label:cleanText(x.label,300),detail:cleanText(x.detail,1000)
+  })).filter(x=>x.label):[];
+  const mapBranches=Array.isArray(parsed?.concept_map?.branches)?parsed.concept_map.branches.slice(0,7).map(x=>({
+    label:cleanText(x.label,300),
+    children:Array.isArray(x.children)?x.children.slice(0,4).map(y=>cleanText(y,500)).filter(Boolean):[]
+  })).filter(x=>x.label):[];
+
+  return {
+    version:21,
+    university_source:true,
+    title:cleanText(parsed.title,320)||body.source_name||row.topic_name,
+    overview:cleanText(parsed.overview,2000),
+    estimated_minutes:clamp(Number(parsed.estimated_minutes||30),10,180),
+    source_digest:cleanText(parsed.source_digest,18000),
+    objectives:Array.isArray(parsed.objectives)?parsed.objectives.slice(0,8).map(x=>cleanText(x,700)).filter(Boolean):[],
+    sections,
+    key_terms:Array.isArray(parsed.key_terms)?parsed.key_terms.slice(0,20).map(x=>cleanText(x,300)).filter(Boolean):[],
+    exam_focus:Array.isArray(parsed.exam_focus)?parsed.exam_focus.slice(0,12).map(x=>cleanText(x,700)).filter(Boolean):[],
+    diagram:{
+      title:cleanText(parsed?.diagram?.title,300)||`Diagrama de ${row.topic_name}`,
+      caption:cleanText(parsed?.diagram?.caption,900),
+      steps:diagramSteps.length?diagramSteps:sections.slice(0,6).map(s=>({label:s.title,detail:s.key_points.slice(0,2).join(" · ")}))
+    },
+    concept_map:{
+      center:cleanText(parsed?.concept_map?.center,300)||row.topic_name,
+      branches:mapBranches.length?mapBranches:sections.slice(0,6).map(s=>({label:s.title,children:s.key_points.slice(0,3)}))
+    },
+    summary:{
+      overview:cleanText(parsed?.summary?.overview,2200)||cleanText(parsed.overview,2200),
+      must_remember:Array.isArray(parsed?.summary?.must_remember)?parsed.summary.must_remember.slice(0,12).map(x=>cleanText(x,700)).filter(Boolean):[],
+      common_errors:Array.isArray(parsed?.summary?.common_errors)?parsed.summary.common_errors.slice(0,8).map(x=>cleanText(x,700)).filter(Boolean):[],
+      connection:cleanText(parsed?.summary?.connection,1800)
+    },
+    practice:practice.slice(0,8),
+    exam:exam.slice(0,10),
+    video_searches:Array.isArray(parsed.video_searches)?parsed.video_searches.slice(0,5).map(v=>({
+      query:cleanText(typeof v==="string"?v:v.query,500),
+      channel_hint:cleanText(typeof v==="string"?"":v.channel_hint,250),
+      why:cleanText(typeof v==="string"?"":v.why,800)
+    })).filter(v=>v.query):[],
+    source_reference:{
+      type:cleanText(body.source_type,30),
+      name:cleanText(body.source_name,300),
+      mime_type:cleanText(body.mime_type,120),
+      size_bytes:clamp(Number(body.size_bytes||0),0,50_000_000),
+      imported_at:new Date().toISOString()
+    }
+  };
+}
+
+async function importUniversitySourceApi(request,env,user){
+  ensureAI(env);
+  const body=await readJson(request);
+  const type=cleanText(body.source_type,30);
+  if(!["pdf","text","video","youtube"].includes(type))return json({error:"Tipo de material no compatible."},400);
+  const topicId=cleanText(body.topic_id,220),lessonId=cleanText(body.lesson_id,220),subjectId=cleanText(body.subject_id,220);
+  const row=await getCourseTopicRow(env,topicId,lessonId,subjectId);
+  if(!row)return json({error:"No pude relacionar este material con el tema actual."},404);
+
+  const sourceName=cleanText(body.source_name,300)||`Material de ${row.topic_name}`;
+  body.source_name=sourceName;
+  const parts=[{text:universitySourcePrompt(row,body)}];
+
+  if(type==="text"){
+    const sourceText=cleanText(body.text,120000);
+    if(sourceText.length<80)return json({error:"El texto es demasiado corto para preparar una clase."},400);
+    parts.push({text:`\\n\\n===== MATERIAL DEL ESTUDIANTE =====\\n${sourceText}\\n===== FIN DEL MATERIAL =====`});
+  }else if(type==="youtube"){
+    const url=cleanText(body.url,1200);
+    if(!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url))return json({error:"El enlace de YouTube no parece válido."},400);
+    parts.push({fileData:{fileUri:url,mimeType:"video/*"}});
+  }else{
+    const data=String(body.data_base64||"").trim();
+    if(!data)return json({error:"No llegaron los datos del archivo."},400);
+    if(data.length>14_500_000)return json({error:"El archivo es demasiado grande para esta importación directa. Usa una transcripción, divide el PDF o utiliza un enlace público de YouTube para videos largos."},413);
+    const mime=cleanText(body.mime_type,120)||(type==="pdf"?"application/pdf":"video/mp4");
+    if(type==="pdf"&&!mime.includes("pdf"))return json({error:"El archivo seleccionado no parece ser PDF."},400);
+    if(type==="video"&&!mime.startsWith("video/"))return json({error:"El archivo seleccionado no parece ser video."},400);
+    parts.push({inlineData:{mimeType:mime,data}});
+  }
+
+  let response,parsed,lastErr;
+  try{
+    response=await env.AI.run(
+      PREMIUM_FLASH_MODEL,
+      {
+        contents:[{role:"user",parts}],
+        generationConfig:{
+          temperature:0.16,
+          maxOutputTokens:5000,
+          responseMimeType:"application/json"
+        }
+      },
+      gatewayOptions("university_source_import",{
+        subject:row.subject_code,
+        source_type:type,
+        topic:row.topic_name
+      })
+    );
+    parsed=parseJsonLoose(extractCloudflareText(response));
+  }catch(err){lastErr=err}
+
+  const pack=sanitizeUniversityStudyPack(parsed,row,body);
+  if(!pack){
+    if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);
+    return json({error:"La IA leyó el material, pero no logró construir una clase completa. Intenta de nuevo o divide el material en una unidad más pequeña."},502);
+  }
+
+  // Keep only a small literal excerpt for pasted text. Binary originals are intentionally
+  // not stored in D1; the reusable study pack is the persistent artifact.
+  if(type==="text"){
+    pack.source_reference.text_excerpt=cleanText(body.text,7000);
+  }
+
+  const id=crypto.randomUUID(),now=new Date().toISOString();
+  const detail=type==="youtube"?"Video público analizado":type==="video"?"Video corto analizado":type==="pdf"?"PDF analizado":"Texto/apuntes analizados";
+  const metadata={
+    university_source:true,
+    version:21,
+    source_type:type,
+    source_name:sourceName,
+    source_detail:detail,
+    source_size:Number(body.size_bytes||0),
+    lesson_id:row.lesson_id,
+    topic_name:row.topic_name,
+    subject_name:row.subject_name,
+    imported_once:true
+  };
+  await env.DB.prepare(`
+    INSERT INTO notes
+    (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+  `).bind(
+    id,user.id,row.subject_id,row.topic_id,
+    `UNI · ${row.topic_name} · ${sourceName}`,
+    JSON.stringify(pack),
+    JSON.stringify(["university_source","study_pack","v21"]),
+    JSON.stringify(metadata),
+    now,now
+  ).run();
+
+  return json({ok:true,id,title:pack.title,model:PREMIUM_FLASH_MODEL},201);
+}
+
+async function universitySourceChat(request,env,user){
+  const body=await readJson(request);
+  const sourceId=cleanText(body.source_id,220),question=cleanText(body.question,5000);
+  if(!sourceId||!question)return json({error:"Falta el material o la pregunta."},400);
+  const row=await env.DB.prepare(`
+    SELECT title,body,metadata_json FROM notes
+    WHERE id=? AND user_id=? AND tags_json LIKE '%university_source%' LIMIT 1
+  `).bind(sourceId,user.id).first();
+  if(!row)return json({error:"No encontré esa clase guardada."},404);
+  const pack=parseJsonLoose(row.body);
+  if(!pack)return json({error:"No pude leer el material guardado."},500);
+
+  const compact=[
+    `TÍTULO: ${pack.title||row.title}`,
+    `RESUMEN DE FUENTE: ${pack.source_digest||pack.summary?.overview||pack.overview||""}`,
+    `CONCEPTOS: ${(pack.key_terms||[]).join(", ")}`,
+    `PUNTOS CLAVE: ${(pack.summary?.must_remember||[]).join(" | ")}`
+  ].join("\\n");
+
+  const response=await callCloudflareAI(env,{
+    model:PREMIUM_FLASH_MODEL,
+    task:"university_source_question",
+    messages:[
+      {role:"system",content:"Eres un tutor universitario. Responde primero y principalmente con el material guardado que se te proporciona. Si necesitas agregar conocimiento general para aclarar, sepáralo explícitamente como explicación complementaria. No inventes que algo aparece en la fuente si no está en el contexto."},
+      {role:"user",content:`CLASE GUARDADA:\\n${compact}\\n\\nPREGUNTA DEL ESTUDIANTE:\\n${question}`}
+    ],
+    max_tokens:1600,
+    temperature:0.22
+  });
+  return json({answer:extractCloudflareText(response),model:response.__model||PREMIUM_FLASH_MODEL});
+}
+
 async function aiCourseMaterialPack(request,env,user){
   const body=await readJson(request);
   const topicId=cleanText(body.topic_id,220),lessonId=cleanText(body.lesson_id,220),subjectId=cleanText(body.subject_id,220);
@@ -1330,6 +1700,236 @@ async function reviewFlashcard(request, env, user) {
 }
 
 // -------------------- NOTES / DEADLINES / MISTAKES --------------------
+
+
+function requireLibraryR2(env){
+  if(!env.LIBRARY||typeof env.LIBRARY.put!=="function"){
+    throw new Error("La Biblioteca necesita un binding R2 llamado LIBRARY. Crea/vincula el bucket med-ai-dalton-library al Worker y vuelve a desplegar.");
+  }
+}
+function parseLibraryMeta(row){
+  return parseJsonLoose(row?.metadata_json)||{};
+}
+function librarySafeName(name,max=220){
+  const cleaned=cleanText(name,max).replace(/[\\/:*?"<>|\u0000-\u001F]/g," ").replace(/\s+/g," ").trim();
+  return cleaned||"Archivo";
+}
+async function allStudyLibraryRows(env,user){
+  const rows=await env.DB.prepare(`
+    SELECT id,title,tags_json,metadata_json,created_at,updated_at
+    FROM notes
+    WHERE user_id=? AND (tags_json LIKE '%library_file%' OR tags_json LIKE '%library_folder%')
+    ORDER BY datetime(updated_at) DESC LIMIT 5000
+  `).bind(user.id).all();
+  return rows.results||[];
+}
+function libraryRowType(row){
+  const tags=parseJsonLoose(row.tags_json)||[];
+  return tags.includes("library_folder")?"folder":tags.includes("library_file")?"file":"";
+}
+function libraryChildren(rows,parentId){
+  const wanted=parentId||null;
+  return rows.filter(row=>{
+    const meta=parseLibraryMeta(row);
+    return (meta.parent_id||null)===wanted;
+  });
+}
+function buildLibraryBreadcrumb(rows,folderId){
+  const folders=new Map(rows.filter(r=>libraryRowType(r)==="folder").map(r=>[r.id,r]));
+  const result=[];let id=folderId,guard=0;
+  while(id&&guard++<40){
+    const row=folders.get(id);if(!row)break;
+    result.unshift({id:row.id,name:row.title});
+    id=parseLibraryMeta(row).parent_id||null;
+  }
+  return result;
+}
+function libraryDescendantIds(rows,folderId){
+  const result=new Set([folderId]);
+  let changed=true,guard=0;
+  while(changed&&guard++<100){
+    changed=false;
+    for(const row of rows){
+      const meta=parseLibraryMeta(row);
+      if(meta.parent_id&&result.has(meta.parent_id)&&!result.has(row.id)){
+        result.add(row.id);changed=true;
+      }
+    }
+  }
+  return result;
+}
+
+async function listStudyLibrary(url,env,user){
+  requireLibraryR2(env);
+  const folderId=cleanText(url.searchParams.get("folder_id"),220)||null;
+  const rows=await allStudyLibraryRows(env,user);
+  const foldersAll=rows.filter(r=>libraryRowType(r)==="folder");
+  const filesAll=rows.filter(r=>libraryRowType(r)==="file");
+
+  let current=null;
+  if(folderId){
+    current=foldersAll.find(r=>r.id===folderId);
+    if(!current)return json({error:"No encontré esta carpeta."},404);
+  }
+
+  const children=libraryChildren(rows,folderId);
+  const folders=children.filter(r=>libraryRowType(r)==="folder").map(row=>{
+    const meta=parseLibraryMeta(row);
+    const childCount=libraryChildren(rows,row.id).length;
+    return {...row,metadata_json:JSON.stringify({...meta,child_count:childCount})};
+  }).sort((a,b)=>a.title.localeCompare(b.title,"es"));
+  const files=children.filter(r=>libraryRowType(r)==="file").sort((a,b)=>a.title.localeCompare(b.title,"es"));
+
+  const totalBytes=filesAll.reduce((sum,row)=>sum+Number(parseLibraryMeta(row).size_bytes||0),0);
+  return json({
+    current_folder:current?{id:current.id,name:current.title}:null,
+    breadcrumb:buildLibraryBreadcrumb(rows,folderId),
+    folders,files,
+    total_folders:foldersAll.length,
+    total_files:filesAll.length,
+    total_bytes:totalBytes
+  });
+}
+
+async function createStudyLibraryFolder(request,env,user){
+  requireLibraryR2(env);
+  const body=await readJson(request);
+  const name=librarySafeName(body.name,160);
+  const parentId=cleanText(body.parent_id,220)||null;
+  const rows=await allStudyLibraryRows(env,user);
+  if(parentId&&!rows.some(r=>r.id===parentId&&libraryRowType(r)==="folder"))return json({error:"La carpeta de destino no existe."},404);
+
+  const duplicate=rows.some(r=>libraryRowType(r)==="folder"&&(parseLibraryMeta(r).parent_id||null)===parentId&&r.title.toLowerCase()===name.toLowerCase());
+  if(duplicate)return json({error:"Ya existe una carpeta con ese nombre aquí."},409);
+
+  const id=crypto.randomUUID(),now=new Date().toISOString();
+  const meta={library_folder:true,parent_id:parentId};
+  await env.DB.prepare(`
+    INSERT INTO notes
+    (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+  `).bind(id,user.id,null,null,name,"",JSON.stringify(["library_folder"]),JSON.stringify(meta),now,now).run();
+  return json({ok:true,id},201);
+}
+
+async function uploadStudyLibraryFile(request,env,user){
+  requireLibraryR2(env);
+  const form=await request.formData();
+  const file=form.get("file");
+  const parentId=cleanText(form.get("parent_id"),220)||null;
+  if(!file||typeof file.arrayBuffer!=="function")return json({error:"No recibí ningún archivo."},400);
+  const max=50*1024*1024;
+  if(Number(file.size||0)>max)return json({error:"El archivo supera el límite de 50 MB."},413);
+
+  const rows=await allStudyLibraryRows(env,user);
+  if(parentId&&!rows.some(r=>r.id===parentId&&libraryRowType(r)==="folder"))return json({error:"La carpeta de destino no existe."},404);
+
+  const original=librarySafeName(file.name||"Archivo",240);
+  let display=original;
+  const siblingNames=new Set(rows.filter(r=>libraryRowType(r)==="file"&&(parseLibraryMeta(r).parent_id||null)===parentId).map(r=>r.title.toLowerCase()));
+  if(siblingNames.has(display.toLowerCase())){
+    const dot=display.lastIndexOf(".");
+    const base=dot>0?display.slice(0,dot):display,ext=dot>0?display.slice(dot):"";
+    let n=2;while(siblingNames.has(`${base} (${n})${ext}`.toLowerCase()))n++;
+    display=`${base} (${n})${ext}`;
+  }
+
+  const id=crypto.randomUUID(),now=new Date().toISOString();
+  const safeKeyName=original.replace(/\s+/g,"_").replace(/[^a-zA-Z0-9._-]/g,"_").slice(-180);
+  const r2Key=`${user.id}/${id}/${safeKeyName||"file"}`;
+  const buffer=await file.arrayBuffer();
+
+  await env.LIBRARY.put(r2Key,buffer,{
+    httpMetadata:{contentType:file.type||"application/octet-stream"},
+    customMetadata:{user_id:user.id,note_id:id,original_name:original}
+  });
+
+  const meta={
+    library_file:true,parent_id:parentId,r2_key:r2Key,
+    original_name:original,mime_type:file.type||"application/octet-stream",
+    size_bytes:Number(file.size||buffer.byteLength||0)
+  };
+  try{
+    await env.DB.prepare(`
+      INSERT INTO notes
+      (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+    `).bind(id,user.id,null,null,display,"",JSON.stringify(["library_file"]),JSON.stringify(meta),now,now).run();
+  }catch(err){
+    await env.LIBRARY.delete(r2Key).catch(()=>{});
+    throw err;
+  }
+  return json({ok:true,id,title:display},201);
+}
+
+async function getStudyLibraryFile(url,env,user){
+  requireLibraryR2(env);
+  const id=cleanText(url.searchParams.get("id"),220);
+  const inline=url.searchParams.get("inline")==="1";
+  if(!id)return json({error:"Falta id."},400);
+  const row=await env.DB.prepare(`
+    SELECT id,title,metadata_json FROM notes
+    WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
+  `).bind(id,user.id).first();
+  if(!row)return json({error:"No encontré este archivo."},404);
+  const meta=parseLibraryMeta(row);
+  if(!meta.r2_key)return json({error:"El archivo no tiene una referencia de almacenamiento válida."},500);
+  const object=await env.LIBRARY.get(meta.r2_key);
+  if(!object)return json({error:"El archivo ya no está disponible en R2."},404);
+
+  const headers=new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("content-type",meta.mime_type||headers.get("content-type")||"application/octet-stream");
+  const disposition=inline?"inline":"attachment";
+  const ascii=librarySafeName(meta.original_name||row.title,220).replace(/[^\x20-\x7E]/g,"_");
+  headers.set("content-disposition",`${disposition}; filename="${ascii.replace(/"/g,"_")}"`);
+  headers.set("cache-control","private, no-store");
+  headers.set("x-content-type-options","nosniff");
+  if(object.httpEtag)headers.set("etag",object.httpEtag);
+  return new Response(object.body,{headers});
+}
+
+async function updateStudyLibraryItem(request,env,user){
+  requireLibraryR2(env);
+  const body=await readJson(request);
+  const id=cleanText(body.id,220),type=cleanText(body.type,20),name=librarySafeName(body.name,240);
+  if(!id||!["file","folder"].includes(type))return json({error:"Datos incompletos."},400);
+  const row=await env.DB.prepare("SELECT id,title,tags_json,metadata_json FROM notes WHERE id=? AND user_id=? LIMIT 1").bind(id,user.id).first();
+  if(!row||libraryRowType(row)!==type)return json({error:"No encontré ese elemento."},404);
+  await env.DB.prepare("UPDATE notes SET title=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?")
+    .bind(name,new Date().toISOString(),id,user.id).run();
+  return json({ok:true});
+}
+
+async function deleteStudyLibraryItemApi(url,env,user){
+  requireLibraryR2(env);
+  const id=cleanText(url.searchParams.get("id"),220),type=cleanText(url.searchParams.get("type"),20);
+  if(!id||!["file","folder"].includes(type))return json({error:"Datos incompletos."},400);
+  const rows=await allStudyLibraryRows(env,user);
+  const row=rows.find(r=>r.id===id&&libraryRowType(r)===type);
+  if(!row)return json({error:"No encontré ese elemento."},404);
+
+  let targets;
+  if(type==="folder"){
+    const ids=libraryDescendantIds(rows,id);
+    targets=rows.filter(r=>ids.has(r.id));
+  }else targets=[row];
+
+  const r2Keys=targets.filter(r=>libraryRowType(r)==="file").map(r=>parseLibraryMeta(r).r2_key).filter(Boolean);
+  if(r2Keys.length){
+    // R2 supports batch delete; keep chunks conservative.
+    for(let i=0;i<r2Keys.length;i+=1000){
+      await env.LIBRARY.delete(r2Keys.slice(i,i+1000));
+    }
+  }
+  const ids=targets.map(r=>r.id);
+  for(let i=0;i<ids.length;i+=100){
+    const chunk=ids.slice(i,i+100);
+    const qs=chunk.map(()=>"?").join(",");
+    await env.DB.prepare(`DELETE FROM notes WHERE user_id=? AND id IN (${qs})`).bind(user.id,...chunk).run();
+  }
+  return json({ok:true,deleted:targets.length});
+}
 
 async function listNotes(env, user) {
   const rows = await env.DB.prepare(`
@@ -2250,6 +2850,15 @@ function extractCloudflareText(data) {
     return data.output_text.trim();
   }
 
+  if(Array.isArray(data.candidates)) {
+    return data.candidates
+      .flatMap(c=>Array.isArray(c?.content?.parts)?c.content.parts:[])
+      .map(p=>typeof p?.text==="string"?p.text:"")
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
   return "";
 }
 
@@ -2336,7 +2945,7 @@ async function readJson(request){
   const type=request.headers.get("content-type")||"";
   if(!type.includes("application/json")) return {};
   const text=await request.text();
-  if(text.length>8_000_000) throw new Error("Solicitud demasiado grande.");
+  if(text.length>18_000_000) throw new Error("Solicitud demasiado grande.");
   return text?JSON.parse(text):{};
 }
 

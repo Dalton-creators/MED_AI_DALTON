@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v20-ai-gateway-router";
+const CACHE = "med-ai-dalton-v22-study-library";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20.0.0",
-  "/app.js?v=20.0.0",
+  "/styles.css?v=22.0.0",
+  "/app.js?v=22.0.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

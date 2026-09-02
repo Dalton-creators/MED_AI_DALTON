@@ -7,7 +7,10 @@ const state = {
   currentCourse:null,currentLesson:null,courseConversation:null,courseLanguage:(()=>{const v=localStorage.getItem("medai_course_language")||"en-US";return ["he-IL","la","en-US","ru-RU","fr-FR"].includes(v)?v:"en-US"})(),
   tutorTranscript:[],tutorSessionTitle:"",courseExam:null,
   languageCourse:null,languageStats:null,languageGame:null,languageLessonSession:null,
-  courseLearningPack:null,coursePractice:null,coursePhase:"lesson"
+  courseLearningPack:null,coursePractice:null,coursePhase:"lesson",
+  universitySources:[],universitySourcePack:null,universitySourceRecord:null,
+  universityPractice:null,universityExam:null,universityChatConversation:null,
+  libraryFolderId:null,libraryData:null,libraryView:"files"
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -380,6 +383,13 @@ async function renderCourseLesson(){
       <aside class="lesson-side">
         <section class="card lesson-progress-card"><div class="panel-code">PROGRESO DEL TEMA</div><div class="lesson-progress-number" id="lesson-progress-number">${completed?100:Math.round(Number(item.progress_percent||0))}%</div><div class="progress"><i id="lesson-progress-bar" style="width:${completed?100:Number(item.progress_percent||0)}%"></i></div><div class="master-progress-stages"><span class="${Number(item.progress_percent||0)>=35||completed?'done':''}">✓ Clase</span><span class="${Number(item.progress_percent||0)>=65||completed?'done':''}">✓ Práctica</span><span class="${Number(item.progress_percent||0)>=80||completed?'done':''}">✓ Resumen</span><span class="${completed?'done':''}">✓ Examen</span></div><p>${completed?"Tema aprobado. Puedes volver a estudiar cualquier sección.":"El tema se completa únicamente después de aprobar 8 de 10 preguntas en el examen final."}</p><div class="course-pass-status ${completed?"passed":""}" id="course-pass-status">${completed?"TEMA APROBADO ✓":"RUTA EN PROGRESO"}</div><button id="next-course-topic" class="secondary-btn wide ${completed?"":"hidden"}" style="margin-top:8px">SIGUIENTE TEMA →</button></section>
         <section class="card masterclass-info-card"><div class="panel-code">MATERIAL DE CLASE</div><strong>Tu clase queda guardada</strong><p>El contenido generado para este tema se conserva en tu cuenta. También puedes abrirlo como documento y guardarlo en PDF.</p><button id="course-pdf-side" class="secondary-btn wide" disabled>GUARDAR / IMPRIMIR PDF</button><small id="course-material-status">Cargando material…</small></section>
+        <section class="card university-source-card">
+          <div class="panel-code">MI MATERIAL DE LA UNIVERSIDAD</div>
+          <div class="university-source-card-head"><strong>Estudia desde tus propios archivos</strong><span id="university-source-count">—</span></div>
+          <p>Sube PDF, texto, video corto o un enlace público de YouTube. MED AI lo procesa una vez y guarda la clase para futuros repasos.</p>
+          <button id="open-university-source" class="university-source-main-btn wide"><span>＋</span><b>ABRIR MIS MATERIALES</b></button>
+          <small>Diseñado para ahorrar créditos: volver a abrir una clase guardada no vuelve a analizar el archivo.</small>
+        </section>
         <section class="card"><div class="panel-code">MIS NOTAS DEL TEMA</div><textarea id="course-note" class="course-note" placeholder="Escribe aquí lo que quieras recordar...">${escapeHtml(noteData.note?.body||"")}</textarea><button id="save-course-note" class="secondary-btn wide">GUARDAR NOTAS</button><small id="course-note-status">${noteData.note?.updated_at?`Último guardado: ${formatDate(noteData.note.updated_at)}`:"Tus notas quedan sincronizadas en D1."}</small></section>
       </aside>
     </div>`;
@@ -390,7 +400,9 @@ async function renderCourseLesson(){
   $("#next-course-topic").onclick=()=>{const ni=item.index+1;if(ni<course.items.length)openCourseLesson(ni);else navigate("course")};
   $("#save-course-note").onclick=saveCourseNote;
   $("#course-pdf-side").onclick=printCourseMaterialPdf;
+  $("#open-university-source").onclick=openUniversitySourceStudio;
   $$(".course-flow-step").forEach(btn=>btn.onclick=()=>openCoursePhase(btn.dataset.phase));
+  refreshUniversitySourceCount().catch(()=>{});
   await loadCourseMasterclass();
 }
 
@@ -828,6 +840,501 @@ function printCourseMaterialPdf(){
   const videoHtml=`<section><h2>Videos complementarios</h2><p>Estos enlaces abren búsquedas del tema en YouTube. Requieren internet.</p><ul>${videos.map(v=>`<li><b>${escapeHtml(v.source)}:</b> ${escapeHtml(v.query)} — ${escapeHtml(v.url)}</li>`).join("")}</ul></section>`;
 
   const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||item.topic_name)}</title><style>@page{margin:18mm}body{font-family:Arial,'Noto Sans',sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:12px;margin-bottom:20px}.brand{font-size:9pt;letter-spacing:.12em;color:#168c75;font-weight:bold}h1{font-size:25pt;margin:6px 0}h2{font-size:16pt;margin-top:24px;color:#153f47}h3{font-size:11pt;color:#168c75}p{margin:7px 0}li{margin:4px 0}.objectives,.box,.summary,.visual{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 13px;margin:12px 0}.meta{color:#5c6872;font-size:9pt}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}.flow{display:flex;align-items:stretch;gap:5px;flex-wrap:wrap}.flow>div{border:1px solid #cad6da;background:white;padding:8px;min-width:110px;flex:1}.flow span,.flow b{display:block}.flow span{font-size:9pt;margin-top:4px;color:#52616b}.flow em{align-self:center;color:#168c75;font-weight:bold}.mapcenter{text-align:center;background:#153f47;color:white;padding:9px;font-weight:bold}.mapbranches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:7px}.mapbranches>div{background:white;border:1px solid #cad6da;padding:8px}footer{margin-top:24px;padding-top:10px;border-top:1px solid #ccd6da;color:#69767f;font-size:8pt}@media print{button{display:none}}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL MULTIMEDIA DE ESTUDIO</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><div class="meta">Materia: ${escapeHtml(s.name)} · Tema ${item.index+1} de ${state.currentCourse.total} · ${new Date().toLocaleDateString("es-GT")}</div><p>${escapeHtml(p.overview||"")}</p></header><div class="objectives"><h3>Objetivos</h3><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${sections}${diagramHtml}${mapHtml}${p.key_terms?.length?`<section class="terms"><h2>Conceptos clave</h2>${p.key_terms.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section>`:""}<section class="summary"><h2>Resumen de la lección</h2><p>${escapeHtml(summary.overview||"")}</p><h3>Debes recordar</h3><ul>${(summary.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${videoHtml}<footer>Material educativo generado en MED AI DALTON. Los videos son recursos web complementarios y su disponibilidad depende de terceros. Para guardar este documento selecciona “Guardar como PDF” en el cuadro de impresión.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  win.document.open();win.document.write(doc);win.document.close();
+}
+
+
+/* ============================================================
+   V21 · UNIVERSITY SOURCE STUDIO
+   Import once -> save study pack -> revisit without re-inference
+   ============================================================ */
+
+async function refreshUniversitySourceCount(){
+  const item=state.currentLesson;if(!item)return;
+  const data=await api(`/api/course/sources?topic_id=${encodeURIComponent(item.topic_id)}`);
+  state.universitySources=data.sources||[];
+  const el=$("#university-source-count");
+  if(el)el.textContent=`${state.universitySources.length} guardado${state.universitySources.length===1?"":"s"}`;
+}
+
+function ensureUniversityOverlay(){
+  let overlay=$("#university-source-overlay");
+  if(overlay)return overlay;
+  overlay=document.createElement("div");
+  overlay.id="university-source-overlay";
+  overlay.className="university-source-overlay hidden";
+  overlay.innerHTML=`<div class="university-source-shell">
+    <header class="university-source-shell-head">
+      <div><span>MED AI · UNIVERSITY SOURCE STUDIO</span><strong id="uni-shell-title">Mis materiales universitarios</strong></div>
+      <button id="close-university-source" class="university-close-btn" aria-label="Cerrar">×</button>
+    </header>
+    <main id="university-source-body"></main>
+  </div>`;
+  document.body.appendChild(overlay);
+  $("#close-university-source",overlay).onclick=closeUniversitySourceStudio;
+  overlay.addEventListener("click",e=>{if(e.target===overlay)closeUniversitySourceStudio()});
+  return overlay;
+}
+
+async function openUniversitySourceStudio(){
+  const overlay=ensureUniversityOverlay();
+  overlay.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  $("#uni-shell-title").textContent=`${state.currentSubject?.name||"Materia"} · ${state.currentLesson?.topic_name||"Tema"}`;
+  $("#university-source-body").innerHTML=`<div class="university-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Cargando tus materiales…</strong></div>`;
+  try{
+    await refreshUniversitySourceCount();
+    renderUniversitySourceLibrary();
+  }catch(err){
+    $("#university-source-body").innerHTML=`<div class="masterclass-error"><strong>No pude cargar tus materiales.</strong><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+function closeUniversitySourceStudio(){
+  $("#university-source-overlay")?.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+  state.universitySourcePack=null;
+  state.universitySourceRecord=null;
+  state.universityPractice=null;
+  state.universityExam=null;
+}
+
+function sourceTypeLabel(type){
+  return ({pdf:"PDF",text:"TEXTO",video:"VIDEO",youtube:"YOUTUBE"}[type]||"MATERIAL");
+}
+function sourceTypeIcon(type){
+  return ({pdf:"▤",text:"¶",video:"▶",youtube:"▷"}[type]||"◆");
+}
+
+function renderUniversitySourceLibrary(){
+  const body=$("#university-source-body"),items=state.universitySources||[];
+  body.innerHTML=`
+    <section class="university-library-hero">
+      <div>
+        <div class="eyebrow">APRENDE DESDE LO QUE TE DAN EN LA UNIVERSIDAD</div>
+        <h2>Convierte tus materiales en clases reutilizables.</h2>
+        <p>MED AI analiza cada material una sola vez con Gemini 2.5 Flash, guarda el resultado en tu cuenta y luego puedes repasarlo sin regenerar la clase.</p>
+      </div>
+      <button id="university-new-source" class="university-import-btn"><span>＋</span><div><strong>AGREGAR MATERIAL</strong><small>PDF · texto · video · YouTube</small></div></button>
+    </section>
+    <section class="university-saving-strip">
+      <div><span>⚡</span><strong>1 análisis inicial</strong><small>La IA procesa el material al importarlo.</small></div>
+      <div><span>☁</span><strong>Clase guardada</strong><small>Resumen, mapa, ejercicios y examen quedan en D1.</small></div>
+      <div><span>↻</span><strong>Repaso sin regenerar</strong><small>Volver a abrir el material no gasta IA.</small></div>
+    </section>
+    <section class="university-library-section">
+      <div class="university-library-heading"><div><span>MATERIALES DEL TEMA</span><h3>${escapeHtml(state.currentLesson?.topic_name||"")}</h3></div><strong>${items.length}</strong></div>
+      <div class="university-source-list">
+        ${items.length?items.map(src=>{
+          const meta=safeJson(src.metadata_json,{});
+          return `<article class="university-source-item">
+            <div class="university-source-icon ${escapeAttr(meta.source_type||"text")}">${sourceTypeIcon(meta.source_type)}</div>
+            <div class="university-source-info">
+              <span>${sourceTypeLabel(meta.source_type)} · ${formatDate(src.updated_at)}</span>
+              <strong>${escapeHtml(meta.source_name||src.title||"Material universitario")}</strong>
+              <small>${escapeHtml(meta.source_detail||"Clase de estudio guardada")}</small>
+            </div>
+            <div class="university-source-actions">
+              <button class="primary-btn university-open-saved" data-id="${escapeAttr(src.id)}">ESTUDIAR</button>
+              <button class="ghost-btn university-delete-saved" data-id="${escapeAttr(src.id)}">ELIMINAR</button>
+            </div>
+          </article>`;
+        }).join(""):`<div class="university-empty">
+          <div class="university-empty-art"><span>▤</span><span>▶</span><span>¶</span></div>
+          <strong>Aún no has agregado material para este tema.</strong>
+          <p>Cuando recibas una guía, PDF, presentación convertida a PDF, texto o video de tu universidad, agrégalo aquí y MED AI lo transformará en una clase de repaso.</p>
+        </div>`}
+      </div>
+    </section>`;
+  $("#university-new-source").onclick=renderUniversityImportForm;
+  $$(".university-open-saved",body).forEach(btn=>btn.onclick=()=>openSavedUniversitySource(btn.dataset.id));
+  $$(".university-delete-saved",body).forEach(btn=>btn.onclick=()=>deleteUniversitySource(btn.dataset.id));
+}
+
+function renderUniversityImportForm(){
+  const body=$("#university-source-body");
+  body.innerHTML=`
+    <section class="university-import-page">
+      <button id="uni-back-library" class="ghost-btn">← MIS MATERIALES</button>
+      <div class="university-import-head">
+        <div><span>NUEVO MATERIAL</span><h2>¿Qué te dieron en la universidad?</h2><p>Elige una fuente. MED AI la convertirá en un paquete de estudio que quedará guardado.</p></div>
+        <div class="university-credit-badge"><b>⚡</b><span><strong>MODO AHORRO</strong><small>Usa Flash para importar</small></span></div>
+      </div>
+
+      <div class="university-source-tabs">
+        <button class="university-source-tab active" data-type="pdf"><span>▤</span><b>PDF</b><small>Guías y lecturas</small></button>
+        <button class="university-source-tab" data-type="text"><span>¶</span><b>TEXTO</b><small>Apuntes y copias</small></button>
+        <button class="university-source-tab" data-type="video"><span>▶</span><b>VIDEO</b><small>Archivo corto</small></button>
+        <button class="university-source-tab" data-type="youtube"><span>▷</span><b>YOUTUBE</b><small>Clase pública</small></button>
+      </div>
+
+      <div class="university-import-grid">
+        <div class="university-import-main">
+          <div class="field"><label>Título para identificarlo</label><input id="uni-source-name" placeholder="Ej. Clase 3 — Sistema renina angiotensina"></div>
+
+          <div id="uni-input-pdf" class="uni-source-input">
+            <label class="university-file-drop" for="uni-pdf-file">
+              <input id="uni-pdf-file" type="file" accept="application/pdf,.pdf" hidden>
+              <span>▤</span><strong>SELECCIONAR PDF</strong><small>Máximo recomendado: 10 MB</small>
+              <em id="uni-pdf-name">Ningún archivo seleccionado</em>
+            </label>
+          </div>
+
+          <div id="uni-input-text" class="uni-source-input hidden">
+            <div class="field"><label>Pega tus apuntes o texto de la clase</label><textarea id="uni-source-text" rows="14" placeholder="Pega aquí el material que te dieron, tus apuntes, una transcripción o el contenido que deseas estudiar..."></textarea><small>El texto se usa para preparar el material y se guarda únicamente como referencia resumida dentro de la clase.</small></div>
+          </div>
+
+          <div id="uni-input-video" class="uni-source-input hidden">
+            <label class="university-file-drop video" for="uni-video-file">
+              <input id="uni-video-file" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" hidden>
+              <span>▶</span><strong>SELECCIONAR VIDEO CORTO</strong><small>MP4 / WebM / MOV · máximo 10 MB</small>
+              <em id="uni-video-name">Ningún archivo seleccionado</em>
+            </label>
+            <div class="university-import-note"><b>¿Es una grabación larga?</b><span>Para no enviar un archivo enorme, súbela a YouTube como video público o utiliza la transcripción de la clase.</span></div>
+          </div>
+
+          <div id="uni-input-youtube" class="uni-source-input hidden">
+            <div class="field"><label>Enlace público de YouTube</label><input id="uni-source-youtube" type="url" placeholder="https://www.youtube.com/watch?v=..."></div>
+            <div class="university-import-note"><b>Importante</b><span>Debe ser un video público. Los videos privados o no listados pueden no estar disponibles para el análisis automático.</span></div>
+          </div>
+
+          <div class="university-import-options">
+            <label class="form-check"><input id="uni-focus-exam" type="checkbox" checked><span>Destacar lo que probablemente pueda evaluarse</span></label>
+            <label class="form-check"><input id="uni-focus-deep" type="checkbox" checked><span>Agregar explicaciones para entender, no solo memorizar</span></label>
+          </div>
+
+          <button id="uni-analyze-source" class="university-analyze-btn"><span>✦</span><div><strong>CREAR CLASE DESDE ESTE MATERIAL</strong><small>Un análisis inicial · después queda guardada</small></div></button>
+        </div>
+
+        <aside class="university-import-preview">
+          <span>MED AI CREARÁ Y GUARDARÁ</span>
+          <div><b>01</b><strong>Resumen fiel</strong><small>Qué dice realmente el material</small></div>
+          <div><b>02</b><strong>Clase organizada</strong><small>Del concepto básico a la aplicación</small></div>
+          <div><b>03</b><strong>Diagrama + mapa</strong><small>Relaciones visuales</small></div>
+          <div><b>04</b><strong>8 ejercicios</strong><small>Práctica sin gastar IA después</small></div>
+          <div><b>05</b><strong>Examen de 10</strong><small>Autoevaluación reutilizable</small></div>
+          <div><b>06</b><strong>Videos para ampliar</strong><small>Búsquedas sugeridas por tema</small></div>
+          <div class="university-import-preview-foot">La clase original de MED AI permanece intacta. Este material se agrega como una fuente adicional de estudio.</div>
+        </aside>
+      </div>
+    </section>`;
+
+  let activeType="pdf";
+  $("#uni-back-library").onclick=renderUniversitySourceLibrary;
+  $$(".university-source-tab").forEach(btn=>btn.onclick=()=>{
+    activeType=btn.dataset.type;
+    $$(".university-source-tab").forEach(x=>x.classList.toggle("active",x===btn));
+    $$(".uni-source-input").forEach(x=>x.classList.add("hidden"));
+    $(`#uni-input-${activeType}`).classList.remove("hidden");
+  });
+  $("#uni-pdf-file").onchange=e=>$("#uni-pdf-name").textContent=e.target.files?.[0]?.name||"Ningún archivo seleccionado";
+  $("#uni-video-file").onchange=e=>$("#uni-video-name").textContent=e.target.files?.[0]?.name||"Ningún archivo seleccionado";
+  $("#uni-analyze-source").onclick=()=>importUniversitySource(activeType);
+}
+
+function readFileAsDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result||""));
+    reader.onerror=()=>reject(new Error("No pude leer el archivo."));
+    reader.readAsDataURL(file);
+  });
+}
+function readFileAsText(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result||""));
+    reader.onerror=()=>reject(new Error("No pude leer el archivo."));
+    reader.readAsText(file);
+  });
+}
+
+async function importUniversitySource(type){
+  if(!navigator.onLine)return toast("Necesitas internet únicamente para el análisis inicial del material.",true);
+  const item=state.currentLesson,s=state.currentSubject;
+  if(!item||!s)return toast("Abre primero un tema del curso.",true);
+
+  const btn=$("#uni-analyze-source");
+  const explicitName=$("#uni-source-name").value.trim();
+  const payload={
+    subject_id:s.id,topic_id:item.topic_id,lesson_id:item.lesson_id,
+    source_type:type,
+    source_name:explicitName,
+    language:s.code==="LANG"?state.courseLanguage:null,
+    exam_focus:$("#uni-focus-exam").checked,
+    deep_explanation:$("#uni-focus-deep").checked
+  };
+
+  try{
+    if(type==="pdf"||type==="video"){
+      const file=type==="pdf"?$("#uni-pdf-file").files?.[0]:$("#uni-video-file").files?.[0];
+      if(!file)throw new Error(`Selecciona un ${type==="pdf"?"PDF":"video"}.`);
+      const limit=10*1024*1024;
+      if(file.size>limit)throw new Error("Este archivo supera 10 MB. Para videos largos usa YouTube o pega una transcripción. Para PDF muy grande, divídelo por unidades o capítulos.");
+      payload.source_name=explicitName||file.name;
+      payload.mime_type=file.type||(type==="pdf"?"application/pdf":"video/mp4");
+      payload.size_bytes=file.size;
+      const dataUrl=await readFileAsDataUrl(file);
+      payload.data_base64=dataUrl.split(",")[1]||"";
+    }else if(type==="text"){
+      const text=$("#uni-source-text").value.trim();
+      if(text.length<80)throw new Error("Pega un poco más de contenido para poder preparar una clase útil.");
+      payload.source_name=explicitName||"Apuntes universitarios";
+      payload.text=text.slice(0,120000);
+      payload.size_bytes=new Blob([payload.text]).size;
+    }else if(type==="youtube"){
+      const url=$("#uni-source-youtube").value.trim();
+      if(!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url))throw new Error("Pega un enlace válido y público de YouTube.");
+      payload.source_name=explicitName||"Video de clase";
+      payload.url=url;
+    }
+
+    btn.disabled=true;
+    btn.innerHTML=`<span class="university-spin">✦</span><div><strong>ANALIZANDO TU MATERIAL…</strong><small>Resumen → clase → mapa → práctica → examen</small></div>`;
+    const body=$("#university-source-body");
+    const progress=document.createElement("div");
+    progress.className="university-analysis-progress";
+    progress.innerHTML=`<div><i></i></div><span>Gemini 2.5 Flash está leyendo el material. Esta es la parte que usa IA; el resultado quedará guardado.</span>`;
+    btn.after(progress);
+
+    const result=await api("/api/course/source-import",{method:"POST",body:payload});
+    await refreshUniversitySourceCount();
+    await openSavedUniversitySource(result.id,true);
+    toast("Clase universitaria preparada y guardada.");
+  }catch(err){
+    toast(err.message,true);
+    btn.disabled=false;
+    btn.innerHTML=`<span>✦</span><div><strong>CREAR CLASE DESDE ESTE MATERIAL</strong><small>Un análisis inicial · después queda guardada</small></div>`;
+    $(".university-analysis-progress")?.remove();
+  }
+}
+
+async function openSavedUniversitySource(id,justCreated=false){
+  const body=$("#university-source-body");
+  body.innerHTML=`<div class="university-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Abriendo la clase que acabamos de crear…":"Abriendo clase guardada…"}</strong><small>No se está regenerando con IA.</small></div>`;
+  try{
+    const data=await api(`/api/course/source?id=${encodeURIComponent(id)}`);
+    state.universitySourceRecord=data.source;
+    state.universitySourcePack=data.pack;
+    state.universityPractice=null;
+    state.universityExam=null;
+    renderUniversityStudyPack("summary");
+  }catch(err){
+    body.innerHTML=`<div class="masterclass-error"><strong>No pude abrir esta clase.</strong><p>${escapeHtml(err.message)}</p><button id="uni-back-after-error" class="secondary-btn">VOLVER</button></div>`;
+    $("#uni-back-after-error").onclick=renderUniversitySourceLibrary;
+  }
+}
+
+function renderUniversityStudyPack(tab="summary"){
+  const p=state.universitySourcePack,src=state.universitySourceRecord;
+  if(!p||!src)return;
+  const meta=safeJson(src.metadata_json,{});
+  const body=$("#university-source-body");
+  body.innerHTML=`
+    <section class="university-study-head">
+      <button id="uni-study-back" class="ghost-btn">← MIS MATERIALES</button>
+      <div class="university-study-title">
+        <div class="university-source-icon ${escapeAttr(meta.source_type||"text")}">${sourceTypeIcon(meta.source_type)}</div>
+        <div><span>${sourceTypeLabel(meta.source_type)} · CLASE GUARDADA</span><h2>${escapeHtml(p.title||meta.source_name||src.title)}</h2><p>${escapeHtml(p.overview||"")}</p></div>
+      </div>
+      <div class="university-study-actions"><button id="uni-print-source" class="secondary-btn">▣ GUARDAR PDF</button><span>☁ Guardada · abrir de nuevo no regenera</span></div>
+    </section>
+    <nav class="university-study-tabs">
+      <button data-tab="summary" class="${tab==="summary"?"active":""}"><span>◎</span>RESUMEN</button>
+      <button data-tab="lesson" class="${tab==="lesson"?"active":""}"><span>📖</span>CLASE</button>
+      <button data-tab="diagram" class="${tab==="diagram"?"active":""}"><span>◈</span>DIAGRAMA</button>
+      <button data-tab="map" class="${tab==="map"?"active":""}"><span>⌘</span>MAPA</button>
+      <button data-tab="practice" class="${tab==="practice"?"active":""}"><span>✦</span>PRÁCTICA</button>
+      <button data-tab="exam" class="${tab==="exam"?"active":""}"><span>✓</span>EXAMEN</button>
+      <button data-tab="videos" class="${tab==="videos"?"active":""}"><span>▶</span>VIDEOS</button>
+      <button data-tab="ask" class="${tab==="ask"?"active":""}"><span>?</span>PREGUNTAR</button>
+    </nav>
+    <main id="university-study-content" class="university-study-content"></main>`;
+  $("#uni-study-back").onclick=renderUniversitySourceLibrary;
+  $("#uni-print-source").onclick=printUniversitySourcePdf;
+  $$(".university-study-tabs button").forEach(btn=>btn.onclick=()=>renderUniversityStudyPack(btn.dataset.tab));
+
+  if(tab==="summary")renderUniversitySummary();
+  if(tab==="lesson")renderUniversityLesson();
+  if(tab==="diagram")renderUniversityDiagram();
+  if(tab==="map")renderUniversityMap();
+  if(tab==="practice")startUniversityPractice();
+  if(tab==="exam")startUniversityExam();
+  if(tab==="videos")renderUniversityVideos();
+  if(tab==="ask")renderUniversitySourceChat();
+}
+
+function renderUniversitySummary(){
+  const p=state.universitySourcePack,sm=p.summary||{};
+  $("#university-study-content").innerHTML=`
+    <article class="university-summary-view">
+      <div class="university-summary-hero"><div><span>RESUMEN DEL MATERIAL</span><h3>${escapeHtml(p.title||"")}</h3><p>${escapeHtml(sm.overview||p.overview||"")}</p></div><div class="university-summary-score"><b>${Number(p.estimated_minutes||30)}</b><small>min de estudio</small></div></div>
+      <div class="university-summary-grid">
+        <section class="remember"><span>01</span><strong>Lo indispensable</strong><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
+        <section class="exam"><span>02</span><strong>Probable evaluación</strong><ul>${(p.exam_focus||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
+        <section class="errors"><span>03</span><strong>Confusiones frecuentes</strong><ul>${(sm.common_errors||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
+        <section class="connect"><span>04</span><strong>Conexión con el curso</strong><p>${escapeHtml(sm.connection||"Este material complementa el tema actual.")}</p></section>
+      </div>
+      <section class="university-keyterms"><span>CONCEPTOS QUE DEBES PODER EXPLICAR</span><div>${(p.key_terms||[]).map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>
+      <footer class="university-summary-next"><div><strong>Ahora estudia la clase completa</strong><small>Después podrás practicar y examinarte sin volver a usar IA.</small></div><button id="uni-summary-to-lesson" class="primary-btn">IR A LA CLASE →</button></footer>
+    </article>`;
+  $("#uni-summary-to-lesson").onclick=()=>renderUniversityStudyPack("lesson");
+}
+
+function renderUniversityLesson(){
+  const p=state.universitySourcePack;
+  $("#university-study-content").innerHTML=`
+    <article class="university-lesson-view">
+      <aside class="academy-reading-nav university-reading-nav"><span>CONTENIDO</span>${(p.sections||[]).map((s,i)=>`<button data-sec="${i}"><b>${String(i+1).padStart(2,"0")}</b><small>${escapeHtml(s.title||"Sección")}</small></button>`).join("")}</aside>
+      <div class="university-lesson-sections">
+        <section class="university-objectives"><span>OBJETIVOS</span><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
+        ${(p.sections||[]).map((sec,i)=>`<section id="uni-sec-${i}" class="academy-study-section university-study-section">
+          <div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div>
+          <div class="masterclass-section-content"><div class="academy-section-heading"><h2>${escapeHtml(sec.title||"")}</h2><button class="secondary-btn uni-listen-sec" data-sec="${i}">🔊 ESCUCHAR</button></div>
+          <div class="masterclass-prose">${renderStudyParagraphs(sec.content||"")}</div>
+          ${sec.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${sec.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
+          ${sec.example?`<div class="masterclass-example"><span>EJEMPLO / APLICACIÓN</span>${renderStudyParagraphs(sec.example)}</div>`:""}
+          </div></section>`).join("")}
+      </div>
+    </article>`;
+  $$(".university-reading-nav button").forEach(btn=>btn.onclick=()=>$("#uni-sec-"+btn.dataset.sec)?.scrollIntoView({behavior:"smooth",block:"start"}));
+  $$(".uni-listen-sec").forEach(btn=>btn.onclick=()=>{
+    const sec=p.sections?.[Number(btn.dataset.sec)];
+    if(sec)speakText(`${sec.title}. ${sec.content}`,state.currentSubject?.code==="LANG"?state.courseLanguage:"es-GT");
+  });
+}
+
+function renderUniversityDiagram(){
+  const p=state.universitySourcePack;
+  $("#university-study-content").innerHTML=renderCourseDiagram(p.diagram,p.sections||[]);
+  $$(".academy-diagram-step",$("#university-study-content")).forEach(step=>step.onclick=()=>{
+    step.classList.toggle("selected");step.querySelector(".academy-diagram-detail")?.classList.toggle("open");
+  });
+}
+
+function renderUniversityMap(){
+  const p=state.universitySourcePack;
+  $("#university-study-content").innerHTML=renderCourseConceptMap(p.concept_map,p);
+  $$(".academy-map-branch",$("#university-study-content")).forEach(branch=>branch.onclick=()=>{
+    if(branch.classList.contains("expanded"))branch.classList.remove("expanded");
+    else{$$(".academy-map-branch",$("#university-study-content")).forEach(x=>x.classList.remove("expanded"));branch.classList.add("expanded")}
+  });
+}
+
+function startUniversityPractice(){
+  const p=state.universitySourcePack;
+  state.universityPractice={index:0,score:0,answers:{},questions:(p.practice||[]).slice(0,8)};
+  renderUniversityPracticeQuestion();
+}
+function renderUniversityPracticeQuestion(){
+  const st=state.universityPractice,q=st?.questions?.[st.index],box=$("#university-study-content");
+  if(!q){renderUniversityPracticeResult();return}
+  box.innerHTML=`<section class="master-practice-shell university-practice-shell"><div class="master-practice-top"><span>PRÁCTICA DEL MATERIAL</span><div class="master-practice-progress"><i style="width:${Math.round(st.index/st.questions.length*100)}%"></i></div><span>${st.index+1} / ${st.questions.length}</span></div><div class="master-practice-card"><div class="master-practice-icon">?</div><div class="eyebrow">RECUPERACIÓN ACTIVA · NO CONSUME IA</div><h2>${escapeHtml(q.question||q.stem||"")}</h2>${q.context?`<p class="practice-context">${escapeHtml(q.context)}</p>`:""}<div class="master-practice-options">${(q.options||[]).map((o,i)=>`<button class="master-practice-option" data-i="${i}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(o)}</strong></button>`).join("")}</div><div id="uni-practice-feedback" class="master-practice-feedback hidden"></div></div></section>`;
+  $$(".master-practice-option",box).forEach(btn=>btn.onclick=()=>answerUniversityPractice(Number(btn.dataset.i)));
+}
+function answerUniversityPractice(choice){
+  const st=state.universityPractice,q=st.questions[st.index];
+  if(st.answers[st.index]!==undefined)return;
+  st.answers[st.index]=choice;
+  const correct=choice===Number(q.correctIndex);if(correct)st.score++;
+  $$(".master-practice-option",$("#university-study-content")).forEach((b,i)=>{b.disabled=true;if(i===Number(q.correctIndex))b.classList.add("correct");if(i===choice&&!correct)b.classList.add("wrong")});
+  const f=$("#uni-practice-feedback");f.classList.remove("hidden");f.innerHTML=`<div><strong>${correct?"✓ Correcto":"↻ Revisa esta idea"}</strong><p>${escapeHtml(q.explanation||"")}</p></div><button id="uni-practice-next" class="primary-btn">${st.index+1>=st.questions.length?"VER RESULTADO":"SIGUIENTE →"}</button>`;
+  $("#uni-practice-next").onclick=()=>{st.index++;if(st.index>=st.questions.length)renderUniversityPracticeResult();else renderUniversityPracticeQuestion()};
+}
+function renderUniversityPracticeResult(){
+  const st=state.universityPractice,pct=st.questions.length?Math.round(st.score/st.questions.length*100):0;
+  $("#university-study-content").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">✓</div><div class="eyebrow">PRÁCTICA TERMINADA · SIN IA ADICIONAL</div><h2>${st.score} de ${st.questions.length} correctas</h2><p>${pct>=75?"Buen dominio del material. Puedes ir al examen de repaso.":"Conviene volver al resumen o a la clase antes del examen."}</p><div class="master-result-meter"><i style="width:${pct}%"></i></div><div class="master-stage-actions"><button id="uni-practice-review" class="secondary-btn">REPASAR CLASE</button><button id="uni-practice-exam" class="primary-btn">EXAMEN DE 10 →</button></div></section>`;
+  $("#uni-practice-review").onclick=()=>renderUniversityStudyPack("lesson");
+  $("#uni-practice-exam").onclick=()=>renderUniversityStudyPack("exam");
+}
+
+function startUniversityExam(){
+  const p=state.universitySourcePack;
+  state.universityExam={questions:(p.exam||[]).slice(0,10),answers:{},current:0,started_at:new Date().toISOString()};
+  if(state.universityExam.questions.length<10){
+    $("#university-study-content").innerHTML=`<div class="masterclass-error"><strong>Esta clase guardada no contiene 10 preguntas completas.</strong><p>Puedes seguir usando resumen, clase y práctica.</p></div>`;return;
+  }
+  renderUniversityExamQuestion();
+}
+function renderUniversityExamQuestion(){
+  const e=state.universityExam,i=e.current,q=e.questions[i],selected=e.answers[`q${i}`],box=$("#university-study-content");
+  box.innerHTML=`<section class="master-exam-shell"><div class="master-exam-head"><div><div class="eyebrow">EXAMEN DE REPASO · MATERIAL UNIVERSITARIO</div><strong>${escapeHtml(state.universitySourcePack?.title||"")}</strong></div><span>${i+1} / 10</span></div><div class="master-exam-progress"><i style="width:${i*10}%"></i></div><article class="master-exam-question"><div class="master-exam-number">${String(i+1).padStart(2,"0")}</div><h2>${escapeHtml(q.stem||q.question||"")}</h2><div class="master-exam-options">${(q.options||[]).map((op,j)=>`<button class="master-exam-option ${selected===j?"selected":""}" data-i="${j}"><span>${String.fromCharCode(65+j)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div></article><footer class="master-exam-footer"><button id="uni-exam-review" class="ghost-btn">← RESUMEN</button><button id="uni-exam-next" class="primary-btn" ${selected===undefined?"disabled":""}>${i===9?"CALIFICAR":"SIGUIENTE →"}</button></footer></section>`;
+  $$(".master-exam-option",box).forEach(btn=>btn.onclick=()=>{e.answers[`q${i}`]=Number(btn.dataset.i);renderUniversityExamQuestion()});
+  $("#uni-exam-review").onclick=()=>renderUniversityStudyPack("summary");
+  $("#uni-exam-next").onclick=()=>{if(e.answers[`q${i}`]===undefined)return;if(i<9){e.current++;renderUniversityExamQuestion()}else finishUniversityExam()};
+}
+async function finishUniversityExam(){
+  const e=state.universityExam;let score=0;
+  e.questions.forEach((q,i)=>{if(e.answers[`q${i}`]===Number(q.correctIndex))score++});
+  const pct=score*10,passed=score>=8;
+  await api("/api/exams/record",{method:"POST",body:{title:`Repaso universitario · ${state.universitySourcePack?.title||state.currentLesson?.topic_name}`,settings:{university_source:true,source_id:state.universitySourceRecord?.id,topic_id:state.currentLesson?.topic_id,question_count:10},started_at:e.started_at,score,max_score:10,percentage:pct,questions:e.questions,answers:e.answers}}).catch(()=>{});
+  const review=e.questions.map((q,i)=>{const chosen=e.answers[`q${i}`],ok=chosen===Number(q.correctIndex);return `<details class="master-exam-review ${ok?"correct":"wrong"}"><summary><span>${ok?"✓":"×"} Pregunta ${i+1}</span><strong>${escapeHtml(q.stem||q.question||"")}</strong></summary><div><p><b>Tu respuesta:</b> ${escapeHtml(q.options?.[chosen]||"Sin respuesta")}</p><p><b>Correcta:</b> ${escapeHtml(q.options?.[q.correctIndex]||"")}</p><p>${escapeHtml(q.explanation||"")}</p></div></details>`}).join("");
+  $("#university-study-content").innerHTML=`<section class="master-exam-result"><div class="master-result-badge ${passed?"passed":"failed"}">${passed?"✓":"↻"}</div><div class="eyebrow">RESULTADO DEL REPASO</div><h1>${score} / 10 · ${pct}%</h1><p>${passed?"Dominaste bien este material universitario. Puedes repetirlo cuando quieras sin regenerarlo.":"Revisa las respuestas, vuelve a la clase y repite el examen cuando quieras."}</p><div class="master-exam-review-list">${review}</div><div class="master-stage-actions"><button id="uni-result-summary" class="secondary-btn">RESUMEN</button><button id="uni-result-repeat" class="primary-btn">REPETIR EXAMEN</button></div></section>`;
+  $("#uni-result-summary").onclick=()=>renderUniversityStudyPack("summary");
+  $("#uni-result-repeat").onclick=()=>renderUniversityStudyPack("exam");
+}
+
+function renderUniversityVideos(){
+  const p=state.universitySourcePack,searches=p.video_searches||[];
+  $("#university-study-content").innerHTML=`<section class="academy-visual-panel university-video-hub">
+    <header class="academy-resource-head"><div><span>VIDEOS PARA AMPLIAR</span><h2>Continúa aprendiendo el mismo tema</h2><p>Estas búsquedas fueron preparadas cuando importaste el material; abrirlas después no vuelve a gastar IA.</p></div><div class="academy-resource-icon video">▶</div></header>
+    <div class="academy-video-grid">${searches.map((v,i)=>{
+      const query=typeof v==="string"?v:(v.query||"");
+      const why=typeof v==="string"?"Recurso complementario":(v.why||"");
+      const url=`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+      return `<article class="academy-video-card"><div class="academy-video-thumb thumb-${i%4}"><span>▶</span><small>BÚSQUEDA EDUCATIVA</small></div><div class="academy-video-copy"><span>${escapeHtml(v.channel_hint||"YouTube")}</span><h3>${escapeHtml(query)}</h3><p>${escapeHtml(why)}</p><button class="primary-btn uni-video-search" data-url="${escapeAttr(url)}">BUSCAR VIDEOS →</button></div></article>`;
+    }).join("")}</div>
+    <div class="academy-embed-box"><div><span>REPRODUCTOR</span><strong>Ver un video sin salir de la clase</strong><p>Pega un enlace de YouTube que hayas elegido.</p></div><div class="academy-video-loader"><input id="uni-video-player-url" type="url" placeholder="https://www.youtube.com/watch?v=..."><button id="uni-load-player" class="secondary-btn">CARGAR VIDEO</button></div><div id="uni-video-player" class="academy-video-player"><div><b>▶</b><span>El video aparecerá aquí.</span></div></div></div>
+  </section>`;
+  $$(".uni-video-search").forEach(btn=>btn.onclick=()=>window.open(btn.dataset.url,"_blank","noopener,noreferrer"));
+  $("#uni-load-player").onclick=()=>{
+    const id=extractYoutubeId($("#uni-video-player-url").value);
+    if(!id)return toast("Pega un enlace válido de YouTube.",true);
+    $("#uni-video-player").innerHTML=`<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?rel=0" title="Video educativo" loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+  };
+}
+
+function renderUniversitySourceChat(){
+  const p=state.universitySourcePack;
+  $("#university-study-content").innerHTML=`<section class="university-source-chat">
+    <div class="university-source-chat-info"><div class="v17-mascot nova-mascot small"><span class="mascot-ear left"></span><span class="mascot-ear right"></span><div class="mascot-head"><i class="mascot-eye left"></i><i class="mascot-eye right"></i><b class="mascot-mouth"></b></div><div class="mascot-body"><span>?</span></div></div><div><span>PREGUNTAR AL MATERIAL</span><h3>Usa IA solamente cuando necesites una explicación adicional</h3><p>MED AI no vuelve a cargar el PDF o video completo: utiliza el resumen estructurado que ya quedó guardado, reduciendo mucho el contexto enviado.</p></div></div>
+    <div id="uni-source-chat-messages" class="messages"><div class="message ai">Pregunta algo específico sobre <b>${escapeHtml(p.title||"este material")}</b>. Intentaré responder basándome primero en la clase guardada.</div></div>
+    <div class="composer"><textarea id="uni-source-chat-input" rows="2" placeholder="Ej. No entendí esta relación. Explícamela con otro ejemplo..."></textarea><button id="uni-source-chat-send" class="primary-btn">PREGUNTAR</button></div>
+  </section>`;
+  $("#uni-source-chat-send").onclick=sendUniversitySourceQuestion;
+  $("#uni-source-chat-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendUniversitySourceQuestion()}});
+}
+async function sendUniversitySourceQuestion(){
+  const input=$("#uni-source-chat-input"),q=input.value.trim();if(!q)return;
+  appendMessageTo("#uni-source-chat-messages","user",q);input.value="";
+  const target=appendMessageTo("#uni-source-chat-messages","ai","Consultando la clase guardada…");target.classList.add("loading");
+  try{
+    const r=await api("/api/course/source-chat",{method:"POST",body:{source_id:state.universitySourceRecord.id,question:q}});
+    target.classList.remove("loading");setMessageContent(target,"ai",r.answer||"No pude responder.");
+  }catch(err){target.classList.remove("loading");setMessageContent(target,"ai",`Error: ${err.message}`)}
+}
+
+async function deleteUniversitySource(id){
+  if(!confirm("¿Eliminar esta clase guardada? El archivo original no está almacenado en MED AI, por lo que tendrías que importarlo otra vez si deseas recuperarla."))return;
+  try{
+    await api(`/api/course/source?id=${encodeURIComponent(id)}`,{method:"DELETE"});
+    await refreshUniversitySourceCount();
+    renderUniversitySourceLibrary();
+    toast("Material eliminado.");
+  }catch(err){toast(err.message,true)}
+}
+
+function printUniversitySourcePdf(){
+  const p=state.universitySourcePack,src=state.universitySourceRecord;
+  if(!p||!src)return;
+  const win=window.open("","_blank");if(!win)return toast("Permite ventanas emergentes para guardar el PDF.",true);try{win.opener=null}catch{}
+  const sm=p.summary||{};
+  const diagram=p.diagram||{};
+  const cmap=p.concept_map||{};
+  const sections=(p.sections||[]).map((s,i)=>`<section><h2>${i+1}. ${escapeHtml(s.title||"")}</h2>${renderStudyParagraphs(s.content||"")}${s.key_points?.length?`<h3>Puntos clave</h3><ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${s.example?`<div class="box"><b>Ejemplo</b>${renderStudyParagraphs(s.example)}</div>`:""}</section>`).join("");
+  const diagramHtml=`<section class="visual"><h2>Diagrama</h2><h3>${escapeHtml(diagram.title||"")}</h3><div class="flow">${(diagram.steps||[]).map((x,i)=>`<div><b>${i+1}. ${escapeHtml(x.label||"")}</b><span>${escapeHtml(x.detail||"")}</span></div>`).join("")}</div></section>`;
+  const mapHtml=`<section class="visual"><h2>Mapa conceptual</h2><div class="center">${escapeHtml(cmap.center||p.title||"")}</div><div class="branches">${(cmap.branches||[]).map(b=>`<div><b>${escapeHtml(b.label||"")}</b><ul>${(b.children||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`).join("")}</div></section>`;
+  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||"Clase universitaria")}</title><style>@page{margin:17mm}body{font-family:Arial,sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:11px}.brand{font-size:8pt;letter-spacing:.13em;color:#168c75;font-weight:bold}h1{font-size:24pt;margin:6px 0}h2{font-size:16pt;color:#173e47;margin-top:22px}h3{font-size:11pt;color:#168c75}.box,.visual,.summary{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 12px;margin:10px 0}.flow,.branches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.flow>div,.branches>div{background:white;border:1px solid #d5dfe2;padding:8px}.flow b,.flow span{display:block}.flow span{font-size:9pt;margin-top:4px}.center{text-align:center;background:#173e47;color:white;padding:9px;font-weight:bold;margin-bottom:7px}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:24px;border-top:1px solid #ccd6da;padding-top:8px;color:#64737c;font-size:8pt}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL UNIVERSITARIO GUARDADO</div><h1>${escapeHtml(p.title||"")}</h1><p>${escapeHtml(p.overview||"")}</p></header><section class="summary"><h2>Resumen</h2><p>${escapeHtml(sm.overview||"")}</p><h3>Lo indispensable</h3><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${sections}${diagramHtml}${mapHtml}<section class="terms"><h2>Conceptos clave</h2>${(p.key_terms||[]).map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section><footer>Clase preparada a partir de material proporcionado por el estudiante. El archivo original no se incrusta en este PDF. Verifica detalles académicos con el material original y las indicaciones de tu docente.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
   win.document.open();win.document.write(doc);win.document.close();
 }
 
@@ -2284,25 +2791,316 @@ async function generateCardsAI(){
 }
 
 async function renderLibrary(){
-  const notes=await api("/api/notes");
+  state.libraryView=state.libraryView||"files";
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">BIBLIOTECA PERSONAL</div><h2>Apuntes y documentos</h2><p>Un espacio limpio y ordenado para guardar tus notas importantes.</p></div></div>
-    <div class="grid two">
-      <div class="card">
-        <h3>Nuevo apunte</h3>
-        <div class="field"><label>Título</label><input id="note-title"></div>
-        <div class="field"><label>Contenido</label><textarea id="note-body" style="min-height:220px"></textarea></div>
-        <button id="save-note" class="primary-btn">Guardar apunte</button>
+    <section class="study-library-hero">
+      <div>
+        <div class="learning-home-chip"><span></span> CENTRO DE ESTUDIO · BIBLIOTECA</div>
+        <h1>Todo tu material académico, en un solo lugar.</h1>
+        <p>Organiza libros, guías, presentaciones, documentos y apuntes en carpetas. Tus archivos quedan separados de la IA y no consumen créditos por almacenarse o abrirse.</p>
       </div>
-      <div class="card">
-        <h3>Mis apuntes</h3><div id="notes-list" class="list">${notes.notes.length?notes.notes.map(noteItem).join(""):`<div class="empty">Aún no tienes apuntes.</div>`}</div>
+      <div class="study-library-hero-art" aria-hidden="true">
+        <div class="library-stack book-a"><i></i><b>MED</b></div>
+        <div class="library-stack book-b"><i></i><b>PDF</b></div>
+        <div class="library-stack book-c"><i></i><b>01</b></div>
       </div>
+    </section>
+
+    <nav class="study-library-tabs">
+      <button class="${state.libraryView==="files"?"active":""}" data-library-view="files"><span>▥</span><div><b>ARCHIVOS Y CARPETAS</b><small>Libros · PDF · presentaciones</small></div></button>
+      <button class="${state.libraryView==="notes"?"active":""}" data-library-view="notes"><span>¶</span><div><b>APUNTES</b><small>Notas rápidas guardadas en D1</small></div></button>
+    </nav>
+
+    <div id="study-library-content"></div>`;
+
+  $$(".study-library-tabs button").forEach(btn=>btn.onclick=()=>{
+    state.libraryView=btn.dataset.libraryView;
+    $$(".study-library-tabs button").forEach(x=>x.classList.toggle("active",x===btn));
+    if(state.libraryView==="notes")renderLibraryNotes();
+    else loadStudyLibrary(state.libraryFolderId);
+  });
+
+  if(state.libraryView==="notes")await renderLibraryNotes();
+  else await loadStudyLibrary(state.libraryFolderId);
+}
+
+async function renderLibraryNotes(){
+  const box=$("#study-library-content");
+  box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Cargando apuntes…</strong></div>`;
+  try{
+    const notes=await api("/api/notes");
+    const cleanNotes=(notes.notes||[]).filter(n=>{
+      const tags=safeJson(n.tags_json,[]);
+      return !tags.includes("library_file")&&!tags.includes("library_folder")&&!tags.includes("university_source");
+    });
+    box.innerHTML=`
+      <section class="library-notes-layout">
+        <div class="card library-note-compose">
+          <div class="panel-code">NUEVO APUNTE</div>
+          <h3>Escribe una nota rápida</h3>
+          <div class="field"><label>Título</label><input id="note-title" placeholder="Ej. Recordatorio de fisiología"></div>
+          <div class="field"><label>Contenido</label><textarea id="note-body" style="min-height:260px" placeholder="Escribe aquí tus apuntes..."></textarea></div>
+          <button id="save-note" class="primary-btn">GUARDAR APUNTE</button>
+        </div>
+        <div class="card">
+          <div class="library-list-head"><div><div class="panel-code">MIS APUNTES</div><h3>${cleanNotes.length} guardado${cleanNotes.length===1?"":"s"}</h3></div></div>
+          <div id="notes-list" class="list">${cleanNotes.length?cleanNotes.map(noteItem).join(""):`<div class="empty">Aún no tienes apuntes.</div>`}</div>
+        </div>
+      </section>`;
+    $("#save-note").onclick=async()=>{
+      try{
+        await api("/api/notes",{method:"POST",body:{title:$("#note-title").value,body:$("#note-body").value}});
+        toast("Apunte guardado.");renderLibraryNotes();
+      }catch(err){toast(err.message,true)}
+    };
+    $$(".delete-note").forEach(b=>b.onclick=async()=>{
+      await api(`/api/notes?id=${encodeURIComponent(b.dataset.id)}`,{method:"DELETE"});
+      renderLibraryNotes();
+    });
+  }catch(err){
+    box.innerHTML=`<div class="card masterclass-error"><strong>No pude cargar los apuntes.</strong><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+async function loadStudyLibrary(folderId=null){
+  const box=$("#study-library-content");
+  box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Abriendo biblioteca…</strong></div>`;
+  try{
+    const data=await api(`/api/library${folderId?`?folder_id=${encodeURIComponent(folderId)}`:""}`);
+    state.libraryFolderId=folderId||null;
+    state.libraryData=data;
+    renderStudyLibraryFiles();
+  }catch(err){
+    const missing=/R2|LIBRARY|almacenamiento/i.test(err.message);
+    box.innerHTML=missing?renderR2SetupPanel(err.message):`<div class="card masterclass-error"><strong>No pude abrir la Biblioteca.</strong><p>${escapeHtml(err.message)}</p><button id="library-retry" class="primary-btn">REINTENTAR</button></div>`;
+    $("#library-retry")?.addEventListener("click",()=>loadStudyLibrary(folderId));
+  }
+}
+
+function renderR2SetupPanel(message){
+  return `<section class="library-r2-setup">
+    <div class="library-r2-icon">☁</div>
+    <div class="eyebrow">FALTA CONECTAR EL ALMACENAMIENTO</div>
+    <h2>La Biblioteca está lista; solo falta vincular Cloudflare R2.</h2>
+    <p>R2 guardará los archivos grandes. D1 seguirá guardando solamente la organización y los metadatos. Esto mantiene intacto el resto de MED AI.</p>
+    <div class="library-r2-steps">
+      <div><b>1</b><span><strong>Crear bucket R2</strong><small>Nombre recomendado: med-ai-dalton-library</small></span></div>
+      <div><b>2</b><span><strong>Agregar binding al Worker</strong><small>Variable/binding: LIBRARY</small></span></div>
+      <div><b>3</b><span><strong>Volver a desplegar</strong><small>No requiere SQL ni cambios en D1</small></span></div>
     </div>
-    <div class="notice" style="margin-top:16px">La estructura de D1 ya incluye documentos y fragmentos. Los PDFs completos se conectarán a Cloudflare R2 para no llenar D1 con archivos binarios.</div>`;
-  $("#save-note").onclick=async()=>{
-    try{await api("/api/notes",{method:"POST",body:{title:$("#note-title").value,body:$("#note-body").value}});toast("Apunte guardado.");renderLibrary()}catch(err){toast(err.message,true)}
+    <small class="library-r2-error">${escapeHtml(message||"")}</small>
+  </section>`;
+}
+
+function libraryFileIcon(mime,name){
+  const ext=String(name||"").split(".").pop().toLowerCase();
+  if(mime==="application/pdf"||ext==="pdf")return {icon:"▤",cls:"pdf",label:"PDF"};
+  if(/presentation|powerpoint/.test(mime)||["ppt","pptx","key"].includes(ext))return {icon:"▧",cls:"slides",label:"PRESENTACIÓN"};
+  if(/word|document/.test(mime)||["doc","docx","odt"].includes(ext))return {icon:"¶",cls:"doc",label:"DOCUMENTO"};
+  if(mime.startsWith("image/"))return {icon:"▣",cls:"image",label:"IMAGEN"};
+  if(mime.startsWith("video/"))return {icon:"▶",cls:"video",label:"VIDEO"};
+  if(mime.startsWith("text/")||["txt","md","rtf"].includes(ext))return {icon:"≡",cls:"text",label:"TEXTO"};
+  return {icon:"◇",cls:"other",label:(ext||"ARCHIVO").toUpperCase()};
+}
+function formatBytes(bytes){
+  const n=Number(bytes||0);if(!n)return "0 B";
+  const u=["B","KB","MB","GB"];let i=0,v=n;
+  while(v>=1024&&i<u.length-1){v/=1024;i++}
+  return `${v>=10||i===0?v.toFixed(0):v.toFixed(1)} ${u[i]}`;
+}
+function getLibraryMeta(item){return safeJson(item.metadata_json,{})}
+
+function renderStudyLibraryFiles(){
+  const box=$("#study-library-content"),d=state.libraryData||{},folders=d.folders||[],files=d.files||[];
+  const current=d.current_folder||null;
+  const breadcrumb=d.breadcrumb||[];
+  box.innerHTML=`
+    <section class="study-library-toolbar">
+      <div class="library-breadcrumb">
+        <button class="library-crumb ${!current?"active":""}" data-folder="">⌂ Mi Biblioteca</button>
+        ${breadcrumb.map((x,i)=>`<span>›</span><button class="library-crumb ${i===breadcrumb.length-1?"active":""}" data-folder="${escapeAttr(x.id)}">${escapeHtml(x.name)}</button>`).join("")}
+      </div>
+      <div class="study-library-toolbar-actions">
+        <button id="library-new-folder" class="secondary-btn">＋ CARPETA</button>
+        <button id="library-upload" class="primary-btn">↑ SUBIR ARCHIVO</button>
+        <input id="library-upload-input" type="file" hidden multiple accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.md,.rtf,.png,.jpg,.jpeg,.webp,.mp4,.webm,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/*,video/mp4,video/webm">
+      </div>
+    </section>
+
+    <section class="study-library-overview">
+      <div><span class="library-stat-icon folder">▰</span><strong>${Number(d.total_folders||0)}</strong><small>carpetas</small></div>
+      <div><span class="library-stat-icon files">▥</span><strong>${Number(d.total_files||0)}</strong><small>archivos</small></div>
+      <div><span class="library-stat-icon storage">☁</span><strong>${formatBytes(d.total_bytes||0)}</strong><small>almacenados</small></div>
+      <div class="library-search-wrap"><span>⌕</span><input id="library-filter" placeholder="Filtrar esta carpeta..."></div>
+    </section>
+
+    <section class="library-current-head">
+      <div><div class="panel-code">UBICACIÓN ACTUAL</div><h2>${escapeHtml(current?.name||"Mi Biblioteca")}</h2></div>
+      <span>${folders.length} carpeta${folders.length===1?"":"s"} · ${files.length} archivo${files.length===1?"":"s"}</span>
+    </section>
+
+    <div id="library-grid" class="library-grid">
+      ${folders.map(folder=>{
+        const meta=getLibraryMeta(folder);
+        return `<article class="library-folder-tile" data-search="${escapeAttr(folder.title.toLowerCase())}">
+          <button class="library-folder-open" data-id="${escapeAttr(folder.id)}">
+            <div class="library-folder-shape"><i></i><span>▰</span></div>
+            <strong>${escapeHtml(folder.title)}</strong>
+            <small>${Number(meta.child_count||0)} elemento${Number(meta.child_count||0)===1?"":"s"}</small>
+          </button>
+          <div class="library-tile-menu">
+            <button class="library-rename" data-id="${escapeAttr(folder.id)}" data-type="folder" data-name="${escapeAttr(folder.title)}" title="Renombrar">✎</button>
+            <button class="library-delete" data-id="${escapeAttr(folder.id)}" data-type="folder" data-name="${escapeAttr(folder.title)}" title="Eliminar">×</button>
+          </div>
+        </article>`;
+      }).join("")}
+      ${files.map(file=>{
+        const meta=getLibraryMeta(file),info=libraryFileIcon(meta.mime_type||"",meta.original_name||file.title);
+        const searchable=`${file.title} ${info.label}`.toLowerCase();
+        return `<article class="library-file-tile" data-search="${escapeAttr(searchable)}">
+          <div class="library-file-preview ${info.cls}"><span>${info.icon}</span><em>${escapeHtml(info.label)}</em></div>
+          <div class="library-file-copy"><strong title="${escapeAttr(file.title)}">${escapeHtml(file.title)}</strong><span>${formatBytes(meta.size_bytes)} · ${formatDate(file.updated_at)}</span></div>
+          <div class="library-file-actions">
+            <button class="library-open-file" data-id="${escapeAttr(file.id)}">ABRIR</button>
+            <button class="library-download-file" data-id="${escapeAttr(file.id)}" title="Descargar">↓</button>
+            <button class="library-rename" data-id="${escapeAttr(file.id)}" data-type="file" data-name="${escapeAttr(file.title)}" title="Renombrar">✎</button>
+            <button class="library-delete" data-id="${escapeAttr(file.id)}" data-type="file" data-name="${escapeAttr(file.title)}" title="Eliminar">×</button>
+          </div>
+        </article>`;
+      }).join("")}
+      ${!folders.length&&!files.length?`<div class="library-empty-folder"><div><span>▰</span><span>▤</span></div><strong>Esta carpeta está vacía.</strong><p>Sube un libro, una presentación o crea otra carpeta para comenzar a organizarla.</p><button id="library-empty-upload" class="primary-btn">↑ SUBIR MI PRIMER ARCHIVO</button></div>`:""}
+    </div>`;
+
+  $$(".library-crumb").forEach(b=>b.onclick=()=>loadStudyLibrary(b.dataset.folder||null));
+  $$(".library-folder-open").forEach(b=>b.onclick=()=>loadStudyLibrary(b.dataset.id));
+  $("#library-new-folder").onclick=createStudyLibraryFolder;
+  $("#library-upload").onclick=()=>$("#library-upload-input").click();
+  $("#library-empty-upload")?.addEventListener("click",()=>$("#library-upload-input").click());
+  $("#library-upload-input").onchange=e=>uploadStudyLibraryFiles(e.target.files);
+  $("#library-filter").oninput=e=>{
+    const q=e.target.value.trim().toLowerCase();
+    $$("#library-grid>[data-search]").forEach(x=>x.classList.toggle("hidden",q&&!x.dataset.search.includes(q)));
   };
-  $$(".delete-note").forEach(b=>b.onclick=async()=>{await api(`/api/notes?id=${encodeURIComponent(b.dataset.id)}`,{method:"DELETE"});renderLibrary()});
+  $$(".library-open-file").forEach(b=>b.onclick=()=>openStudyLibraryFile(b.dataset.id));
+  $$(".library-download-file").forEach(b=>b.onclick=()=>downloadStudyLibraryFile(b.dataset.id));
+  $$(".library-rename").forEach(b=>b.onclick=()=>renameStudyLibraryItem(b.dataset.id,b.dataset.type,b.dataset.name));
+  $$(".library-delete").forEach(b=>b.onclick=()=>deleteStudyLibraryItem(b.dataset.id,b.dataset.type,b.dataset.name));
+}
+
+async function createStudyLibraryFolder(){
+  const name=prompt("Nombre de la nueva carpeta:");
+  if(!name?.trim())return;
+  try{
+    await api("/api/library/folder",{method:"POST",body:{name:name.trim(),parent_id:state.libraryFolderId}});
+    toast("Carpeta creada.");
+    loadStudyLibrary(state.libraryFolderId);
+  }catch(err){toast(err.message,true)}
+}
+
+async function uploadStudyLibraryFiles(fileList){
+  const files=[...(fileList||[])];if(!files.length)return;
+  const max=50*1024*1024;
+  const tooBig=files.find(f=>f.size>max);
+  if(tooBig)return toast(`${tooBig.name} supera el límite de 50 MB por archivo.`,true);
+
+  const box=$("#study-library-content");
+  const progress=document.createElement("section");
+  progress.className="library-upload-progress";
+  progress.innerHTML=`<div class="library-upload-progress-head"><span>↑</span><div><strong>Subiendo ${files.length} archivo${files.length===1?"":"s"} a tu Biblioteca</strong><small id="library-upload-status">Preparando…</small></div></div><div class="library-upload-bar"><i id="library-upload-bar-fill"></i></div>`;
+  box.prepend(progress);
+
+  try{
+    let done=0;
+    for(const file of files){
+      $("#library-upload-status").textContent=`${file.name} · ${done+1} de ${files.length}`;
+      const form=new FormData();
+      form.append("file",file,file.name);
+      if(state.libraryFolderId)form.append("parent_id",state.libraryFolderId);
+      const res=await fetch("/api/library/upload",{method:"POST",body:form,credentials:"same-origin"});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok)throw new Error(data.error||`No pude subir ${file.name}.`);
+      done++;
+      $("#library-upload-bar-fill").style.width=`${Math.round(done/files.length*100)}%`;
+    }
+    toast(`${files.length} archivo${files.length===1?"":"s"} guardado${files.length===1?"":"s"}.`);
+    await loadStudyLibrary(state.libraryFolderId);
+  }catch(err){
+    progress.remove();
+    toast(err.message,true);
+  }
+}
+
+function libraryFileUrl(id,inline=false){
+  return `/api/library/file?id=${encodeURIComponent(id)}${inline?"&inline=1":""}`;
+}
+
+async function openStudyLibraryFile(id){
+  const file=(state.libraryData?.files||[]).find(x=>x.id===id);
+  if(!file)return;
+  const meta=getLibraryMeta(file),mime=meta.mime_type||"",name=meta.original_name||file.title;
+  const ext=String(name).split(".").pop().toLowerCase();
+
+  if(mime==="application/pdf"||ext==="pdf"){
+    openLibraryViewer(file,"pdf");
+    return;
+  }
+  if(mime.startsWith("image/")){
+    openLibraryViewer(file,"image");
+    return;
+  }
+  if(mime.startsWith("text/")||["txt","md","rtf"].includes(ext)){
+    openLibraryViewer(file,"text");
+    return;
+  }
+  window.open(libraryFileUrl(id,true),"_blank","noopener,noreferrer");
+}
+
+function openLibraryViewer(file,type){
+  const meta=getLibraryMeta(file);
+  let overlay=$("#library-file-viewer");
+  if(!overlay){
+    overlay=document.createElement("div");
+    overlay.id="library-file-viewer";
+    overlay.className="library-file-viewer";
+    document.body.appendChild(overlay);
+  }
+  const url=libraryFileUrl(file.id,true);
+  overlay.innerHTML=`<div class="library-viewer-shell">
+    <header><div><span>${escapeHtml(libraryFileIcon(meta.mime_type||"",meta.original_name||file.title).label)}</span><strong>${escapeHtml(file.title)}</strong></div><div><button id="library-viewer-download" class="secondary-btn">↓ DESCARGAR</button><button id="library-viewer-close" class="library-viewer-close">×</button></div></header>
+    <main>${type==="pdf"?`<iframe src="${escapeAttr(url)}" title="${escapeAttr(file.title)}"></iframe>`:type==="image"?`<div class="library-image-view"><img src="${escapeAttr(url)}" alt="${escapeAttr(file.title)}"></div>`:`<iframe src="${escapeAttr(url)}" title="${escapeAttr(file.title)}"></iframe>`}</main>
+  </div>`;
+  document.body.classList.add("modal-open");
+  $("#library-viewer-close").onclick=()=>{overlay.remove();document.body.classList.remove("modal-open")};
+  $("#library-viewer-download").onclick=()=>downloadStudyLibraryFile(file.id);
+  overlay.onclick=e=>{if(e.target===overlay){overlay.remove();document.body.classList.remove("modal-open")}};
+}
+
+function downloadStudyLibraryFile(id){
+  const a=document.createElement("a");
+  a.href=libraryFileUrl(id,false);
+  a.rel="noopener";
+  document.body.appendChild(a);a.click();a.remove();
+}
+
+async function renameStudyLibraryItem(id,type,currentName){
+  const name=prompt("Nuevo nombre:",currentName||"");
+  if(!name?.trim()||name.trim()===currentName)return;
+  try{
+    await api("/api/library/item",{method:"PUT",body:{id,type,name:name.trim()}});
+    toast("Nombre actualizado.");
+    loadStudyLibrary(state.libraryFolderId);
+  }catch(err){toast(err.message,true)}
+}
+
+async function deleteStudyLibraryItem(id,type,name){
+  const folder=type==="folder";
+  const msg=folder?`¿Eliminar la carpeta "${name}" y todo lo que contiene?`:`¿Eliminar "${name}" de tu Biblioteca?`;
+  if(!confirm(msg))return;
+  try{
+    await api(`/api/library/item?id=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`,{method:"DELETE"});
+    toast(folder?"Carpeta eliminada.":"Archivo eliminado.");
+    loadStudyLibrary(state.libraryFolderId);
+  }catch(err){toast(err.message,true)}
 }
 
 async function renderMistakes(){
@@ -2437,12 +3235,12 @@ async function hardRefreshApplication(){
     }
   }catch{}
   const url=new URL(location.href);
-  url.searchParams.set("v20",Date.now().toString());
+  url.searchParams.set("v22",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=20.0.0",{updateViaCache:"none"}).catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=22.0.0",{updateViaCache:"none"}).catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
