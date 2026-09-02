@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v24-offline-study-vault";
+const CACHE = "med-ai-dalton-v25-2-historical-keys-study";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=24.0.0",
-  "/app.js?v=24.0.0",
+  "/styles.css?v=25.2.0",
+  "/app.js?v=25.2.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

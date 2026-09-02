@@ -1,0 +1,50 @@
+MED AI DALTON V17 — INTERACTIVE EDUCATION PLATFORM
+
+POR QUÉ ESTA VERSIÓN ES DIFERENTE
+La V16 tenía funciones nuevas, pero visualmente seguía siendo demasiado parecida.
+V17 cambia de forma evidente la experiencia de uso y corrige el sistema de caché.
+
+IDIOMAS
+- Sigue usando únicamente Hebreo, Latín, Inglés, Ruso y Francés.
+- Cada idioma conserva su ruta y progreso independiente.
+- Nueva "Lección del tema actual":
+  1) mini-lección
+  2) conceptos clave
+  3) vocabulario / patrones
+  4) 8 ejercicios interactivos
+  5) corrección inmediata
+  6) XP
+  7) pronunciación por micrófono cuando el navegador lo admite
+  8) resumen de la sesión
+- Los ejercicios pueden incluir:
+  - selección múltiple
+  - escucha
+  - ordenar palabras
+  - escribir / traducir
+  - completar
+  - pronunciación
+- Workers AI genera lecciones dinámicas según idioma + tema + nivel.
+- Si la IA no logra generar el paquete, existe una lección local de respaldo para evitar que se rompa.
+- El progreso oficial del curso sigue requiriendo aprobar el examen del tema.
+
+DISEÑO
+- Nuevo Inicio mucho más visual.
+- Personajes originales NOVA y LUMI creados dentro de la interfaz.
+- Más color, movimiento, iconos destacados y estados visuales.
+- Tarjetas de módulos con acentos de color.
+- Language World con misiones diarias, ruta, aula interactiva y Coach IA.
+- Animaciones suaves con soporte para "reducir movimiento".
+
+CORRECCIÓN DE CACHÉ
+- Service Worker registrado como V17.
+- El botón "Actualizar aplicación" ahora elimina cachés y registros antiguos antes de recargar.
+- CSS, JS y cache principal usan versión 17.0.0.
+
+ARCHIVOS A REEMPLAZAR
+- public/index.html
+- public/styles.css
+- public/app.js
+- public/sw.js
+- src/index.js
+
+No requiere SQL nuevo.

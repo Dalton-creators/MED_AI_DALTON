@@ -1,0 +1,32 @@
+MED AI DALTON V15.1 — IDIOMAS CORREGIDOS
+
+CAMBIOS SOLICITADOS
+- Se dejaron únicamente 5 idiomas:
+  1. Hebreo
+  2. Latín
+  3. Inglés
+  4. Ruso
+  5. Francés
+
+CORRECCIÓN DEL ERROR 500
+- Cada idioma ahora usa identificadores y slugs propios.
+- El curso de un idioma ya no choca con los temas creados para otro idioma.
+- Se valida el idioma recibido por el backend.
+- Si existe una preferencia antigua no compatible, MED AI vuelve automáticamente a Inglés en vez de fallar.
+
+PROGRESO
+- Cada idioma mantiene su propio curso y progreso independiente.
+- Hebreo, Latín, Inglés, Ruso y Francés tienen rutas temáticas adaptadas al idioma.
+- Cada tema conserva lección, práctica y examen final.
+- Se mantiene el requisito de aprobar para desbloquear el siguiente tema.
+
+IMPORTANTE
+- Todo lo demás permanece igual que en V15.
+- No requiere SQL nuevo.
+
+ARCHIVOS A REEMPLAZAR
+- public/index.html
+- public/styles.css
+- public/app.js
+- public/sw.js
+- src/index.js

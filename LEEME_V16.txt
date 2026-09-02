@@ -1,0 +1,31 @@
+MED AI DALTON V16 — LANGUAGE LAB + NEXT LEVEL UI
+
+IDIOMAS
+- Solo Hebreo, Latín, Inglés, Ruso y Francés.
+- Conserva la ruta fija de progreso por temas.
+- Vista rápida de la ruta, tema actual y porcentaje del curso.
+- Retos gamificados: escuchar, ordenar, pronunciar y traducir.
+- Pronunciación mediante micrófono cuando el navegador soporta reconocimiento de voz.
+- Si el navegador no soporta micrófono o un idioma concreto, muestra una alternativa sin romper la app.
+- Reproducción de voz con las voces disponibles en el dispositivo.
+- XP de práctica y racha de estudio.
+- Los retos correctos aumentan el avance de estudio del tema actual hasta 80%; el tema solo se completa al aprobar su examen final.
+- Profesor IA mejorado: input comprensible, producción activa, corrección concreta, recuperación activa, repetición espaciada y microejercicios de errores.
+- Método adaptado a las particularidades de Hebreo, Latín, Inglés, Ruso y Francés.
+
+DISEÑO
+- Se conserva toda la estructura existente.
+- Interfaz más viva con acentos teal, cyan, violeta, coral y dorado.
+- Iconos de navegación con identidad visual.
+- Animaciones suaves y respetuosas de reduce-motion.
+- NOVA, un pequeño guía visual creado con CSS (sin imágenes externas).
+- Tarjetas y accesos con microinteracciones.
+
+ARCHIVOS A REEMPLAZAR
+- public/index.html
+- public/styles.css
+- public/app.js
+- public/sw.js
+- src/index.js
+
+No requiere SQL nuevo.

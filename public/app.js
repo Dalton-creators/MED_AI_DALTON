@@ -13,7 +13,11 @@ const state = {
   libraryFolderId:null,libraryData:null,libraryView:"files",
   libraryStudyFile:null,libraryStudyPacks:[],libraryStudyPdf:null,
   libraryStudyDoc:null,libraryStudyRange:null,
-  offlineDb:null,offlineReady:false
+  offlineDb:null,offlineReady:false,
+  smartDashboard:null,smartReview:null,smartPastExam:null,smartPastExamFile:null,
+  smartPastExamSource:null,smartKeyMode:null,
+  historicalKeysPack:null,historicalKeysSource:null,historicalKeysDraft:[],historicalKeysQuiz:null,
+  smartSearchResults:[],smartQuality:localStorage.getItem("medai_smart_quality")||"economy"
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -242,7 +246,7 @@ async function navigate(view){
       grand_rounds:()=>renderAIStudio("grand_rounds"),emergency:()=>renderAIStudio("emergency"),
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
       laboratory:()=>renderAIStudio("laboratory"),pharmacology:()=>renderAIStudio("pharmacology"),
-      osce:()=>renderAIStudio("osce"),library:renderLibrary,mistakes:renderMistakes,
+      osce:()=>renderAIStudio("osce"),library:renderLibrary,smart:renderSmartStudy,mistakes:renderMistakes,
       plan:renderPlan,stats:renderStats,profile:renderProfile,
       mathematics:()=>renderScienceStudio("MATH"),physics:()=>renderScienceStudio("PHYS"),
       astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLabV17,
@@ -3113,8 +3117,9 @@ function renderStudyLibraryFiles(){
         return `<article class="library-file-tile" data-search="${escapeAttr(searchable)}">
           <div class="library-file-preview ${info.cls}"><span>${info.icon}</span><em>${escapeHtml(info.label)}</em></div>
           <div class="library-file-copy"><strong title="${escapeAttr(file.title)}">${escapeHtml(file.title)}</strong><span>${formatBytes(meta.size_bytes)} · ${formatDate(file.updated_at)}</span></div>
-          <div class="library-file-actions library-file-actions-v24">
+          <div class="library-file-actions library-file-actions-v25">
             <button class="library-study-file" data-id="${escapeAttr(file.id)}"><span>✦</span> ESTUDIAR CON MED AI</button>
+            ${info.cls==="pdf"?`<button class="library-past-exam" data-id="${escapeAttr(file.id)}"><span>▤</span> CLAVE PASADA</button>`:""}
             <button class="library-offline-file" data-id="${escapeAttr(file.id)}"><span>↓</span> OFFLINE</button>
             <button class="library-open-file" data-id="${escapeAttr(file.id)}">ABRIR</button>
             <button class="library-download-file" data-id="${escapeAttr(file.id)}" title="Descargar">↓</button>
@@ -3137,6 +3142,7 @@ function renderStudyLibraryFiles(){
     $$("#library-grid>[data-search]").forEach(x=>x.classList.toggle("hidden",q&&!x.dataset.search.includes(q)));
   };
   $$(".library-study-file").forEach(b=>b.onclick=()=>openLibraryStudyMode(b.dataset.id));
+  $$(".library-past-exam").forEach(b=>b.onclick=()=>openHistoricalKeysStudio({libraryFileId:b.dataset.id}));
   $$(".library-offline-file").forEach(b=>b.onclick=()=>toggleLibraryFileOffline(b.dataset.id));
   $$(".library-open-file").forEach(b=>b.onclick=()=>openStudyLibraryFile(b.dataset.id));
   $$(".library-download-file").forEach(b=>b.onclick=()=>downloadStudyLibraryFile(b.dataset.id));
@@ -3764,6 +3770,864 @@ async function deleteStudyLibraryItem(id,type,name){
   }catch(err){toast(err.message,true)}
 }
 
+
+/* ============================================================
+   V25 · SMART STUDY ENGINE
+   Retrieval-first + spaced review + past exam intelligence
+   ============================================================ */
+
+async function renderSmartStudy(){
+  root.innerHTML=`<div class="smart-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Construyendo tu tablero inteligente…</strong><small>Primero usamos tus datos guardados; no estamos llamando a la IA.</small></div>`;
+  try{
+    const d=await api("/api/smart/dashboard");
+    state.smartDashboard=d;
+    const weak=d.weaknesses||[],due=Number(d.review_due||0),exams=d.past_exams||[],trend=d.exam_trends||[];
+    const historicalKeys=d.historical_keys||[],keyTrend=d.historical_key_trends||[];
+    const deadline=d.next_deadline;
+    root.innerHTML=`
+      <section class="smart-hero">
+        <div>
+          <div class="learning-home-chip"><span></span> SMART STUDY ENGINE · V25.2</div>
+          <h1>Estudia lo que más necesitas, no lo que ya dominas.</h1>
+          <p>MED AI combina tus errores, progreso, clases guardadas, Biblioteca y parciales anteriores. Primero reutiliza tus datos; la IA se reserva para cuando realmente agrega valor.</p>
+          <div class="smart-hero-actions">
+            <button id="smart-start-review" class="primary-btn">▶ REPASO DE HOY ${due?`· ${due}`:""}</button>
+            <button id="smart-upload-exam" class="secondary-btn">▤ CLAVES DE AÑOS PASADOS</button>
+            <input id="smart-exam-input" type="file" accept="application/pdf,.pdf" multiple hidden>
+          </div>
+        </div>
+        <div class="smart-brain">
+          <div class="smart-brain-core">✦</div>
+          <span class="node n1">PDF</span><span class="node n2">✓</span><span class="node n3">D1</span><span class="node n4">R2</span>
+        </div>
+      </section>
+
+      <section class="smart-metric-grid">
+        <article><span class="mint">↻</span><div><b>${due}</b><strong>repasos pendientes</strong><small>${due?"Prioridad para hoy":"Todo al día"}</small></div></article>
+        <article><span class="violet">◎</span><div><b>${weak.length?Math.round(Number(weak[0]?.mastery||0)):100}%</b><strong>tema más débil</strong><small>${escapeHtml(weak[0]?.topic_name||"Sin debilidades registradas")}</small></div></article>
+        <article><span class="amber">▤</span><div><b>${Number(d.material_count||0)}</b><strong>materiales aprovechables</strong><small>Clases, apuntes y sesiones guardadas</small></div></article>
+        <article><span class="blue">▤</span><div><b>${historicalKeys.length}</b><strong>repasos de claves</strong><small>Paquetes guardados para reutilizar</small></div></article>
+      </section>
+
+      <section class="smart-grid-main">
+        <article class="card smart-today-card">
+          <div class="smart-section-head"><div><span>PLAN DE HOY · SIN IA</span><h2>Tu siguiente mejor sesión</h2></div><b>${deadline?smartDaysUntil(deadline.due_at):"∞"}</b></div>
+          <div class="smart-recommendations">
+            ${(d.recommendations||[]).map((r,i)=>`<div><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(r.title)}</strong><small>${escapeHtml(r.detail)}</small></div><em>${escapeHtml(r.minutes||"")}</em></div>`).join("")||`<div><span>✓</span><div><strong>Buen momento para avanzar curso</strong><small>No hay repasos urgentes registrados.</small></div></div>`}
+          </div>
+          ${deadline?`<div class="smart-deadline"><span>PRÓXIMA FECHA</span><strong>${escapeHtml(deadline.title)}</strong><small>${formatDate(deadline.due_at)} · importancia ${Number(deadline.importance||3)}/5</small></div>`:""}
+        </article>
+
+        <article class="card smart-weak-card">
+          <div class="smart-section-head"><div><span>DOMINIO REAL</span><h2>Temas que necesitan trabajo</h2></div><small>Basado en progreso + errores</small></div>
+          <div class="smart-weak-list">
+            ${weak.length?weak.slice(0,6).map(w=>`<button class="smart-weak-topic" data-topic="${escapeAttr(w.topic_name)}">
+              <div><strong>${escapeHtml(w.topic_name)}</strong><small>${escapeHtml(w.subject_name||"")}</small></div>
+              <span>${Math.round(Number(w.mastery||0))}%</span><i><b style="width:${Math.max(2,Number(w.mastery||0))}%"></b></i>
+            </button>`).join(""):`<div class="empty">Todavía no hay suficiente información de dominio. Sigue realizando prácticas y exámenes.</div>`}
+          </div>
+        </article>
+      </section>
+
+      <section class="card smart-rag-card">
+        <div class="smart-rag-head">
+          <div><span>PREGUNTA A TODO LO QUE YA HAS ESTUDIADO</span><h2>Busca primero en tus materiales.</h2><p>La búsqueda local en D1 no consume Gemini. Solo pulsa “Responder con IA” si necesitas que MED AI conecte las fuentes.</p></div>
+          <label class="smart-quality"><span>CALIDAD IA</span><select id="smart-quality"><option value="economy">Ahorro · Flash</option><option value="balanced">Equilibrado · Flash</option><option value="max">Máxima · Pro</option></select></label>
+        </div>
+        <div class="smart-searchbar"><span>⌕</span><input id="smart-query" placeholder="Ej. ¿Qué he estudiado sobre sistema renina angiotensina?"><button id="smart-search" class="secondary-btn">BUSCAR SIN IA</button><button id="smart-ask" class="primary-btn">✦ RESPONDER CON IA</button></div>
+        <div id="smart-search-results" class="smart-search-results"><div class="smart-search-empty">Escribe un tema para buscar en tus cursos, apuntes, clases universitarias y sesiones de Biblioteca.</div></div>
+      </section>
+
+      <section class="smart-grid-main">
+        <article class="card smart-exam-trends">
+          <div class="smart-section-head"><div><span>CLAVES DE AÑOS PASADOS</span><h2>Qué se ha repetido históricamente</h2></div><button id="smart-open-keys-studio" class="ghost-btn">ABRIR ESTUDIO →</button></div>
+          ${keyTrend.length?`<div class="smart-trend-bars">${keyTrend.slice(0,8).map((t,i)=>`<div><span>${escapeHtml(t.topic)}</span><i><b style="width:${Math.min(100,Number(t.score||0))}%"></b></i><strong>${Number(t.count||0)}×</strong></div>`).join("")}</div>`:`<div class="smart-exam-empty"><span>▤</span><strong>Aún no has creado un repaso desde claves pasadas.</strong><p>Sube varios PDF de claves de años anteriores. MED AI detectará los temas históricos, te dará una clase/repaso y guardará un examen final nuevo.</p></div>`}
+          <div class="smart-past-exam-list">${historicalKeys.slice(0,5).map(x=>`<button class="smart-open-historical-keys" data-id="${escapeAttr(x.id)}"><span>▤</span><div><strong>${escapeHtml(x.study_title||x.title)}</strong><small>${escapeHtml(x.subject||"Claves históricas")} · ${Number(x.source_count||0)} PDF</small></div><b>ESTUDIAR →</b></button>`).join("")}</div>
+        </article>
+
+        <article class="card smart-health">
+          <div class="smart-section-head"><div><span>SISTEMA DE ESTUDIO</span><h2>Todo conectado</h2></div><b class="smart-health-ok">●</b></div>
+          <div class="smart-health-list">
+            <div><span>D1</span><strong>${d.health?.db?"LISTO":"REVISAR"}</strong></div>
+            <div><span>R2 · Biblioteca</span><strong>${d.health?.r2?"LISTO":"REVISAR"}</strong></div>
+            <div><span>AI Gateway / Workers AI</span><strong>${d.health?.ai?"CONFIGURADO":"REVISAR"}</strong></div>
+            <div><span>Offline Vault</span><strong>${state.offlineReady||("indexedDB" in window)?"DISPONIBLE":"NO DISPONIBLE"}</strong></div>
+            <div><span>Conexión actual</span><strong>${navigator.onLine?"ONLINE":"OFFLINE"}</strong></div>
+          </div>
+          <p>Este panel comprueba bindings y capacidades sin hacer una llamada de IA, por lo que no gasta créditos.</p>
+        </article>
+      </section>`;
+
+    $("#smart-quality").value=state.smartQuality;
+    $("#smart-quality").onchange=e=>{state.smartQuality=e.target.value;localStorage.setItem("medai_smart_quality",state.smartQuality)};
+    $("#smart-start-review").onclick=startSmartReview;
+    $("#smart-upload-exam").onclick=()=>openHistoricalKeysStudio();
+    $("#smart-exam-input").onchange=e=>{const files=[...(e.target.files||[])];if(files.length)openHistoricalKeysStudio({files})};
+    $("#smart-open-keys-studio").onclick=()=>openHistoricalKeysStudio();
+    $("#smart-search").onclick=()=>smartRetrieve(false);
+    $("#smart-ask").onclick=()=>smartRetrieve(true);
+    $("#smart-query").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();smartRetrieve(false)}});
+    $$(".smart-weak-topic").forEach(b=>b.onclick=()=>{$("#smart-query").value=b.dataset.topic;smartRetrieve(false)});
+    $$(".smart-open-past-exam").forEach(b=>b.onclick=()=>openPastExamPack(b.dataset.id));
+    $$(".smart-open-historical-keys").forEach(b=>b.onclick=()=>openHistoricalKeysPack(b.dataset.id));
+  }catch(err){
+    root.innerHTML=`<div class="card masterclass-error"><strong>No pude preparar Repaso inteligente.</strong><p>${escapeHtml(err.message)}</p><button id="smart-retry" class="primary-btn">REINTENTAR</button></div>`;
+    $("#smart-retry").onclick=renderSmartStudy;
+  }
+}
+
+function smartDaysUntil(date){
+  const d=Math.ceil((new Date(date)-new Date())/86400000);
+  if(!Number.isFinite(d))return "—";
+  if(d<0)return "VENCIDO";
+  if(d===0)return "HOY";
+  return `${d}D`;
+}
+
+async function smartRetrieve(useAI=false){
+  const q=$("#smart-query")?.value.trim();if(!q)return toast("Escribe qué quieres estudiar.",true);
+  const box=$("#smart-search-results");
+  box.innerHTML=`<div class="smart-search-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${useAI?"Buscando fuentes antes de responder…":"Buscando en tus materiales sin IA…"}</strong></div>`;
+  try{
+    if(useAI){
+      if(!navigator.onLine)throw new Error("La respuesta nueva con IA necesita internet. La búsqueda de materiales sí funciona offline si ya la hiciste antes.");
+      const d=await api("/api/smart/ask",{method:"POST",body:{query:q,quality:state.smartQuality}});
+      state.smartSearchResults=d.sources||[];
+      box.innerHTML=`<article class="smart-answer">
+        <div class="smart-answer-top"><span>✦ RESPUESTA BASADA EN TUS MATERIALES</span><b>${escapeHtml(d.model_label||"Gemini")}</b></div>
+        <div class="rich-response">${renderRichResponse(d.answer||"")}</div>
+        ${renderSmartSources(d.sources||[])}
+      </article>`;
+    }else{
+      const d=await api(`/api/smart/retrieve?q=${encodeURIComponent(q)}`);
+      state.smartSearchResults=d.sources||[];
+      box.innerHTML=(d.sources||[]).length?renderSmartSources(d.sources,true):`<div class="smart-search-empty">No encontré material guardado suficientemente relacionado con “${escapeHtml(q)}”. Puedes seguir estudiándolo con Tutor IA o agregar material a Biblioteca.</div>`;
+    }
+  }catch(err){box.innerHTML=`<div class="masterclass-error"><strong>No pude completar la búsqueda.</strong><p>${escapeHtml(err.message)}</p></div>`}
+}
+
+function renderSmartSources(sources,full=false){
+  if(!sources?.length)return `<div class="smart-source-note">No se utilizaron fuentes guardadas.</div>`;
+  return `<section class="smart-sources"><div class="panel-code">${full?"RESULTADOS · SIN IA":"FUENTES UTILIZADAS"}</div>${sources.map((s,i)=>`<article>
+    <span>${i+1}</span><div><strong>${escapeHtml(s.title||"Material")}</strong><small>${escapeHtml(s.label||s.type||"Fuente guardada")}${s.scope?` · ${escapeHtml(s.scope)}`:""}</small>${full?`<p>${escapeHtml(s.snippet||"")}</p>`:""}</div><b>${Math.round(Number(s.score||0))}</b>
+  </article>`).join("")}</section>`;
+}
+
+/* -------- Adaptive spaced review -------- */
+
+async function startSmartReview(){
+  root.innerHTML=`<div class="smart-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tus preguntas pendientes…</strong><small>Usamos tus errores guardados, no Gemini.</small></div>`;
+  try{
+    const d=await api("/api/smart/review-set?limit=12");
+    state.smartReview={items:d.items||[],index:0,results:[]};
+    renderSmartReviewCard();
+  }catch(err){root.innerHTML=`<div class="card masterclass-error"><strong>No pude abrir el repaso.</strong><p>${escapeHtml(err.message)}</p><button class="primary-btn" id="back-smart">VOLVER</button></div>`;$("#back-smart").onclick=renderSmartStudy}
+}
+
+function renderSmartReviewCard(){
+  const st=state.smartReview,item=st?.items?.[st.index];
+  if(!item){renderSmartReviewDone();return}
+  root.innerHTML=`<section class="smart-review-shell">
+    <header><button id="smart-review-exit" class="ghost-btn">← REPASO INTELIGENTE</button><div><span>RECUPERACIÓN ESPACIADA</span><strong>${st.index+1} / ${st.items.length}</strong></div></header>
+    <div class="smart-review-progress"><i style="width:${Math.round(st.index/st.items.length*100)}%"></i></div>
+    <article class="smart-review-card">
+      <div class="smart-review-meta"><span>${escapeHtml(item.topic_name||item.error_category||"Concepto a reforzar")}</span><b>DOMINIO ${Math.round(Number(item.mastery_score||0))}%</b></div>
+      <div class="smart-review-icon">?</div>
+      <h1>${escapeHtml(item.prompt)}</h1>
+      <p>Intenta responder de memoria antes de revelar la solución.</p>
+      <button id="smart-reveal" class="primary-btn">MOSTRAR RESPUESTA</button>
+      <div id="smart-review-answer" class="smart-review-answer hidden">
+        <div><span>RESPUESTA CORRECTA</span><strong>${escapeHtml(item.correct_answer||"")}</strong></div>
+        ${item.explanation?`<p>${escapeHtml(item.explanation)}</p>`:""}
+        <div class="smart-rating">
+          <button data-rating="0" class="again"><b>↻</b><span>NO LO SABÍA<small>Repetir pronto</small></span></button>
+          <button data-rating="1" class="hard"><b>~</b><span>DIFÍCIL<small>Necesita refuerzo</small></span></button>
+          <button data-rating="2" class="good"><b>✓</b><span>BIEN<small>Ya lo recuerdo</small></span></button>
+          <button data-rating="3" class="easy"><b>✦</b><span>FÁCIL<small>Espaciar más</small></span></button>
+        </div>
+      </div>
+    </article>
+  </section>`;
+  $("#smart-review-exit").onclick=renderSmartStudy;
+  $("#smart-reveal").onclick=()=>{$("#smart-review-answer").classList.remove("hidden");$("#smart-reveal").classList.add("hidden")};
+  $$(".smart-rating button").forEach(b=>b.onclick=()=>rateSmartReview(item,Number(b.dataset.rating)));
+}
+
+async function rateSmartReview(item,rating){
+  state.smartReview.results.push({id:item.id,rating});
+  try{await api("/api/smart/review",{method:"POST",body:{mistake_id:item.id,rating}})}catch{}
+  state.smartReview.index++;
+  renderSmartReviewCard();
+}
+
+function renderSmartReviewDone(){
+  const r=state.smartReview?.results||[];
+  const good=r.filter(x=>x.rating>=2).length;
+  root.innerHTML=`<section class="master-stage-complete smart-review-complete">
+    <div class="master-stage-check">✓</div><div class="eyebrow">REPASO TERMINADO</div>
+    <h2>${good} de ${r.length} conceptos recordados bien</h2>
+    <p>Las fechas del próximo repaso fueron reajustadas según tus respuestas. No se utilizó IA para esta sesión.</p>
+    <div class="master-stage-actions"><button id="smart-review-home" class="secondary-btn">VER TABLERO</button><button id="smart-review-more" class="primary-btn">OTRO REPASO</button></div>
+  </section>`;
+  $("#smart-review-home").onclick=renderSmartStudy;
+  $("#smart-review-more").onclick=startSmartReview;
+}
+
+
+/* -------- V25.2 · Historical Keys Study -------- */
+
+function ensureHistoricalKeysOverlay(){
+  let o=$("#historical-keys-overlay");
+  if(o)return o;
+  o=document.createElement("div");
+  o.id="historical-keys-overlay";o.className="historical-keys-overlay hidden";
+  o.innerHTML=`<div class="historical-keys-shell">
+    <header><div><span>MED AI · HISTORICAL KEYS STUDY</span><strong id="historical-keys-title">Claves de años pasados</strong></div><button id="historical-keys-close" class="library-viewer-close">×</button></header>
+    <main id="historical-keys-body"></main>
+  </div>`;
+  document.body.appendChild(o);
+  $("#historical-keys-close").onclick=closeHistoricalKeysStudio;
+  o.onclick=e=>{if(e.target===o)closeHistoricalKeysStudio()};
+  return o;
+}
+function closeHistoricalKeysStudio(){
+  $("#historical-keys-overlay")?.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+async function openHistoricalKeysStudio(options={}){
+  const o=ensureHistoricalKeysOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
+  if(options.files?.length){
+    state.historicalKeysDraft=options.files.map(f=>({kind:"local",file:f,name:f.name,size:f.size}));
+  }else if(options.libraryFileId){
+    const f=(state.libraryData?.files||[]).find(x=>x.id===options.libraryFileId);
+    state.historicalKeysDraft=[{kind:"library",id:options.libraryFileId,name:f?.title||"Clave histórica PDF"}];
+  }else if(!state.historicalKeysDraft?.length){
+    state.historicalKeysDraft=[];
+  }
+  $("#historical-keys-body").innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando estudio de claves históricas…</strong></div>`;
+  let saved=[];
+  try{
+    const d=await api("/api/smart/historical-keys?list=1");
+    saved=d.packs||[];
+  }catch{}
+  renderHistoricalKeysHome(saved);
+}
+
+function renderHistoricalKeysHome(saved=[]){
+  const box=$("#historical-keys-body"),draft=state.historicalKeysDraft||[];
+  box.innerHTML=`<section class="historical-keys-home">
+    <div class="historical-keys-hero">
+      <div class="historical-keys-icon">▤</div>
+      <div><span>CLAVES DE AÑOS PASADOS</span><h2>Convierte varios parciales viejos en un solo plan de estudio.</h2><p>Sube los PDF de claves/parciales históricos que tengas. MED AI buscará qué temas aparecieron, cuáles se repiten y qué conceptos conviene dominar. Después guarda una clase, un repaso y un examen final nuevo.</p></div>
+      <div class="historical-keys-cost"><b>⚡</b><span><strong>PREPARAR UNA VEZ</strong><small>Repasar después no regenera</small></span></div>
+    </div>
+
+    <div class="historical-keys-layout">
+      <section class="card">
+        <div class="panel-code">1 · AGREGA TUS PDF HISTÓRICOS</div>
+        <label class="library-dropzone historical-keys-dropzone" for="historical-keys-files">
+          <input id="historical-keys-files" type="file" accept="application/pdf,.pdf" multiple hidden>
+          <div>＋</div><strong>AGREGAR VARIOS PDF</strong><span>Puedes seleccionar varios al mismo tiempo · máximo 12 por paquete</span>
+        </label>
+        <div id="historical-keys-draft-list" class="historical-keys-draft-list">
+          ${draft.length?draft.map((x,i)=>`<article><span>PDF</span><div><strong>${escapeHtml(x.name)}</strong><small>${x.kind==="library"?"Ya está en tu Biblioteca":formatBytes(x.size||0)}</small></div><button data-remove="${i}">×</button></article>`).join(""):`<div class="historical-keys-empty">Todavía no has agregado PDF.</div>`}
+        </div>
+        <div class="field"><label>Materia / curso</label><input id="historical-keys-subject" placeholder="Ej. Fisiología, Química, Física..."></div>
+        <div class="field"><label>Indicación opcional</label><textarea id="historical-keys-note" rows="3" placeholder="Ej. Son claves del primer parcial de varios años. Quiero prepararme para mi próximo parcial."></textarea></div>
+        <div class="historical-keys-warning"><span>i</span><p>MED AI usa estos archivos como <b>evidencia histórica de estudio</b>, no como garantía de qué vendrá en tu próximo examen. Si una clave contiene únicamente letras como “1-B, 2-C” sin el texto de las preguntas, no hay suficiente información para saber qué tema evaluaba.</p></div>
+        <button id="historical-keys-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR CLASE + REPASO + EXAMEN</strong><small>Analiza el conjunto una sola vez y lo guarda</small></div></button>
+      </section>
+
+      <aside class="historical-keys-output">
+        <div class="panel-code">MED AI PREPARARÁ</div>
+        <div><b>01</b><span><strong>Temas históricos</strong><small>Qué apareció y en cuántos archivos</small></span></div>
+        <div><b>02</b><span><strong>Clase maestra</strong><small>Explicación de los conceptos prioritarios</small></span></div>
+        <div><b>03</b><span><strong>Repaso de alto rendimiento</strong><small>Puntos clave, trampas y práctica</small></span></div>
+        <div><b>04</b><span><strong>Plan de estudio</strong><small>Orden recomendado</small></span></div>
+        <div><b>05</b><span><strong>Examen final nuevo</strong><small>20 preguntas · reutilizable</small></span></div>
+      </aside>
+    </div>
+
+    <section class="historical-keys-saved">
+      <div class="library-study-saved-head"><div><span>PAQUETES YA PREPARADOS</span><h3>${saved.length} guardado${saved.length===1?"":"s"}</h3></div><small>Abrirlos no vuelve a usar IA</small></div>
+      <div class="smart-past-exam-list">${saved.length?saved.map(x=>`<button class="historical-open-saved" data-id="${escapeAttr(x.id)}"><span>▤</span><div><strong>${escapeHtml(x.study_title||x.title)}</strong><small>${escapeHtml(x.subject||"")} · ${Number(x.source_count||0)} PDF · ${formatDate(x.updated_at)}</small></div><b>ESTUDIAR →</b></button>`).join(""):`<div class="smart-exam-empty"><span>▤</span><strong>Aún no hay paquetes guardados.</strong><p>El primero que crees quedará aquí para volver a estudiarlo.</p></div>`}</div>
+    </section>
+  </section>`;
+  $("#historical-keys-files").onchange=e=>{
+    const files=[...(e.target.files||[])].filter(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name));
+    const existing=state.historicalKeysDraft||[];
+    state.historicalKeysDraft=[...existing,...files.map(f=>({kind:"local",file:f,name:f.name,size:f.size}))].slice(0,12);
+    renderHistoricalKeysHome(saved);
+  };
+  $$("[data-remove]",box).forEach(b=>b.onclick=()=>{
+    state.historicalKeysDraft.splice(Number(b.dataset.remove),1);
+    renderHistoricalKeysHome(saved);
+  });
+  $("#historical-keys-create").onclick=createHistoricalKeysPack;
+  $$(".historical-open-saved",box).forEach(b=>b.onclick=()=>openHistoricalKeysPack(b.dataset.id));
+}
+
+async function createHistoricalKeysPack(){
+  const draft=state.historicalKeysDraft||[],subject=$("#historical-keys-subject").value.trim(),note=$("#historical-keys-note").value.trim(),btn=$("#historical-keys-create");
+  if(draft.length<1)return toast("Agrega al menos un PDF de clave pasada.",true);
+  if(!subject)return toast("Escribe la materia para organizar la clase.",true);
+  if(!navigator.onLine)return toast("La preparación inicial necesita internet. Después podrás repasar el paquete guardado.",true);
+  btn.disabled=true;
+  const ids=[];
+  try{
+    for(let i=0;i<draft.length;i++){
+      const item=draft[i];
+      if(item.kind==="library"){ids.push(item.id);continue}
+      btn.innerHTML=`<span class="university-spin">↑</span><div><strong>GUARDANDO PDF ${i+1}/${draft.length}…</strong><small>R2 · todavía sin análisis Gemini</small></div>`;
+      const form=new FormData();form.append("file",item.file,item.file.name);
+      const res=await fetch("/api/library/upload",{method:"POST",body:form,credentials:"same-origin"});
+      const d=await res.json().catch(()=>({}));
+      if(!res.ok)throw new Error(d.error||`No pude subir ${item.name}.`);
+      ids.push(d.id);
+    }
+    btn.innerHTML=`<span class="university-spin">✦</span><div><strong>CREANDO TU REPASO HISTÓRICO…</strong><small>Temas → clase → práctica → examen final</small></div>`;
+    const result=await api("/api/smart/historical-keys",{method:"POST",body:{file_ids:ids,subject,note}});
+    state.historicalKeysDraft=[];
+    toast(result.cached?"Este mismo conjunto ya estaba preparado; se reutilizó.":"Clase histórica preparada y guardada.");
+    await openHistoricalKeysPack(result.id,true);
+  }catch(err){
+    toast(err.message,true);
+    btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>CREAR CLASE + REPASO + EXAMEN</strong><small>Analiza el conjunto una sola vez y lo guarda</small></div>`;
+  }
+}
+
+async function openHistoricalKeysPack(id,justCreated=false){
+  const o=ensureHistoricalKeysOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
+  const box=$("#historical-keys-body");
+  box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando tu nuevo paquete…":"Abriendo paquete guardado…"}</strong><small>No se está regenerando con IA.</small></div>`;
+  try{
+    const d=await api(`/api/smart/historical-keys?id=${encodeURIComponent(id)}`);
+    state.historicalKeysPack=d.pack;state.historicalKeysSource=d.source||null;
+    renderHistoricalKeysPack("analysis");
+  }catch(err){
+    box.innerHTML=`<div class="masterclass-error"><strong>No pude abrir este paquete.</strong><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+function renderHistoricalKeysPack(tab="analysis"){
+  const p=state.historicalKeysPack,box=$("#historical-keys-body");if(!p)return;
+  const topics=p.recurring_topics||[];
+  box.innerHTML=`<section class="historical-pack">
+    <header class="historical-pack-head">
+      <button id="historical-pack-back" class="ghost-btn">← MIS CLAVES</button>
+      <div><span>${escapeHtml(p.subject||"")} · ${Number(p.source_count||p.source_files?.length||0)} PDF HISTÓRICOS</span><h2>${escapeHtml(p.title||"Repaso desde claves pasadas")}</h2><p>${escapeHtml(p.overview||"")}</p></div>
+      <div class="historical-pack-saved">✓ GUARDADO</div>
+    </header>
+    <nav class="historical-pack-tabs">
+      <button data-historical-tab="analysis" class="${tab==="analysis"?"active":""}"><b>01</b><span>ANÁLISIS</span></button>
+      <button data-historical-tab="class" class="${tab==="class"?"active":""}"><b>02</b><span>CLASE</span></button>
+      <button data-historical-tab="review" class="${tab==="review"?"active":""}"><b>03</b><span>REPASO</span></button>
+      <button data-historical-tab="exam" class="${tab==="exam"?"active":""}"><b>04</b><span>EXAMEN FINAL</span></button>
+    </nav>
+    <main id="historical-pack-content"></main>
+  </section>`;
+  $("#historical-pack-back").onclick=()=>openHistoricalKeysStudio();
+  $$(".historical-pack-tabs button").forEach(b=>b.onclick=()=>renderHistoricalKeysPack(b.dataset.historicalTab));
+  const area=$("#historical-pack-content");
+
+  if(tab==="analysis"){
+    area.innerHTML=`<section class="historical-analysis-grid">
+      <article class="card">
+        <div class="smart-section-head"><div><span>PATRÓN HISTÓRICO</span><h2>Temas que aparecieron en tus claves</h2></div><small>No es una predicción del próximo examen</small></div>
+        <div class="historical-topic-list">${topics.map((t,i)=>`<button class="historical-topic-study" data-topic="${escapeAttr(t.name)}">
+          <span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(t.name)}</strong><small>${escapeHtml((t.concepts||[]).slice(0,4).join(" · "))}</small></div>
+          <b>${Number(t.occurrence_count||0)} archivo${Number(t.occurrence_count||0)===1?"":"s"}</b><i><em style="width:${Math.max(4,Number(t.historical_weight||0))}%"></em></i>
+        </button>`).join("")}</div>
+      </article>
+      <aside class="card"><div class="panel-code">LO QUE OBSERVÓ MED AI</div><ul class="historical-pattern-list">${(p.historical_patterns||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>
+        ${p.limitations?.length?`<div class="historical-limitations"><b>LIMITACIONES</b>${p.limitations.map(x=>`<p>${escapeHtml(x)}</p>`).join("")}</div>`:""}
+      </aside>
+    </section>
+    <section class="card historical-plan-card"><div class="panel-code">PLAN DE ESTUDIO RECOMENDADO</div><div class="past-study-plan">${(p.study_plan||[]).map((s,i)=>`<article><b>${i+1}</b><div><strong>${escapeHtml(s.title||`Sesión ${i+1}`)}</strong><p>${escapeHtml(s.focus||"")}</p><small>${Number(s.minutes||25)} min</small></div></article>`).join("")}</div></section>`;
+    $$(".historical-topic-study",area).forEach(b=>b.onclick=()=>openOnePastExamTopic(b.dataset.topic));
+    return;
+  }
+
+  if(tab==="class"){
+    area.innerHTML=`<article class="historical-masterclass">
+      <header><div class="eyebrow">CLASE MAESTRA · BASADA EN LOS TEMAS HISTÓRICOS</div><h1>${escapeHtml(p.class_title||p.title||"Clase de repaso")}</h1><p>${escapeHtml(p.class_overview||p.overview||"")}</p></header>
+      ${(p.lessons||[]).map((l,i)=>`<section class="historical-lesson"><div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div><div><h2>${escapeHtml(l.title)}</h2><div class="masterclass-prose">${renderStudyParagraphs(l.explanation||"")}</div>${l.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${l.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}${l.exam_focus?`<div class="masterclass-application"><span>ENFOQUE DE REPASO</span>${renderStudyParagraphs(l.exam_focus)}</div>`:""}</div></section>`).join("")}
+    </article>`;
+    return;
+  }
+
+  if(tab==="review"){
+    area.innerHTML=`<section class="historical-review-grid">
+      <article class="card"><div class="panel-code">DEBES RECORDAR</div><div class="historical-memory-list">${(p.must_remember||[]).map((x,i)=>`<div><span>${i+1}</span><p>${escapeHtml(x)}</p></div>`).join("")}</div></article>
+      <article class="card"><div class="panel-code">ERRORES / TRAMPAS COMUNES</div><div class="historical-memory-list traps">${(p.common_traps||[]).map((x,i)=>`<div><span>!</span><p>${escapeHtml(x)}</p></div>`).join("")}</div></article>
+    </section>
+    <div class="historical-review-action"><button id="historical-start-practice" class="primary-btn">▶ HACER PRÁCTICA DE ${Number((p.practice_questions||[]).length)}</button><small>Preguntas ya guardadas · no usa IA adicional</small></div>`;
+    $("#historical-start-practice").onclick=()=>startHistoricalKeysQuiz("practice");
+    return;
+  }
+
+  area.innerHTML=`<section class="historical-final-exam">
+    <div class="historical-final-icon">✓</div><div class="eyebrow">EXAMEN FINAL NUEVO</div><h2>${Number((p.final_exam||[]).length)} preguntas sobre los temas encontrados</h2><p>Este examen no intenta adivinar tu próximo parcial. Comprueba si dominas los conceptos que aparecieron históricamente en las claves que subiste.</p>
+    <div class="historical-exam-rules"><span>80% para aprobar</span><span>Clave oculta hasta terminar</span><span>Repetible sin IA</span></div>
+    <button id="historical-start-exam" class="primary-btn">COMENZAR EXAMEN →</button>
+  </section>`;
+  $("#historical-start-exam").onclick=()=>startHistoricalKeysQuiz("exam");
+}
+
+function startHistoricalKeysQuiz(kind){
+  const p=state.historicalKeysPack;
+  const questions=(kind==="exam"?p.final_exam:p.practice_questions)||[];
+  if(!questions.length)return toast("Este paquete no tiene preguntas guardadas.",true);
+  state.historicalKeysQuiz={kind,questions,index:0,answers:{},score:0,started_at:new Date().toISOString()};
+  renderHistoricalKeysQuestion();
+}
+function renderHistoricalKeysQuestion(){
+  const st=state.historicalKeysQuiz,q=st?.questions?.[st.index],box=$("#historical-keys-body");
+  if(!q){finishHistoricalKeysQuiz();return}
+  const choice=st.answers[`q${st.index}`],practice=st.kind==="practice";
+  box.innerHTML=`<section class="answer-key-session historical-quiz">
+    <header class="answer-key-session-head"><button id="historical-quiz-exit" class="ghost-btn">← SALIR</button><div><span>${practice?"PRÁCTICA":"EXAMEN FINAL"} · CLAVES HISTÓRICAS</span><strong>${st.index+1} / ${st.questions.length}</strong></div><div class="answer-key-session-score">${practice?`${st.score} ✓`:"RESPUESTAS OCULTAS"}</div></header>
+    <div class="master-exam-progress"><i style="width:${st.index/st.questions.length*100}%"></i></div>
+    <article class="answer-key-question"><div class="answer-key-question-meta"><span>PREGUNTA ${st.index+1}</span><b>${escapeHtml(q.topic||"Repaso")}</b></div><h1>${escapeHtml(q.stem||q.question||"")}</h1>
+      <div class="answer-key-options">${(q.options||[]).map((op,i)=>`<button data-i="${i}" class="${choice===i?"selected":""}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div>
+      ${practice&&choice!==undefined?renderHistoricalPracticeFeedback(q,choice):""}
+      <div class="answer-key-question-actions">${st.index>0?`<button id="historical-prev" class="secondary-btn">← ANTERIOR</button>`:"<span></span>"}${choice===undefined?`<small>Selecciona una respuesta.</small>`:`<button id="historical-next" class="primary-btn">${st.index+1===st.questions.length?"TERMINAR":"SIGUIENTE →"}</button>`}</div>
+    </article>
+  </section>`;
+  $("#historical-quiz-exit").onclick=()=>renderHistoricalKeysPack(st.kind==="exam"?"exam":"review");
+  $$(".answer-key-options button",box).forEach(b=>b.onclick=()=>selectHistoricalKeysAnswer(Number(b.dataset.i)));
+  $("#historical-prev")?.addEventListener("click",()=>{st.index--;renderHistoricalKeysQuestion()});
+  $("#historical-next")?.addEventListener("click",()=>{st.index++;renderHistoricalKeysQuestion()});
+}
+function selectHistoricalKeysAnswer(choice){
+  const st=state.historicalKeysQuiz,q=st.questions[st.index],key=`q${st.index}`,prev=st.answers[key];
+  if(prev===undefined&&choice===Number(q.correctIndex))st.score++;
+  if(prev!==undefined&&prev===Number(q.correctIndex)&&choice!==Number(q.correctIndex))st.score--;
+  if(prev!==undefined&&prev!==Number(q.correctIndex)&&choice===Number(q.correctIndex))st.score++;
+  st.answers[key]=choice;renderHistoricalKeysQuestion();
+}
+function renderHistoricalPracticeFeedback(q,choice){
+  const ok=choice===Number(q.correctIndex);
+  return `<section class="answer-key-feedback ${ok?"correct":"wrong"}"><div class="answer-key-feedback-title"><span>${ok?"✓":"×"}</span><div><strong>${ok?"Correcto":"Revisa este concepto"}</strong><small>Respuesta correcta: ${String.fromCharCode(65+Number(q.correctIndex||0))}</small></div></div><p>${escapeHtml(q.explanation||"")}</p></section>`;
+}
+async function finishHistoricalKeysQuiz(){
+  const st=state.historicalKeysQuiz,p=state.historicalKeysPack;
+  let score=0;st.questions.forEach((q,i)=>{if(Number(st.answers[`q${i}`])===Number(q.correctIndex))score++});
+  const pct=Math.round(score/Math.max(1,st.questions.length)*100);
+  if(st.kind==="exam"){
+    try{await api("/api/exams/record",{method:"POST",body:{
+      title:`Examen final · Claves históricas · ${p.subject||""}`,
+      settings:{smart_study:true,historical_keys:true,historical_keys_pack_id:state.historicalKeysSource?.id,subject:p.subject},
+      started_at:st.started_at,score,max_score:st.questions.length,percentage:pct,questions:st.questions,answers:st.answers
+    }})}catch{}
+  }
+  $("#historical-keys-body").innerHTML=`<section class="answer-key-result"><div class="answer-key-result-ring"><strong>${pct}%</strong><small>${score}/${st.questions.length}</small></div><div class="eyebrow">${st.kind==="exam"?"EXAMEN FINAL":"PRÁCTICA"} TERMINADO</div><h2>${pct>=80?"Buen dominio de los temas históricos.":"Conviene reforzar algunos conceptos."}</h2><p>${st.kind==="exam"?"Tus errores se guardan para que Repaso inteligente pueda volver a trabajarlos.":"Puedes repetir esta práctica todas las veces que quieras sin nueva IA."}</p><div class="answer-key-result-actions"><button id="historical-result-back" class="secondary-btn">VOLVER AL PAQUETE</button><button id="historical-result-repeat" class="primary-btn">REPETIR</button></div></section>`;
+  $("#historical-result-back").onclick=()=>renderHistoricalKeysPack(st.kind==="exam"?"exam":"review");
+  $("#historical-result-repeat").onclick=()=>startHistoricalKeysQuiz(st.kind);
+}
+
+/* -------- Past exams -------- */
+
+async function uploadPastExamDirect(file){
+  if(!navigator.onLine)return toast("Necesitas internet para subir el parcial por primera vez.",true);
+  if(!/\.pdf$/i.test(file.name)&&file.type!=="application/pdf")return toast("Selecciona un PDF.",true);
+  if(file.size>50*1024*1024)return toast("El PDF supera 50 MB.",true);
+  root.innerHTML=`<div class="smart-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Guardando parcial en tu Biblioteca…</strong><small>Subir el archivo a R2 no utiliza Gemini.</small></div>`;
+  try{
+    const form=new FormData();form.append("file",file,file.name);
+    const res=await fetch("/api/library/upload",{method:"POST",body:form,credentials:"same-origin"});
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(d.error||"No pude subir el PDF.");
+    state.smartPastExamFile={id:d.id,title:d.title||file.name,metadata_json:JSON.stringify({mime_type:"application/pdf",original_name:file.name,size_bytes:file.size})};
+    openPastExamAnalyzer(d.id,state.smartPastExamFile);
+  }catch(err){toast(err.message,true);renderSmartStudy()}
+}
+
+function ensurePastExamOverlay(){
+  let o=$("#past-exam-overlay");
+  if(o)return o;
+  o=document.createElement("div");o.id="past-exam-overlay";o.className="past-exam-overlay hidden";
+  o.innerHTML=`<div class="past-exam-shell"><header><div><span>MED AI · PAST EXAM INTELLIGENCE</span><strong id="past-exam-shell-title">Parcial anterior</strong></div><button id="past-exam-close" class="library-viewer-close">×</button></header><main id="past-exam-body"></main></div>`;
+  document.body.appendChild(o);
+  $("#past-exam-close").onclick=closePastExamOverlay;
+  o.onclick=e=>{if(e.target===o)closePastExamOverlay()};
+  return o;
+}
+function closePastExamOverlay(){$("#past-exam-overlay")?.classList.add("hidden");document.body.classList.remove("modal-open")}
+function findLibraryFileAny(id){
+  return (state.libraryData?.files||[]).find(x=>x.id===id)||state.smartPastExamFile||{id,title:"Parcial anterior.pdf",metadata_json:"{}"};
+}
+
+function openPastExamAnalyzer(fileId,fileOverride=null){
+  const file=fileOverride||findLibraryFileAny(fileId);
+  state.smartPastExamFile=file;
+  const o=ensurePastExamOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
+  $("#past-exam-shell-title").textContent=file.title||"Parcial anterior";
+  const box=$("#past-exam-body");
+  box.innerHTML=`<section class="past-exam-import">
+    <div class="past-exam-hero">
+      <div class="past-exam-icon">✓</div><div><div class="eyebrow">ANALIZAR EXAMEN DE AÑOS PASADOS</div><h2>${escapeHtml(file.title||"Parcial")}</h2><p>MED AI identifica temas, patrones y dificultad; después guarda el análisis y las preguntas de práctica para que puedas repetirlas sin usar IA otra vez.</p></div>
+      <div class="university-credit-badge"><b>⚡</b><span><strong>UNA SOLA VEZ</strong><small>Gemini 2.5 Flash</small></span></div>
+    </div>
+    <div class="past-exam-form-grid">
+      <section class="card">
+        <div class="field"><label>Materia o curso</label><input id="past-exam-subject" placeholder="Ej. Fisiología, Química, Física..."></div>
+        <div class="field"><label>Año del parcial</label><input id="past-exam-year" type="number" min="1990" max="2100" value="${new Date().getFullYear()-1}"></div>
+        <div class="field"><label>Información opcional</label><textarea id="past-exam-note" rows="4" placeholder="Ej. Primer parcial, profesor X, cubría módulos 1–3..."></textarea></div>
+        <label class="form-check"><input id="past-exam-practice" type="checkbox" checked><span>Crear preguntas nuevas con estilo y temas similares para practicar</span></label>
+        <button id="past-exam-analyze" class="library-create-study-btn"><span>✦</span><div><strong>ANALIZAR Y GUARDAR</strong><small>El PDF ya está en R2; no se duplica</small></div></button>
+      </section>
+      <aside class="past-exam-creates">
+        <div class="panel-code">MED AI GUARDARÁ</div>
+        <div><b>01</b><span><strong>Temas más frecuentes</strong><small>Con peso estimado</small></span></div>
+        <div><b>02</b><span><strong>Tipos de pregunta</strong><small>Memoria, cálculo, aplicación, clínica…</small></span></div>
+        <div><b>03</b><span><strong>Patrones repetidos</strong><small>Qué habilidades exige el examen</small></span></div>
+        <div><b>04</b><span><strong>Plan de repaso</strong><small>Orden recomendado de estudio</small></span></div>
+        <div><b>05</b><span><strong>Banco de práctica</strong><small>15 preguntas reutilizables</small></span></div>
+      </aside>
+    </div>
+  </section>`;
+  $("#past-exam-analyze").onclick=()=>analyzePastExam(fileId);
+}
+
+async function analyzePastExam(fileId){
+  if(!navigator.onLine)return toast("El análisis inicial necesita internet.",true);
+  const btn=$("#past-exam-analyze"),subject=$("#past-exam-subject").value.trim(),year=$("#past-exam-year").value,note=$("#past-exam-note").value.trim();
+  if(!subject)return toast("Escribe la materia para organizar mejor el análisis.",true);
+  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>ANALIZANDO PARCIAL…</strong><small>Extracción → temas → patrones → práctica</small></div>`;
+  try{
+    const d=await api("/api/smart/past-exam",{method:"POST",body:{file_id:fileId,subject,year:Number(year),note,create_practice:$("#past-exam-practice").checked}});
+    await openPastExamPack(d.id,true);
+  }catch(err){btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>ANALIZAR Y GUARDAR</strong><small>El PDF ya está en R2; no se duplica</small></div>`;toast(err.message,true)}
+}
+
+async function openPastExamPack(id,justCreated=false){
+  const o=ensurePastExamOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
+  const box=$("#past-exam-body");
+  box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando análisis…":"Abriendo análisis guardado…"}</strong><small>No se está regenerando con IA.</small></div>`;
+  try{
+    const d=await api(`/api/smart/past-exam?id=${encodeURIComponent(id)}`);
+    state.smartPastExam=d.pack;
+    state.smartPastExamSource=d.source||null;
+    renderPastExamPack();
+  }catch(err){box.innerHTML=`<div class="masterclass-error"><strong>No pude abrir el análisis.</strong><p>${escapeHtml(err.message)}</p></div>`}
+}
+
+
+function renderPastExamPack(){
+  const p=state.smartPastExam,box=$("#past-exam-body");if(!p)return;
+  const topics=p.topics||[],qs=p.practice_questions||[],keyQs=p.keyed_questions||[];
+  const keyReady=!!p.key_linked&&keyQs.length>0;
+  const warnings=keyQs.filter(q=>q.warning||Number(q.confidence||1)<0.7).length;
+  box.innerHTML=`<section class="past-exam-pack answer-key-pack">
+    <header class="past-exam-pack-head">
+      <div><span>ANÁLISIS GUARDADO · ${escapeHtml(String(p.year||""))}</span><h2>${escapeHtml(p.title||"Parcial anterior")}</h2><p>${escapeHtml(p.overview||"")}</p></div>
+      <div class="past-exam-pack-actions">
+        <button id="past-exam-study-top" class="secondary-btn">⌕ ESTUDIAR TEMAS</button>
+        <button id="past-exam-practice-btn" class="secondary-btn">▶ SIMULADOR NUEVO ${qs.length}</button>
+        <button id="past-exam-key-btn" class="${keyReady?"answer-key-linked":"primary-btn"}">${keyReady?"🔑 CLAVE VINCULADA":"🔑 AGREGAR CLAVE"}</button>
+      </div>
+    </header>
+
+    ${keyReady?`
+    <section class="answer-key-status">
+      <div class="answer-key-status-icon">🔑</div>
+      <div><span>CLAVE DE RESPUESTAS VINCULADA</span><strong>${escapeHtml(p.key_source?.name||"Clave guardada")}</strong><small>${keyQs.length} preguntas relacionadas${warnings?` · ${warnings} con advertencia para revisar`:""} · volver a practicar no usa IA</small></div>
+      <button id="answer-key-change" class="ghost-btn">CAMBIAR CLAVE</button>
+    </section>
+    <section class="answer-key-mode-grid">
+      <button class="answer-key-mode exam" data-key-mode="exam"><b>01</b><span><strong>MODO EXAMEN</strong><small>Responde todo antes de ver la clave</small></span></button>
+      <button class="answer-key-mode learn" data-key-mode="learn"><b>02</b><span><strong>MODO APRENDER</strong><small>Corrección y explicación inmediata</small></span></button>
+      <button class="answer-key-mode errors" data-key-mode="errors"><b>03</b><span><strong>REPASO DE ERRORES</strong><small>Solo lo que has fallado en este parcial</small></span></button>
+      <button class="answer-key-mode topics" data-key-mode="topics"><b>04</b><span><strong>ESTUDIAR TEMAS</strong><small>Busca teoría en tus libros y clases</small></span></button>
+    </section>`:`
+    <section class="answer-key-empty">
+      <div>🔑</div><span><strong>¿Tienes la clave oficial de este parcial?</strong><small>Vincúlala una sola vez. MED AI relacionará las preguntas con sus respuestas y después podrás resolver este mismo parcial cuantas veces quieras sin volver a gastar IA.</small></span>
+      <button id="answer-key-add-main" class="primary-btn">AGREGAR CLAVE →</button>
+    </section>`}
+
+    <section class="past-exam-score-grid">
+      <div><span>▤</span><strong>${Number(p.question_count_estimate||0)||"—"}</strong><small>preguntas detectadas/aprox.</small></div>
+      <div><span>◎</span><strong>${topics.length}</strong><small>temas principales</small></div>
+      <div><span>◆</span><strong>${escapeHtml(p.difficulty_profile?.overall||"Mixta")}</strong><small>dificultad</small></div>
+      <div><span>${keyReady?"🔑":"✓"}</span><strong>${keyReady?keyQs.length:qs.length}</strong><small>${keyReady?"preguntas con clave":"preguntas nuevas guardadas"}</small></div>
+    </section>
+
+    ${keyReady?`<section class="card answer-key-preview">
+      <div class="smart-section-head"><div><span>PREGUNTAS DEL PARCIAL + CLAVE</span><h2>Correspondencia guardada</h2></div><small>Respuesta mostrada = respuesta según la clave</small></div>
+      <div class="answer-key-question-list">${keyQs.slice(0,12).map((q,i)=>`
+        <article class="${q.warning||Number(q.confidence||1)<0.7?"warn":""}">
+          <span>${escapeHtml(String(q.number||i+1))}</span>
+          <div><strong>${escapeHtml(q.stem||"Pregunta")}</strong><small>${escapeHtml(q.topic||"Tema no identificado")}${q.warning?` · ⚠ ${escapeHtml(q.warning)}`:""}</small></div>
+          <b>${escapeHtml(q.key_answer||String.fromCharCode(65+Number(q.correctIndex||0)))}</b>
+        </article>`).join("")}${keyQs.length>12?`<small class="answer-key-more">+ ${keyQs.length-12} preguntas más guardadas</small>`:""}</div>
+    </section>`:""}
+
+    <div class="past-exam-two">
+      <article class="card"><div class="panel-code">TEMAS QUE MÁS PESAN</div><div class="past-topic-list">${topics.map((t,i)=>`<button class="past-topic-search" data-topic="${escapeAttr(t.name)}"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(t.name)}</strong><small>${escapeHtml((t.concepts||[]).slice(0,3).join(" · "))}</small></div><b>${Math.round(Number(t.weight||0))}%</b><i><em style="width:${Math.max(3,Number(t.weight||0))}%"></em></i></button>`).join("")}</div></article>
+      <article class="card"><div class="panel-code">CÓMO PREGUNTABA ESTE PARCIAL</div>${(p.question_types||[]).map(x=>`<div class="past-question-type"><strong>${escapeHtml(x.type||x)}</strong><span>${escapeHtml(x.description||"")}</span></div>`).join("")}<div class="panel-code" style="margin-top:14px">PATRONES</div><ul class="past-patterns">${(p.repeated_patterns||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></article>
+    </div>
+    <section class="card past-priority-card"><div class="panel-code">RUTA DE REPASO RECOMENDADA</div><div class="past-study-plan">${(p.study_plan||[]).map((s,i)=>`<article><b>${i+1}</b><div><strong>${escapeHtml(s.title||`Sesión ${i+1}`)}</strong><p>${escapeHtml(s.focus||s.detail||"")}</p><small>${escapeHtml(s.minutes?`${s.minutes} min`:"")}</small></div></article>`).join("")}</div></section>
+    <section class="card"><div class="panel-code">PRIORIDADES DE ESTUDIO</div><div class="past-priorities">${(p.study_priorities||[]).map((x,i)=>`<div><span>${i+1}</span><p>${escapeHtml(typeof x==="string"?x:x.detail||x.title||"")}</p></div>`).join("")}</div></section>
+  </section>`;
+
+  $("#past-exam-practice-btn").onclick=startPastExamPractice;
+  $("#past-exam-key-btn").onclick=()=>renderAnswerKeyImporter(keyReady);
+  $("#answer-key-add-main")?.addEventListener("click",()=>renderAnswerKeyImporter(false));
+  $("#answer-key-change")?.addEventListener("click",()=>renderAnswerKeyImporter(true));
+  $$(".answer-key-mode").forEach(b=>b.onclick=()=>startAnswerKeyMode(b.dataset.keyMode));
+  $("#past-exam-study-top").onclick=()=>openPastExamTopicsInSmart(topics);
+  $$(".past-topic-search").forEach(b=>b.onclick=()=>openOnePastExamTopic(b.dataset.topic));
+}
+
+function openPastExamTopicsInSmart(topics=state.smartPastExam?.topics||[]){
+  const q=topics.slice(0,4).map(x=>x.name).join(" ");
+  closePastExamOverlay();
+  navigate("smart").then(()=>setTimeout(()=>{if($("#smart-query")){$("#smart-query").value=q;smartRetrieve(false)}},100));
+}
+function openOnePastExamTopic(topic){
+  closePastExamOverlay();
+  navigate("smart").then(()=>setTimeout(()=>{if($("#smart-query")){$("#smart-query").value=topic;smartRetrieve(false)}},100));
+}
+
+function renderAnswerKeyImporter(replacing=false){
+  const p=state.smartPastExam,box=$("#past-exam-body");
+  box.innerHTML=`<section class="answer-key-import-page">
+    <button id="answer-key-import-back" class="ghost-btn">← VOLVER AL ANÁLISIS</button>
+    <div class="answer-key-import-hero">
+      <div class="answer-key-big-icon">🔑</div>
+      <div><span>V25.1 · ANSWER KEY MODE</span><h2>${replacing?"Cambiar clave de respuestas":"Vincula la clave con este parcial"}</h2><p>La clave queda asociada permanentemente a <strong>${escapeHtml(p.title||"este parcial")}</strong>. Se analiza una sola vez y después los cuatro modos de estudio reutilizan el resultado guardado.</p></div>
+    </div>
+    <div class="answer-key-import-grid">
+      <section class="card">
+        <div class="answer-key-source-tabs">
+          <button class="active" data-key-source="file">PDF / FOTO</button>
+          <button data-key-source="text">PEGAR TEXTO</button>
+        </div>
+        <div id="answer-key-source-file" class="answer-key-source-panel">
+          <label class="library-dropzone answer-key-dropzone" for="answer-key-file">
+            <input id="answer-key-file" type="file" accept="application/pdf,.pdf,image/*,.txt,.md" hidden>
+            <div>↑</div><strong>SELECCIONAR CLAVE</strong><span id="answer-key-file-name">PDF, fotografía, TXT o Markdown</span>
+          </label>
+          <small>Para una foto clara de la hoja de respuestas, MED AI usa visión una sola vez para transcribirla.</small>
+        </div>
+        <div id="answer-key-source-text" class="answer-key-source-panel hidden">
+          <div class="field"><label>Pega la clave</label><textarea id="answer-key-text" rows="11" placeholder="Ejemplo:\n1. B\n2. C\n3. A\n4. D\n\nTambién puedes pegar una tabla o una clave con explicaciones."></textarea></div>
+        </div>
+        <div class="field"><label>Nota opcional</label><input id="answer-key-note" placeholder="Ej. Clave oficial publicada por el profesor"></div>
+        <div class="answer-key-truth-note"><span>⚠</span><p>MED AI conservará la <b>respuesta indicada por la clave</b>. Si detecta una pregunta ambigua, desactualizada o posiblemente mal transcrita, la marcará para revisión sin cambiar silenciosamente la respuesta.</p></div>
+        <button id="answer-key-process" class="library-create-study-btn"><span>🔑</span><div><strong>VINCULAR Y PREPARAR PARCIAL</strong><small>Procesamiento inicial · después queda guardado</small></div></button>
+      </section>
+      <aside class="answer-key-benefits">
+        <div class="panel-code">DESPUÉS TENDRÁS</div>
+        <div><b>01</b><span><strong>Modo examen</strong><small>Clave oculta hasta terminar</small></span></div>
+        <div><b>02</b><span><strong>Modo aprender</strong><small>Explicación después de cada respuesta</small></span></div>
+        <div><b>03</b><span><strong>Repaso de errores</strong><small>Solo preguntas falladas</small></span></div>
+        <div><b>04</b><span><strong>Estudiar temas</strong><small>Busca en tus libros y clases guardadas</small></span></div>
+        <div><b>∞</b><span><strong>Repeticiones ilimitadas</strong><small>Sin regenerar la clave con IA</small></span></div>
+      </aside>
+    </div>
+  </section>`;
+  $("#answer-key-import-back").onclick=renderPastExamPack;
+  let source="file";
+  $$(".answer-key-source-tabs button").forEach(b=>b.onclick=()=>{
+    source=b.dataset.keySource;
+    $$(".answer-key-source-tabs button").forEach(x=>x.classList.toggle("active",x===b));
+    $("#answer-key-source-file").classList.toggle("hidden",source!=="file");
+    $("#answer-key-source-text").classList.toggle("hidden",source!=="text");
+  });
+  $("#answer-key-file").onchange=e=>{$("#answer-key-file-name").textContent=e.target.files?.[0]?.name||"Ningún archivo seleccionado"};
+  $("#answer-key-process").onclick=()=>processAnswerKey(source);
+}
+
+async function processAnswerKey(source){
+  if(!navigator.onLine)return toast("Necesitas internet solamente para vincular la clave por primera vez.",true);
+  const packId=state.smartPastExamSource?.id;
+  if(!packId)return toast("No encontré el identificador de este análisis. Vuelve a abrirlo.",true);
+  const btn=$("#answer-key-process");
+  let keyFileId=null,keyText="",keyName="";
+  try{
+    if(source==="file"){
+      const file=$("#answer-key-file").files?.[0];
+      if(!file)throw new Error("Selecciona el archivo o fotografía de la clave.");
+      if(file.size>50*1024*1024)throw new Error("La clave supera 50 MB.");
+      btn.disabled=true;btn.innerHTML=`<span class="university-spin">↑</span><div><strong>GUARDANDO CLAVE EN R2…</strong><small>Esto no usa Gemini</small></div>`;
+      const form=new FormData();form.append("file",file,file.name);
+      const res=await fetch("/api/library/upload",{method:"POST",body:form,credentials:"same-origin"});
+      const uploaded=await res.json().catch(()=>({}));
+      if(!res.ok)throw new Error(uploaded.error||"No pude guardar la clave.");
+      keyFileId=uploaded.id;keyName=uploaded.title||file.name;
+    }else{
+      keyText=$("#answer-key-text").value.trim();
+      if(keyText.length<3)throw new Error("Pega la clave de respuestas.");
+      keyName="Clave pegada como texto";
+    }
+    btn.disabled=true;btn.innerHTML=`<span class="university-spin">🔑</span><div><strong>RELACIONANDO PARCIAL + CLAVE…</strong><small>Una sola vez · después queda guardado</small></div>`;
+    const d=await api("/api/smart/past-exam/key",{method:"POST",body:{
+      pack_id:packId,key_file_id:keyFileId,key_text:keyText,key_name:keyName,
+      note:$("#answer-key-note").value.trim()
+    }});
+    toast(d.cached?"Esta misma clave ya estaba vinculada. No se volvió a usar IA.":"Clave vinculada y preguntas preparadas.");
+    await openPastExamPack(packId,true);
+  }catch(err){
+    toast(err.message,true);
+    if(btn){btn.disabled=false;btn.innerHTML=`<span>🔑</span><div><strong>VINCULAR Y PREPARAR PARCIAL</strong><small>Procesamiento inicial · después queda guardado</small></div>`}
+  }
+}
+
+/* -------- Four modes using the REAL past exam + answer key -------- */
+
+async function startAnswerKeyMode(mode){
+  const p=state.smartPastExam,questions=(p?.keyed_questions||[]).slice();
+  if(mode==="topics"){openPastExamTopicsInSmart(p?.topics||[]);return}
+  if(!questions.length)return toast("Primero vincula una clave de respuestas.",true);
+  if(mode==="errors"){
+    const packId=state.smartPastExamSource?.id;
+    const localWrong=state.smartKeyMode?.lastWrongQuestions||[];
+    if(!navigator.onLine&&localWrong.length){beginAnswerKeySession("errors",localWrong);return}
+    try{
+      const d=await api(`/api/smart/past-exam/mistakes?id=${encodeURIComponent(packId)}`);
+      if((d.questions||[]).length){beginAnswerKeySession("errors",d.questions);return}
+      if(localWrong.length){beginAnswerKeySession("errors",localWrong);return}
+      return toast("No tienes errores pendientes de este parcial. ¡Muy bien!",false);
+    }catch(err){
+      if(localWrong.length){beginAnswerKeySession("errors",localWrong);return}
+      toast(err.message,true);
+    }
+    return;
+  }
+  beginAnswerKeySession(mode,questions);
+}
+
+function beginAnswerKeySession(mode,questions){
+  state.smartKeyMode={
+    mode,questions,index:0,answers:{},score:0,started_at:new Date().toISOString(),
+    revealed:{},finished:false
+  };
+  renderAnswerKeyQuestion();
+}
+
+function answerKeyModeName(mode){
+  return ({exam:"MODO EXAMEN",learn:"MODO APRENDER",errors:"REPASO DE ERRORES"})[mode]||"CLAVE";
+}
+
+function renderAnswerKeyQuestion(){
+  const st=state.smartKeyMode,q=st?.questions?.[st.index],box=$("#past-exam-body");
+  if(!q){finishAnswerKeySession();return}
+  const selected=st.answers[`q${st.index}`];
+  const learn=st.mode!=="exam";
+  box.innerHTML=`<section class="answer-key-session">
+    <header class="answer-key-session-head">
+      <button id="answer-key-session-exit" class="ghost-btn">← SALIR</button>
+      <div><span>${answerKeyModeName(st.mode)} · ${escapeHtml(state.smartPastExam?.title||"")}</span><strong>${st.index+1} / ${st.questions.length}</strong></div>
+      <div class="answer-key-session-score">${st.mode==="exam"?"CLAVE OCULTA":`${st.score} ✓`}</div>
+    </header>
+    <div class="master-exam-progress"><i style="width:${st.index/st.questions.length*100}%"></i></div>
+    <article class="answer-key-question">
+      <div class="answer-key-question-meta"><span>PREGUNTA ${escapeHtml(String(q.number||st.index+1))}</span><b>${escapeHtml(q.topic||"Tema")}</b></div>
+      <h1>${escapeHtml(q.stem||"")}</h1>
+      <div class="answer-key-options">${(q.options||[]).map((op,i)=>`<button data-i="${i}" class="${selected===i?"selected":""}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div>
+      ${learn&&selected!==undefined?renderAnswerKeyFeedback(q,selected):""}
+      <div class="answer-key-question-actions">
+        ${st.index>0?`<button id="answer-key-prev" class="secondary-btn">← ANTERIOR</button>`:"<span></span>"}
+        ${selected===undefined?`<small>Selecciona una respuesta para continuar.</small>`:`<button id="answer-key-next" class="primary-btn">${st.index+1===st.questions.length?"TERMINAR":"SIGUIENTE →"}</button>`}
+      </div>
+    </article>
+  </section>`;
+  $("#answer-key-session-exit").onclick=renderPastExamPack;
+  $$(".answer-key-options button").forEach(b=>b.onclick=()=>selectAnswerKeyOption(Number(b.dataset.i)));
+  $("#answer-key-prev")?.addEventListener("click",()=>{st.index=Math.max(0,st.index-1);renderAnswerKeyQuestion()});
+  $("#answer-key-next")?.addEventListener("click",()=>{st.index++;renderAnswerKeyQuestion()});
+}
+
+function selectAnswerKeyOption(choice){
+  const st=state.smartKeyMode,q=st.questions[st.index],key=`q${st.index}`;
+  const previous=st.answers[key];
+  if(previous===undefined&&choice===Number(q.correctIndex))st.score++;
+  if(previous!==undefined&&previous===Number(q.correctIndex)&&choice!==Number(q.correctIndex))st.score--;
+  if(previous!==undefined&&previous!==Number(q.correctIndex)&&choice===Number(q.correctIndex))st.score++;
+  st.answers[key]=choice;
+  renderAnswerKeyQuestion();
+}
+
+function renderAnswerKeyFeedback(q,choice){
+  const correct=choice===Number(q.correctIndex);
+  const correctText=q.options?.[Number(q.correctIndex)]??q.key_answer??"";
+  return `<section class="answer-key-feedback ${correct?"correct":"wrong"}">
+    <div class="answer-key-feedback-title"><span>${correct?"✓":"×"}</span><div><strong>${correct?"Correcto":"Incorrecto"}</strong><small>Según la clave: ${escapeHtml(q.key_answer||String.fromCharCode(65+Number(q.correctIndex||0)))}${correctText?` · ${escapeHtml(correctText)}`:""}</small></div></div>
+    ${q.explanation?`<p>${escapeHtml(q.explanation)}</p>`:""}
+    ${q.warning?`<div class="answer-key-warning"><b>⚠ REVISAR</b><span>${escapeHtml(q.warning)}</span></div>`:""}
+  </section>`;
+}
+
+async function finishAnswerKeySession(){
+  const st=state.smartKeyMode,p=state.smartPastExam,packId=state.smartPastExamSource?.id;
+  st.finished=true;
+  let correct=0;
+  st.questions.forEach((q,i)=>{if(Number(st.answers[`q${i}`])===Number(q.correctIndex))correct++});
+  st.score=correct;
+  st.lastWrongQuestions=st.questions.filter((q,i)=>Number(st.answers[`q${i}`])!==Number(q.correctIndex));
+  const pct=Math.round(correct/Math.max(1,st.questions.length)*100);
+  try{
+    await api("/api/exams/record",{method:"POST",body:{
+      title:`${answerKeyModeName(st.mode)} · ${p.title||"Parcial anterior"}`,
+      settings:{smart_study:true,past_exam:true,past_exam_key:true,past_exam_pack_id:packId,mode:st.mode,subject:p.subject,year:p.year},
+      started_at:st.started_at,score:correct,max_score:st.questions.length,percentage:pct,
+      questions:st.questions,answers:st.answers
+    }});
+  }catch{}
+  renderAnswerKeyResult(pct);
+}
+
+function renderAnswerKeyResult(pct){
+  const st=state.smartKeyMode,p=state.smartPastExam,box=$("#past-exam-body");
+  const wrong=st.questions.map((q,i)=>({q,i,choice:st.answers[`q${i}`]})).filter(x=>Number(x.choice)!==Number(x.q.correctIndex));
+  box.innerHTML=`<section class="answer-key-result">
+    <div class="answer-key-result-ring"><strong>${pct}%</strong><small>${st.score}/${st.questions.length}</small></div>
+    <div class="eyebrow">${answerKeyModeName(st.mode)} · RESULTADO</div>
+    <h2>${pct>=80?"Buen dominio del parcial.":"Ya sabemos exactamente qué reforzar."}</h2>
+    <p>${wrong.length?`Fallaste ${wrong.length} pregunta${wrong.length===1?"":"s"}. Se guardarán en tu sistema de errores y Repaso inteligente podrá volver a preguntártelas.`:"No tuviste errores en esta sesión."}</p>
+    <div class="answer-key-result-actions"><button id="answer-key-result-back" class="secondary-btn">VER ANÁLISIS</button><button id="answer-key-result-repeat" class="primary-btn">REPETIR</button>${wrong.length?`<button id="answer-key-result-errors" class="secondary-btn">REPASAR ERRORES</button>`:""}</div>
+    ${wrong.length?`<section class="answer-key-wrong-list"><div class="panel-code">PREGUNTAS A REFORZAR</div>${wrong.slice(0,10).map(x=>`<article><span>${escapeHtml(String(x.q.number||x.i+1))}</span><div><strong>${escapeHtml(x.q.stem)}</strong><small>${escapeHtml(x.q.topic||"")}</small></div><b>${escapeHtml(x.q.key_answer||String.fromCharCode(65+Number(x.q.correctIndex||0)))}</b></article>`).join("")}</section>`:""}
+  </section>`;
+  $("#answer-key-result-back").onclick=renderPastExamPack;
+  $("#answer-key-result-repeat").onclick=()=>beginAnswerKeySession(st.mode,st.questions);
+  $("#answer-key-result-errors")?.addEventListener("click",()=>startAnswerKeyMode("errors"));
+}
+
+function startPastExamPractice(){
+  const qs=(state.smartPastExam?.practice_questions||[]).slice();
+  if(!qs.length)return toast("Este análisis no tiene preguntas de práctica.",true);
+  state.smartPastExam.practice_state={questions:qs,index:0,score:0,answers:{},started_at:new Date().toISOString()};
+  renderPastExamPracticeQuestion();
+}
+function renderPastExamPracticeQuestion(){
+  const st=state.smartPastExam.practice_state,q=st.questions[st.index],box=$("#past-exam-body");
+  if(!q){renderPastExamPracticeDone();return}
+  box.innerHTML=`<section class="master-exam-shell past-exam-practice-shell"><div class="master-exam-head"><div><div class="eyebrow">SIMULADOR · BASADO EN PARCIAL ANTERIOR</div><strong>${escapeHtml(state.smartPastExam.title||"")}</strong></div><span>${st.index+1} / ${st.questions.length}</span></div><div class="master-exam-progress"><i style="width:${st.index/st.questions.length*100}%"></i></div><article class="master-exam-question"><div class="master-exam-number">${String(st.index+1).padStart(2,"0")}</div><h2>${escapeHtml(q.stem||q.question||"")}</h2><div class="master-exam-options">${(q.options||[]).map((op,j)=>`<button class="master-exam-option" data-i="${j}"><span>${String.fromCharCode(65+j)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div><div id="past-practice-feedback" class="master-practice-feedback hidden"></div></article></section>`;
+  $$(".master-exam-option",box).forEach(b=>b.onclick=()=>answerPastExamPractice(Number(b.dataset.i)));
+}
+function answerPastExamPractice(choice){
+  const st=state.smartPastExam.practice_state,q=st.questions[st.index],correct=choice===Number(q.correctIndex);
+  st.answers[`q${st.index}`]=choice;
+  if(correct)st.score++;
+  $$(".master-exam-option").forEach((b,i)=>{b.disabled=true;if(i===Number(q.correctIndex))b.classList.add("correct");if(i===choice&&!correct)b.classList.add("wrong")});
+  const f=$("#past-practice-feedback");f.classList.remove("hidden");f.innerHTML=`<div><strong>${correct?"✓ Correcto":"↻ Revisa el concepto"}</strong><p>${escapeHtml(q.explanation||"")}</p></div><button id="past-next-q" class="primary-btn">${st.index+1===st.questions.length?"VER RESULTADO":"SIGUIENTE →"}</button>`;
+  $("#past-next-q").onclick=()=>{st.index++;renderPastExamPracticeQuestion()};
+}
+async function renderPastExamPracticeDone(){
+  const st=state.smartPastExam.practice_state,pct=Math.round(st.score/st.questions.length*100);
+  api("/api/exams/record",{method:"POST",body:{
+    title:`Simulador parcial anterior · ${state.smartPastExam.title||"Repaso"}`,
+    settings:{smart_study:true,past_exam:true,source_file:state.smartPastExam.source_file,subject:state.smartPastExam.subject,year:state.smartPastExam.year},
+    started_at:st.started_at,score:st.score,max_score:st.questions.length,percentage:pct,
+    questions:st.questions,answers:st.answers
+  }}).catch(()=>{});
+  $("#past-exam-body").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">${pct>=80?"✓":"↻"}</div><div class="eyebrow">SIMULADOR TERMINADO · SIN IA ADICIONAL</div><h2>${st.score} / ${st.questions.length} · ${pct}%</h2><p>${pct>=80?"Buen dominio de los patrones y temas de este parcial anterior.":"Conviene repasar los temas prioritarios antes de repetir el simulador."}</p><small>Los errores de este simulador se agregan a Repaso inteligente para que MED AI vuelva a preguntártelos en el momento adecuado.</small><div class="master-stage-actions"><button id="past-back-analysis" class="secondary-btn">VER ANÁLISIS</button><button id="past-repeat-practice" class="primary-btn">REPETIR</button></div></section>`;
+  $("#past-back-analysis").onclick=renderPastExamPack;
+  $("#past-repeat-practice").onclick=startPastExamPractice;
+}
+
 async function renderMistakes(){
   const d=await api("/api/mistakes");
   root.innerHTML=`<div class="page-head"><div><div class="eyebrow">CUADERNO DE ERRORES</div><h2>Errores que debes dominar</h2><p>Tu aprendizaje mejora cuando conviertes cada fallo en una fortaleza.</p></div></div>
@@ -3896,12 +4760,12 @@ async function hardRefreshApplication(){
     }
   }catch{}
   const url=new URL(location.href);
-  url.searchParams.set("v24",Date.now().toString());
+  url.searchParams.set("v252",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=24.0.0",{updateViaCache:"none"}).catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=25.2.0",{updateViaCache:"none"}).catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }

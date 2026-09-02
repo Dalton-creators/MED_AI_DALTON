@@ -1,0 +1,58 @@
+MED AI DALTON V25.1 — PAST EXAM + ANSWER KEY MODE
+
+ESTA VERSIÓN CONSERVA TODO V25 Y AGREGA CLAVES DE PARCIALES.
+
+FLUJO
+1. Subes/analizas un parcial anterior PDF.
+2. Abres el análisis.
+3. Pulsas: 🔑 AGREGAR CLAVE.
+4. La clave puede ser:
+   - PDF
+   - fotografía PNG/JPG/WebP
+   - TXT / Markdown
+   - texto pegado, por ejemplo: 1-B, 2-C, 3-A...
+5. MED AI relaciona preguntas REALES del parcial con la clave.
+6. Guarda esa correspondencia dentro del análisis del parcial en D1.
+7. Repetir los modos no vuelve a analizar la clave.
+
+CUATRO MODOS
+- MODO EXAMEN:
+  Oculta la clave y corrección hasta terminar.
+- MODO APRENDER:
+  Corrige inmediatamente y muestra explicación.
+- REPASO DE ERRORES:
+  Recupera las preguntas falladas de ese mismo parcial.
+- ESTUDIAR TEMAS:
+  Lleva los temas del parcial al Smart Study Engine para buscar primero
+  en cursos, libros, apuntes y sesiones guardadas.
+
+SEGURIDAD ACADÉMICA DE LA CLAVE
+- La respuesta indicada por la clave es la referencia de calificación.
+- MED AI no la cambia silenciosamente.
+- Si encuentra ambigüedad, posible OCR incorrecto, pregunta anulada,
+  desactualización científica o discordancia, muestra una advertencia.
+- Esto es especialmente útil para parciales médicos de años anteriores.
+
+AHORRO
+- La clave se procesa una sola vez.
+- Si se vuelve a vincular EXACTAMENTE el mismo archivo/texto, se reutiliza
+  el análisis existente sin otra llamada a Gemini.
+- Hacer el parcial repetidamente no usa IA.
+- Modo Aprender no usa IA después de creada la correspondencia.
+- Repaso de errores no usa IA.
+- Estudiar temas primero hace recuperación desde D1 sin IA; solo usa Gemini
+  si el usuario pide una nueva respuesta.
+
+SINCRONIZACIÓN
+- El vínculo parcial + clave se guarda en D1.
+- El archivo de la clave se guarda en R2 cuando se sube como archivo.
+- Los resultados del examen se guardan en el sistema existente de exams,
+  question_attempts y mistakes.
+- Los errores pasan automáticamente a Repaso inteligente.
+- Una vez abierto, el pack queda disponible mediante el sistema offline
+  existente de V24/V25.
+
+NO REQUIERE SQL NUEVO.
+NO REQUIERE OTRO BUCKET.
+NO REQUIERE OTRO AI GATEWAY.
+wrangler.jsonc de V25 se conserva.

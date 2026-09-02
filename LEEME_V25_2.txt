@@ -1,0 +1,63 @@
+MED AI DALTON V25.2 — HISTORICAL KEYS STUDY
+
+CAMBIO PRINCIPAL
+El flujo de años pasados ahora está diseñado para el caso real del usuario:
+NO necesita su examen personal.
+Puede subir VARIOS PDF de claves/parciales de años anteriores y estudiar a partir
+del conjunto histórico.
+
+FLUJO
+1. Repaso inteligente -> CLAVES DE AÑOS PASADOS.
+2. Agrega varios PDF (máximo 12 por paquete).
+3. Indica la materia.
+4. MED AI extrae el texto y analiza el conjunto una sola vez.
+5. Guarda en D1:
+   - temas históricos y frecuencia entre archivos
+   - patrones observados
+   - clase maestra
+   - puntos que debe recordar
+   - trampas/errores comunes
+   - plan de estudio
+   - 12 preguntas de práctica
+   - examen final nuevo de hasta 20 preguntas
+6. Reabrir, leer la clase, practicar y repetir el examen no regenera el paquete.
+
+IMPORTANTE
+MED AI NO afirma que un tema vendrá en el próximo examen.
+Solo informa qué apareció históricamente en los archivos proporcionados.
+
+Si un PDF contiene únicamente:
+1-B
+2-C
+3-A
+sin el texto de las preguntas, títulos o contexto, esas letras por sí solas no
+permiten saber qué tema se evaluó. MED AI lo señala como limitación.
+
+AHORRO
+- Subida a R2: no usa Gemini.
+- Extracción documental: se reutiliza mediante el sidecar de texto ya creado.
+- Análisis del conjunto: una llamada inicial con Gemini 2.5 Flash.
+- Paquete resultante: se guarda en D1.
+- Repasos posteriores: no usan nueva inferencia.
+- Examen final: preguntas ya guardadas.
+- Los errores del examen pasan al sistema existente de mistakes/Repaso inteligente.
+
+BIBLIOTECA
+Los PDF muestran CLAVE PASADA. Eso abre el estudio histórico con ese archivo ya
+seleccionado y permite agregar más PDF.
+
+TODO LO DEMÁS SE CONSERVA:
+- V25 Smart Study Engine
+- RAG/búsqueda en materiales
+- repetición espaciada
+- V24 Offline Study Vault
+- Biblioteca R2
+- cursos
+- Tutor IA
+- Gemini 2.5 Flash/Pro
+- AI Gateway
+- V25.1 permanece compatible con paquetes antiguos ya creados
+
+NO REQUIERE SQL NUEVO.
+NO REQUIERE OTRO R2.
+NO REQUIERE OTRO AI GATEWAY.
