@@ -190,6 +190,14 @@ export default {
         return deleteStudyLibraryItemApi(url, env, user);
       }
 
+      if (url.pathname === "/api/library/study-packs" && request.method === "GET") {
+        return listLibraryStudyPacks(url, env, user);
+      }
+
+      if (url.pathname === "/api/library/study-pack" && request.method === "POST") {
+        return createLibraryStudyPackApi(request, env, user);
+      }
+
       if (url.pathname === "/api/notes" && request.method === "GET") {
         return listNotes(env, user);
       }
@@ -1929,6 +1937,127 @@ async function deleteStudyLibraryItemApi(url,env,user){
     await env.DB.prepare(`DELETE FROM notes WHERE user_id=? AND id IN (${qs})`).bind(user.id,...chunk).run();
   }
   return json({ok:true,deleted:targets.length});
+}
+
+
+async function listLibraryStudyPacks(url,env,user){
+  const fileId=cleanText(url.searchParams.get("file_id"),220);
+  if(!fileId)return json({packs:[]});
+  const rows=await env.DB.prepare(`
+    SELECT id,title,metadata_json,created_at,updated_at
+    FROM notes
+    WHERE user_id=? AND tags_json LIKE '%library_study_pack%'
+    ORDER BY datetime(updated_at) DESC LIMIT 300
+  `).bind(user.id).all();
+  const packs=(rows.results||[]).filter(row=>{
+    const meta=parseJsonLoose(row.metadata_json)||{};
+    return meta.source_file_id===fileId;
+  });
+  return json({packs});
+}
+
+async function createLibraryStudyPackApi(request,env,user){
+  ensureAI(env);
+  const body=await readJson(request);
+  const fileId=cleanText(body.file_id,220);
+  const extracted=cleanText(body.extracted_text,90000);
+  if(!fileId||extracted.length<120)return json({error:"Falta el archivo o el fragmento tiene muy poco contenido."},400);
+
+  const file=await env.DB.prepare(`
+    SELECT id,title,metadata_json FROM notes
+    WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
+  `).bind(fileId,user.id).first();
+  if(!file)return json({error:"No encontré el archivo original en tu Biblioteca."},404);
+  const fileMeta=parseJsonLoose(file.metadata_json)||{};
+  const studyFocus=cleanText(body.study_focus,500)||file.title;
+  const studyScope=cleanText(body.study_scope,240)||"Fragmento seleccionado";
+  const instruction=cleanText(body.instruction,2500);
+
+  const pseudoRow={
+    subject_name:"Biblioteca personal",
+    topic_name:studyFocus,
+    subject_code:"LIBRARY"
+  };
+  const promptBody={
+    source_type:(fileMeta.mime_type==="application/pdf"?"pdf":"text"),
+    source_name:file.title,
+    exam_focus:body.exam_focus!==false,
+    deep_explanation:body.deep_explanation!==false
+  };
+
+  const basePrompt=universitySourcePrompt(pseudoRow,promptBody);
+  const extra=`\n\nCONTEXTO ESPECIAL DE ESTA SESIÓN:
+- Archivo de Biblioteca: ${file.title}
+- Fragmento seleccionado: ${studyScope}
+- Enfoque del estudiante: ${studyFocus}
+${instruction?`- Indicación del estudiante: ${instruction}`:""}
+- Esta sesión es independiente del progreso oficial del curso.
+- Enseña exactamente el fragmento seleccionado y úsalo como fuente principal.
+- No inventes contenido de páginas o diapositivas no incluidas.`;
+
+  let parsed=null,lastErr=null;
+  try{
+    const response=await callCloudflareAI(env,{
+      model:PREMIUM_FLASH_MODEL,
+      fallback:true,
+      task:"library_study_pack",
+      messages:[
+        {role:"system",content:"Eres MED AI DALTON, profesor universitario y diseñador instruccional. Devuelve únicamente JSON válido."},
+        {role:"user",content:`${basePrompt}${extra}\n\n===== FRAGMENTO EXTRAÍDO LOCALMENTE =====\n${extracted}\n===== FIN DEL FRAGMENTO =====`}
+      ],
+      max_tokens:5000,
+      temperature:0.16,
+      response_format:{type:"json_object"}
+    });
+    parsed=parseJsonLoose(extractCloudflareText(response));
+  }catch(err){lastErr=err}
+
+  const pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
+  if(!pack){
+    if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);
+    return json({error:"La IA no logró construir una sesión completa con este fragmento. Prueba un rango más pequeño o con más texto."},502);
+  }
+
+  pack.version=23;
+  pack.library_study_pack=true;
+  pack.source_reference={
+    type:"library",
+    source_file_id:fileId,
+    name:file.title,
+    mime_type:fileMeta.mime_type||"",
+    study_scope:studyScope,
+    imported_at:new Date().toISOString()
+  };
+  pack.overview=pack.overview||`Sesión basada en ${studyScope} de ${file.title}.`;
+
+  const id=crypto.randomUUID(),now=new Date().toISOString();
+  const metadata={
+    university_source:true,
+    library_study_pack:true,
+    version:23,
+    source_type:"library",
+    source_file_id:fileId,
+    source_name:file.title,
+    source_detail:`${studyScope} · sesión guardada`,
+    study_scope:studyScope,
+    study_focus:studyFocus,
+    study_title:pack.title||studyFocus,
+    imported_once:true
+  };
+  await env.DB.prepare(`
+    INSERT INTO notes
+    (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+  `).bind(
+    id,user.id,null,null,
+    `LIB · ${file.title} · ${studyScope}`,
+    JSON.stringify(pack),
+    JSON.stringify(["university_source","study_pack","library_study_pack","v23"]),
+    JSON.stringify(metadata),
+    now,now
+  ).run();
+
+  return json({ok:true,id,title:pack.title,model:PREMIUM_FLASH_MODEL},201);
 }
 
 async function listNotes(env, user) {

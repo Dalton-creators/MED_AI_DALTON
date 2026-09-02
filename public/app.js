@@ -10,7 +10,9 @@ const state = {
   courseLearningPack:null,coursePractice:null,coursePhase:"lesson",
   universitySources:[],universitySourcePack:null,universitySourceRecord:null,
   universityPractice:null,universityExam:null,universityChatConversation:null,
-  libraryFolderId:null,libraryData:null,libraryView:"files"
+  libraryFolderId:null,libraryData:null,libraryView:"files",
+  libraryStudyFile:null,libraryStudyPacks:[],libraryStudyPdf:null,
+  libraryStudyDoc:null,libraryStudyRange:null
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
@@ -2960,7 +2962,8 @@ function renderStudyLibraryFiles(){
         return `<article class="library-file-tile" data-search="${escapeAttr(searchable)}">
           <div class="library-file-preview ${info.cls}"><span>${info.icon}</span><em>${escapeHtml(info.label)}</em></div>
           <div class="library-file-copy"><strong title="${escapeAttr(file.title)}">${escapeHtml(file.title)}</strong><span>${formatBytes(meta.size_bytes)} · ${formatDate(file.updated_at)}</span></div>
-          <div class="library-file-actions">
+          <div class="library-file-actions library-file-actions-v23">
+            <button class="library-study-file" data-id="${escapeAttr(file.id)}"><span>✦</span> ESTUDIAR CON MED AI</button>
             <button class="library-open-file" data-id="${escapeAttr(file.id)}">ABRIR</button>
             <button class="library-download-file" data-id="${escapeAttr(file.id)}" title="Descargar">↓</button>
             <button class="library-rename" data-id="${escapeAttr(file.id)}" data-type="file" data-name="${escapeAttr(file.title)}" title="Renombrar">✎</button>
@@ -2981,10 +2984,364 @@ function renderStudyLibraryFiles(){
     const q=e.target.value.trim().toLowerCase();
     $$("#library-grid>[data-search]").forEach(x=>x.classList.toggle("hidden",q&&!x.dataset.search.includes(q)));
   };
+  $$(".library-study-file").forEach(b=>b.onclick=()=>openLibraryStudyMode(b.dataset.id));
   $$(".library-open-file").forEach(b=>b.onclick=()=>openStudyLibraryFile(b.dataset.id));
   $$(".library-download-file").forEach(b=>b.onclick=()=>downloadStudyLibraryFile(b.dataset.id));
   $$(".library-rename").forEach(b=>b.onclick=()=>renameStudyLibraryItem(b.dataset.id,b.dataset.type,b.dataset.name));
   $$(".library-delete").forEach(b=>b.onclick=()=>deleteStudyLibraryItem(b.dataset.id,b.dataset.type,b.dataset.name));
+}
+
+
+/* ==========================================================
+   V23 · LIBRARY STUDY MODE
+   Study selected pages/slides -> save once -> reuse for free
+   ========================================================== */
+
+function ensureLibraryStudyOverlay(){
+  let overlay=$("#library-study-overlay");
+  if(overlay)return overlay;
+  overlay=document.createElement("div");
+  overlay.id="library-study-overlay";
+  overlay.className="library-study-overlay hidden";
+  overlay.innerHTML=`<div class="library-study-shell">
+    <header class="library-study-shell-head">
+      <div><span>MED AI · LIBRARY STUDY MODE</span><strong id="library-study-shell-title">Estudiar material</strong></div>
+      <button id="library-study-close" class="library-viewer-close">×</button>
+    </header>
+    <main id="library-study-body"></main>
+  </div>`;
+  document.body.appendChild(overlay);
+  $("#library-study-close",overlay).onclick=closeLibraryStudyMode;
+  overlay.onclick=e=>{if(e.target===overlay)closeLibraryStudyMode()};
+  return overlay;
+}
+
+function closeLibraryStudyMode(){
+  $("#library-study-overlay")?.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+  state.libraryStudyFile=null;
+  state.libraryStudyPdf=null;
+  state.libraryStudyDoc=null;
+  state.libraryStudyRange=null;
+}
+
+async function openLibraryStudyMode(fileId){
+  const file=(state.libraryData?.files||[]).find(x=>x.id===fileId);
+  if(!file)return toast("No pude encontrar ese archivo.",true);
+  state.libraryStudyFile=file;
+  const overlay=ensureLibraryStudyOverlay();
+  overlay.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  $("#library-study-shell-title").textContent=file.title;
+  $("#library-study-body").innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando modo de estudio…</strong></div>`;
+  try{
+    const data=await api(`/api/library/study-packs?file_id=${encodeURIComponent(file.id)}`);
+    state.libraryStudyPacks=data.packs||[];
+    await renderLibraryStudyHome();
+  }catch(err){
+    $("#library-study-body").innerHTML=`<div class="masterclass-error"><strong>No pude abrir el modo de estudio.</strong><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+async function loadPdfJs(){
+  if(window.__medaiPdfJs)return window.__medaiPdfJs;
+  const pdfjs=await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+  window.__medaiPdfJs=pdfjs;
+  return pdfjs;
+}
+
+async function loadJsZip(){
+  if(window.__medaiJsZip)return window.__medaiJsZip;
+  const mod=await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
+  window.__medaiJsZip=mod.default||mod;
+  return window.__medaiJsZip;
+}
+
+function libraryStudySupport(file){
+  const meta=getLibraryMeta(file),mime=meta.mime_type||"",name=(meta.original_name||file.title||"").toLowerCase(),ext=name.split(".").pop();
+  if(mime==="application/pdf"||ext==="pdf")return {type:"pdf",label:"PDF",unit:"páginas",max:20};
+  if(ext==="pptx"||mime==="application/vnd.openxmlformats-officedocument.presentationml.presentation")return {type:"pptx",label:"Presentación",unit:"diapositivas",max:30};
+  if(ext==="docx"||mime==="application/vnd.openxmlformats-officedocument.wordprocessingml.document")return {type:"docx",label:"Documento",unit:"documento",max:1};
+  if(mime.startsWith("text/")||["txt","md","rtf"].includes(ext))return {type:"text",label:"Texto",unit:"documento",max:1};
+  return {type:"unsupported",label:"Archivo",unit:"",max:0};
+}
+
+async function renderLibraryStudyHome(){
+  const file=state.libraryStudyFile,packs=state.libraryStudyPacks||[],support=libraryStudySupport(file),meta=getLibraryMeta(file);
+  const body=$("#library-study-body");
+  body.innerHTML=`
+    <section class="library-study-hero">
+      <div class="library-study-file-badge ${escapeAttr(libraryFileIcon(meta.mime_type||"",meta.original_name||file.title).cls)}">${libraryFileIcon(meta.mime_type||"",meta.original_name||file.title).icon}</div>
+      <div class="library-study-hero-copy">
+        <div class="eyebrow">ESTUDIAR DESDE MI BIBLIOTECA</div>
+        <h2>${escapeHtml(file.title)}</h2>
+        <p>Selecciona solamente el fragmento que estás viendo en clase. MED AI lo transforma en una sesión reutilizable sin modificar tu curso oficial.</p>
+      </div>
+      <div class="library-study-save-badge"><span>⚡</span><div><strong>MODO AHORRO</strong><small>Analiza solo lo elegido</small></div></div>
+    </section>
+
+    <section class="library-study-choice-grid">
+      <button id="library-study-new" class="library-study-choice new" ${support.type==="unsupported"?"disabled":""}>
+        <div>✦</div><span><strong>NUEVA SESIÓN DE ESTUDIO</strong><small>${support.type==="unsupported"?"Este formato todavía no se puede analizar directamente":`Elegir ${support.unit} y crear una clase guardada`}</small></span>
+      </button>
+      <div class="library-study-choice independent">
+        <div>∞</div><span><strong>TU CURSO DE MED AI SIGUE APARTE</strong><small>Estas sesiones no alteran el porcentaje ni desbloqueo de tus cursos.</small></span>
+      </div>
+    </section>
+
+    ${support.type==="docx"?`<div class="library-study-format-note"><b>Documento Word:</b> MED AI extraerá el texto localmente en tu dispositivo y enviará solo el contenido necesario, no el archivo completo.</div>`:""}
+    ${support.type==="pptx"?`<div class="library-study-format-note"><b>Presentación:</b> podrás seleccionar un rango de diapositivas. MED AI extraerá el texto de esas diapositivas antes de usar IA.</div>`:""}
+    ${support.type==="unsupported"?`<div class="library-study-format-note warning"><b>Formato no compatible para análisis directo.</b> Puedes abrirlo normalmente; si quieres estudiarlo con IA, conviértelo a PDF, PowerPoint, Word o texto.</div>`:""}
+
+    <section class="library-study-saved">
+      <div class="library-study-saved-head"><div><span>SESIONES GUARDADAS DE ESTE ARCHIVO</span><h3>${packs.length} sesión${packs.length===1?"":"es"}</h3></div><small>Volver a abrirlas no consume IA</small></div>
+      <div class="library-study-pack-list">
+        ${packs.length?packs.map(pack=>{
+          const m=safeJson(pack.metadata_json,{});
+          return `<article>
+            <div class="library-pack-icon">✓</div>
+            <div><span>${escapeHtml(m.study_scope||"Material seleccionado")} · ${formatDate(pack.updated_at)}</span><strong>${escapeHtml(m.study_title||pack.title)}</strong><small>${escapeHtml(m.study_focus||"Sesión de estudio guardada")}</small></div>
+            <button class="primary-btn library-open-pack" data-id="${escapeAttr(pack.id)}">REPASAR</button>
+          </article>`;
+        }).join(""):`<div class="university-empty"><div class="university-empty-art"><span>✦</span><span>▤</span><span>✓</span></div><strong>Aún no has creado una sesión con este archivo.</strong><p>Selecciona las páginas o diapositivas que estás estudiando y MED AI preparará el material una sola vez.</p></div>`}
+      </div>
+    </section>`;
+  $("#library-study-new")?.addEventListener("click",()=>prepareLibraryStudySource(support));
+  $$(".library-open-pack",body).forEach(b=>b.onclick=()=>openLibrarySavedStudyPack(b.dataset.id));
+}
+
+async function fetchLibraryFileBuffer(file){
+  const res=await fetch(libraryFileUrl(file.id,true),{credentials:"same-origin"});
+  if(!res.ok)throw new Error("No pude descargar temporalmente el archivo para leerlo.");
+  return res.arrayBuffer();
+}
+
+async function prepareLibraryStudySource(support){
+  const body=$("#library-study-body"),file=state.libraryStudyFile;
+  body.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Leyendo ${escapeHtml(file.title)} en tu dispositivo…</strong><small>Aún no estamos usando créditos de IA.</small></div>`;
+  try{
+    if(support.type==="pdf"){
+      const pdfjs=await loadPdfJs();
+      const buffer=await fetchLibraryFileBuffer(file);
+      const pdf=await pdfjs.getDocument({data:new Uint8Array(buffer)}).promise;
+      state.libraryStudyPdf=pdf;
+      renderLibraryStudyRangeForm({type:"pdf",total:pdf.numPages,label:"páginas",max:20});
+      return;
+    }
+    if(support.type==="pptx"||support.type==="docx"){
+      const JSZip=await loadJsZip();
+      const buffer=await fetchLibraryFileBuffer(file);
+      const zip=await JSZip.loadAsync(buffer);
+      if(support.type==="pptx"){
+        const slideEntries=Object.keys(zip.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/i.test(n)).sort((a,b)=>{
+          const na=Number(a.match(/slide(\d+)/i)?.[1]||0),nb=Number(b.match(/slide(\d+)/i)?.[1]||0);return na-nb;
+        });
+        const slides=[];
+        for(const name of slideEntries){
+          const xml=await zip.file(name).async("text");
+          const doc=new DOMParser().parseFromString(xml,"application/xml");
+          const texts=[...doc.getElementsByTagNameNS("*","t")].map(n=>n.textContent||"").filter(Boolean);
+          slides.push(texts.join(" "));
+        }
+        state.libraryStudyDoc={type:"pptx",units:slides};
+        renderLibraryStudyRangeForm({type:"pptx",total:slides.length,label:"diapositivas",max:30});
+        return;
+      }else{
+        const entry=zip.file("word/document.xml");
+        if(!entry)throw new Error("No pude encontrar el texto principal de este documento Word.");
+        const xml=await entry.async("text");
+        const doc=new DOMParser().parseFromString(xml,"application/xml");
+        const paras=[...doc.getElementsByTagNameNS("*","p")].map(p=>[...p.getElementsByTagNameNS("*","t")].map(t=>t.textContent||"").join(" ")).filter(Boolean);
+        state.libraryStudyDoc={type:"docx",text:paras.join("\n\n")};
+        renderLibraryStudyRangeForm({type:"docx",total:1,label:"documento",max:1});
+        return;
+      }
+    }
+    if(support.type==="text"){
+      const res=await fetch(libraryFileUrl(file.id,true),{credentials:"same-origin"});
+      if(!res.ok)throw new Error("No pude leer este archivo.");
+      state.libraryStudyDoc={type:"text",text:await res.text()};
+      renderLibraryStudyRangeForm({type:"text",total:1,label:"documento",max:1});
+    }
+  }catch(err){
+    body.innerHTML=`<div class="masterclass-error"><strong>No pude preparar este archivo.</strong><p>${escapeHtml(err.message)}</p><button id="library-study-home-again" class="secondary-btn">VOLVER</button></div>`;
+    $("#library-study-home-again").onclick=renderLibraryStudyHome;
+  }
+}
+
+function renderLibraryStudyRangeForm(info){
+  const file=state.libraryStudyFile,body=$("#library-study-body");
+  const range=info.total>1;
+  body.innerHTML=`
+    <section class="library-study-range-page">
+      <button id="library-study-range-back" class="ghost-btn">← VOLVER</button>
+      <div class="library-study-range-head">
+        <div><span>PASO 1 DE 2</span><h2>Elige exactamente qué quieres estudiar.</h2><p>${range?`Este archivo tiene ${info.total} ${info.label}. Para ahorrar créditos, MED AI analizará como máximo ${info.max} ${info.label} por sesión.`:"MED AI usará el texto de este documento como base de la sesión."}</p></div>
+        <div class="library-study-noai"><b>0</b><span><strong>CRÉDITOS USADOS HASTA AHORA</strong><small>Todo lo anterior ocurrió localmente</small></span></div>
+      </div>
+
+      <div class="library-study-range-layout">
+        <section class="card">
+          ${range?`<div class="library-range-fields">
+            <div class="field"><label>Desde ${info.label==="páginas"?"página":"diapositiva"}</label><input id="library-range-start" type="number" min="1" max="${info.total}" value="1"></div>
+            <div class="library-range-arrow">→</div>
+            <div class="field"><label>Hasta</label><input id="library-range-end" type="number" min="1" max="${info.total}" value="${Math.min(info.total,info.max)}"></div>
+          </div>
+          <div id="library-range-info" class="library-range-info">${Math.min(info.total,info.max)} ${info.label} seleccionadas</div>`:""}
+          <div class="field"><label>¿Qué tema o enfoque estás viendo?</label><input id="library-study-focus" placeholder="Ej. Regulación de la presión arterial, capítulo 19..." value=""></div>
+          <div class="field"><label>Instrucción opcional para MED AI</label><textarea id="library-study-instruction" rows="4" placeholder="Ej. El profesor dijo que esto entra al parcial. Quiero entender especialmente los mecanismos y las diferencias..."></textarea></div>
+          <div class="library-study-options">
+            <label class="form-check"><input id="library-study-examfocus" type="checkbox" checked><span>Priorizar conceptos de alto rendimiento para examen</span></label>
+            <label class="form-check"><input id="library-study-deep" type="checkbox" checked><span>Explicar desde cero cuando el material sea difícil</span></label>
+          </div>
+          <button id="library-study-extract" class="library-analyze-btn"><span>→</span><div><strong>CONTINUAR Y PREPARAR SESIÓN</strong><small>Primero extraeremos solo el fragmento seleccionado</small></div></button>
+        </section>
+
+        <aside class="library-study-budget-card">
+          <div class="panel-code">CÓMO AHORRAMOS</div>
+          <div><b>01</b><span><strong>No enviamos el libro completo</strong><small>Solo tus páginas o diapositivas.</small></span></div>
+          <div><b>02</b><span><strong>Gemini 2.5 Flash</strong><small>El modelo económico prepara la sesión.</small></span></div>
+          <div><b>03</b><span><strong>Todo queda guardado</strong><small>Resumen, mapa, ejercicios y examen.</small></span></div>
+          <div><b>04</b><span><strong>Repasos sin IA</strong><small>Reabrir y repetir el examen cuesta $0 de IA.</small></span></div>
+        </aside>
+      </div>
+    </section>`;
+  $("#library-study-range-back").onclick=renderLibraryStudyHome;
+  if(range){
+    const update=()=>{
+      let a=Number($("#library-range-start").value||1),b=Number($("#library-range-end").value||1);
+      a=Math.max(1,Math.min(info.total,a));b=Math.max(a,Math.min(info.total,b));
+      const count=b-a+1;
+      $("#library-range-info").textContent=count>info.max?`⚠ Máximo ${info.max} ${info.label}. Reduce el rango.`:`${count} ${info.label} seleccionadas`;
+      $("#library-range-info").classList.toggle("warning",count>info.max);
+    };
+    $("#library-range-start").oninput=update;$("#library-range-end").oninput=update;
+  }
+  $("#library-study-extract").onclick=()=>extractAndCreateLibraryStudyPack(info);
+}
+
+async function extractPdfPages(pdf,start,end){
+  const chunks=[];
+  for(let p=start;p<=end;p++){
+    const page=await pdf.getPage(p);
+    const content=await page.getTextContent();
+    const text=content.items.map(i=>i.str||"").join(" ").replace(/\s+/g," ").trim();
+    chunks.push(`===== PÁGINA ${p} =====\n${text}`);
+  }
+  return chunks.join("\n\n");
+}
+
+async function extractAndCreateLibraryStudyPack(info){
+  const file=state.libraryStudyFile,focus=$("#library-study-focus").value.trim(),instruction=$("#library-study-instruction").value.trim();
+  let start=1,end=1,text="";
+  try{
+    if(info.total>1){
+      start=Number($("#library-range-start").value||1);end=Number($("#library-range-end").value||1);
+      if(start<1||end>info.total||end<start)throw new Error("Revisa el rango seleccionado.");
+      if(end-start+1>info.max)throw new Error(`Selecciona como máximo ${info.max} ${info.label}.`);
+    }
+    const btn=$("#library-study-extract");
+    btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>EXTRAYENDO MATERIAL…</strong><small>Todavía sin IA</small></div>`;
+
+    if(info.type==="pdf")text=await extractPdfPages(state.libraryStudyPdf,start,end);
+    else if(info.type==="pptx"){
+      const units=state.libraryStudyDoc.units.slice(start-1,end);
+      text=units.map((t,i)=>`===== DIAPOSITIVA ${start+i} =====\n${t}`).join("\n\n");
+    }else text=state.libraryStudyDoc?.text||"";
+
+    text=text.trim();
+    if(text.length<120)throw new Error("El fragmento seleccionado tiene muy poco texto. Prueba otro rango o un PDF con texto seleccionable.");
+    if(text.length>85000)text=text.slice(0,85000);
+
+    renderLibraryStudyConfirm({info,start,end,text,focus,instruction});
+  }catch(err){
+    toast(err.message,true);
+    $("#library-study-extract").disabled=false;
+    $("#library-study-extract").innerHTML=`<span>→</span><div><strong>CONTINUAR Y PREPARAR SESIÓN</strong><small>Primero extraeremos solo el fragmento seleccionado</small></div>`;
+  }
+}
+
+function renderLibraryStudyConfirm(ctx){
+  const {info,start,end,text,focus,instruction}=ctx,file=state.libraryStudyFile,body=$("#library-study-body");
+  const scope=info.total>1?`${info.label==="páginas"?"Páginas":"Diapositivas"} ${start}–${end}`:"Documento";
+  const approx=Math.max(1,Math.round(text.length/4));
+  body.innerHTML=`
+    <section class="library-study-confirm">
+      <button id="library-study-confirm-back" class="ghost-btn">← CAMBIAR SELECCIÓN</button>
+      <div class="library-study-confirm-head"><div><span>PASO 2 DE 2</span><h2>Listo para crear tu clase guardada.</h2><p>Ahora sí haremos una única llamada a Gemini 2.5 Flash usando solamente el contenido seleccionado.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} caracteres/tokens estimados de texto local</small></div></div>
+      <div class="library-study-confirm-grid">
+        <section class="card">
+          <div class="panel-code">SESIÓN</div>
+          <h3>${escapeHtml(focus||file.title)}</h3>
+          <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div>
+          <div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>
+          <div class="library-confirm-row"><span>Modelo</span><strong>Gemini 2.5 Flash</strong></div>
+          <div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Clase · Diagrama · Mapa · 8 ejercicios · Examen de 10 · Videos</strong></div>
+          ${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}
+          <button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR Y GUARDAR ESTA SESIÓN</strong><small>Esta acción sí utiliza IA una vez</small></div></button>
+        </section>
+        <aside class="library-study-generated-list">
+          <div class="panel-code">DESPUÉS PODRÁS</div>
+          <div><b>◎</b><span><strong>Repasar el resumen</strong><small>Sin nueva inferencia</small></span></div>
+          <div><b>◈</b><span><strong>Abrir diagrama y mapa</strong><small>Ya quedan generados</small></span></div>
+          <div><b>✦</b><span><strong>Practicar 8 ejercicios</strong><small>Calificación local</small></span></div>
+          <div><b>✓</b><span><strong>Repetir examen de 10</strong><small>Las veces que quieras</small></span></div>
+          <div><b>▶</b><span><strong>Buscar videos</strong><small>Consultas guardadas</small></span></div>
+        </aside>
+      </div>
+    </section>`;
+  $("#library-study-confirm-back").onclick=()=>renderLibraryStudyRangeForm(info);
+  $("#library-study-create").onclick=()=>createLibraryStudyPack({...ctx,scope});
+}
+
+async function createLibraryStudyPack(ctx){
+  const btn=$("#library-study-create"),file=state.libraryStudyFile;
+  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ PREPARANDO TU SESIÓN…</strong><small>Al terminar quedará guardada</small></div>`;
+  try{
+    const result=await api("/api/library/study-pack",{method:"POST",body:{
+      file_id:file.id,
+      extracted_text:ctx.text,
+      study_focus:ctx.focus,
+      instruction:ctx.instruction,
+      study_scope:ctx.scope,
+      exam_focus:$("#library-study-examfocus")?.checked??true,
+      deep_explanation:$("#library-study-deep")?.checked??true
+    }});
+    const list=await api(`/api/library/study-packs?file_id=${encodeURIComponent(file.id)}`);
+    state.libraryStudyPacks=list.packs||[];
+    toast("Sesión de estudio creada y guardada.");
+    await openLibrarySavedStudyPack(result.id,true);
+  }catch(err){
+    btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>CREAR Y GUARDAR ESTA SESIÓN</strong><small>Esta acción sí utiliza IA una vez</small></div>`;
+    toast(err.message,true);
+  }
+}
+
+async function openLibrarySavedStudyPack(id,justCreated=false){
+  const body=$("#library-study-body");
+  body.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando y abriendo tu nueva clase…":"Abriendo sesión guardada…"}</strong><small>No se está regenerando con IA.</small></div>`;
+  try{
+    const data=await api(`/api/course/source?id=${encodeURIComponent(id)}`);
+    state.universitySourceRecord=data.source;
+    state.universitySourcePack=data.pack;
+    state.universityPractice=null;
+    state.universityExam=null;
+    closeLibraryStudyMode();
+    const overlay=ensureUniversityOverlay();
+    overlay.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    $("#uni-shell-title").textContent=`Biblioteca · ${state.libraryStudyFile?.title||data.pack?.title||"Sesión guardada"}`;
+    renderUniversityStudyPack("summary");
+    const back=$("#uni-study-back");
+    if(back)back.onclick=()=>{
+      closeUniversitySourceStudio();
+      if(state.libraryStudyFile)openLibraryStudyMode(state.libraryStudyFile.id);
+      else navigate("library");
+    };
+  }catch(err){
+    body.innerHTML=`<div class="masterclass-error"><strong>No pude abrir esta sesión.</strong><p>${escapeHtml(err.message)}</p></div>`;
+  }
 }
 
 async function createStudyLibraryFolder(){
@@ -3235,12 +3592,12 @@ async function hardRefreshApplication(){
     }
   }catch{}
   const url=new URL(location.href);
-  url.searchParams.set("v22",Date.now().toString());
+  url.searchParams.set("v23",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=22.0.0",{updateViaCache:"none"}).catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=23.0.0",{updateViaCache:"none"}).catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
