@@ -46,6 +46,35 @@ export default {
       // no login screen; every device uses the same personal MED AI profile in D1.
       const user = await ensurePersonalUser(env);
 
+      // V26 · Stability & Reliability Center
+      if (url.pathname === "/api/system/health" && request.method === "GET") {
+        return systemHealthApi(env, user);
+      }
+
+      if (url.pathname === "/api/system/backups" && request.method === "GET") {
+        return listSystemBackupsApi(env, user);
+      }
+
+      if (url.pathname === "/api/system/backup" && request.method === "POST") {
+        return createSystemBackupApi(request, env, user);
+      }
+
+      if (url.pathname === "/api/system/backup" && request.method === "GET") {
+        return downloadSystemBackupApi(url, env, user);
+      }
+
+      if (url.pathname === "/api/system/restore" && request.method === "POST") {
+        return restoreSystemBackupApi(request, env, user);
+      }
+
+      if (url.pathname === "/api/system/integrity" && request.method === "GET") {
+        return systemIntegrityApi(url, env, user);
+      }
+
+      if (url.pathname === "/api/system/offline-course" && request.method === "GET") {
+        return systemOfflineCourseApi(url, env, user);
+      }
+
       if (url.pathname === "/api/auth/logout" && request.method === "POST") {
         return logout(request, env, user);
       }
@@ -304,12 +333,25 @@ export default {
 
       return json({ error: "Ruta API no encontrada." }, 404);
     } catch (err) {
-      console.error("MED_AI_ERROR", err?.stack || err);
+      const incidentId=crypto.randomUUID().slice(0,8).toUpperCase();
       const msg=String(err?.message||err||"");
+      const path=url.pathname;
+      const component=
+        path.includes("/library") ? "Biblioteca / R2" :
+        path.includes("/smart") ? "Repaso inteligente" :
+        path.includes("/ai/") ? "IA / Gateway" :
+        path.includes("/course") ? "Cursos" :
+        path.includes("/system") ? "Sistema / Backup" :
+        "API general";
+      console.error("MED_AI_ERROR",incidentId,component,path,err?.stack||err);
       const safeSetup=/binding R2|LIBRARY|R2 bucket|almacenamiento offline/i.test(msg);
       return json({
-        error: safeSetup ? msg : "Ocurrió un error interno.",
-        detail: env.ENVIRONMENT === "development" ? msg : undefined
+        error: safeSetup ? msg : `Ocurrió un error interno en ${component}.`,
+        detail: env.ENVIRONMENT === "development" ? msg : undefined,
+        incident_id:incidentId,
+        component,
+        path,
+        server_version:SYSTEM_VERSION
       }, 500);
     }
   }
@@ -356,6 +398,289 @@ async function ensurePersonalUser(env) {
   }
 
   return user;
+}
+
+
+// ============================================================
+// V26 · STABILITY & RELIABILITY BACKEND
+// ============================================================
+
+const SYSTEM_VERSION="26.0.0";
+const SYSTEM_BACKUP_PREFIX="_system_backups";
+const SYSTEM_BACKUP_TABLES=[
+  "profiles","user_preferences","study_resume_state",
+  "user_topic_progress","user_lesson_progress",
+  "notes","academic_deadlines","study_sessions",
+  "exams","question_attempts","mistakes",
+  "flashcards","flashcard_reviews",
+  "ai_conversations","ai_messages",
+  "case_sessions","daily_metrics"
+];
+
+async function systemHealthApi(env,user){
+  let db=false,dbDetail="",r2=false,r2Detail="";
+  try{
+    const row=await env.DB.prepare("SELECT COUNT(*) AS n FROM notes WHERE user_id=?").bind(user.id).first();
+    db=true;dbDetail=`D1 responde · ${Number(row?.n||0)} registros de notas/materiales`;
+  }catch(err){
+    dbDetail=`D1 no respondió: ${String(err?.message||err).slice(0,240)}`;
+  }
+
+  if(env.LIBRARY){
+    try{
+      await env.LIBRARY.list({prefix:`${SYSTEM_BACKUP_PREFIX}/${user.id}/`,limit:1});
+      r2=true;r2Detail="Binding LIBRARY responde correctamente";
+    }catch(err){
+      r2Detail=`R2 no respondió: ${String(err?.message||err).slice(0,240)}`;
+    }
+  }else{
+    r2Detail="Falta binding LIBRARY";
+  }
+
+  let backupCount=0,lastBackup=null;
+  if(r2){
+    try{
+      const list=await env.LIBRARY.list({prefix:`${SYSTEM_BACKUP_PREFIX}/${user.id}/`,limit:100});
+      const objs=[...(list.objects||[])].sort((a,b)=>String(b.uploaded||"").localeCompare(String(a.uploaded||"")));
+      backupCount=objs.length;
+      if(objs[0])lastBackup={key:objs[0].key,created_at:objs[0].uploaded||null,size:Number(objs[0].size||0)};
+    }catch{}
+  }
+
+  return json({
+    ok:db,
+    app:"MED AI DALTON",
+    server_version:SYSTEM_VERSION,
+    db,db_detail:dbDetail,
+    r2,r2_detail:r2Detail,
+    ai:!!env.AI,
+    assets:!!env.ASSETS,
+    gateway_id:typeof AI_GATEWAY_ID!=="undefined"?AI_GATEWAY_ID:"med-ai-dalton",
+    backup_count:backupCount,
+    last_backup:lastBackup,
+    checked_at:new Date().toISOString(),
+    note:"AI=true confirma el binding; el diagnóstico no ejecuta una inferencia de pago."
+  });
+}
+
+async function collectSystemBackupData(env,user){
+  const tables={};
+  for(const table of SYSTEM_BACKUP_TABLES){
+    try{
+      const rows=await env.DB.prepare(`SELECT * FROM ${table} WHERE user_id=?`).bind(user.id).all();
+      tables[table]=rows.results||[];
+    }catch(err){
+      // A future/older schema may not contain every optional table.
+      tables[table]=[];
+    }
+  }
+
+  const libraryRows=await env.DB.prepare(`
+    SELECT id,title,metadata_json,updated_at
+    FROM notes
+    WHERE user_id=? AND tags_json LIKE '%library_file%'
+    ORDER BY datetime(updated_at) DESC
+  `).bind(user.id).all().catch(()=>({results:[]}));
+
+  const library_manifest=(libraryRows.results||[]).map(r=>{
+    const m=parseLibraryMeta(r);
+    return {id:r.id,title:r.title,r2_key:m.r2_key||null,mime_type:m.mime_type||null,size_bytes:Number(m.size_bytes||0),updated_at:r.updated_at};
+  });
+
+  return {
+    format:"MED_AI_DALTON_BACKUP",
+    format_version:1,
+    app_version:SYSTEM_VERSION,
+    user_id:user.id,
+    created_at:new Date().toISOString(),
+    tables,
+    library_manifest
+  };
+}
+
+async function pruneSystemBackups(env,user,keep=10){
+  if(!env.LIBRARY)return;
+  const prefix=`${SYSTEM_BACKUP_PREFIX}/${user.id}/`;
+  let cursor=undefined,all=[];
+  do{
+    const page=await env.LIBRARY.list({prefix,limit:1000,cursor});
+    all.push(...(page.objects||[]));
+    cursor=page.truncated?page.cursor:undefined;
+  }while(cursor);
+  all.sort((a,b)=>String(b.uploaded||"").localeCompare(String(a.uploaded||"")));
+  const old=all.slice(keep);
+  if(old.length)await Promise.all(old.map(x=>env.LIBRARY.delete(x.key).catch(()=>{})));
+}
+
+async function createSystemBackupInternal(env,user,reason="manual"){
+  requireLibraryR2(env);
+  const backup=await collectSystemBackupData(env,user);
+  backup.reason=cleanText(reason,120)||"manual";
+  const stamp=backup.created_at.replace(/[:.]/g,"-");
+  const key=`${SYSTEM_BACKUP_PREFIX}/${user.id}/${stamp}.json`;
+  const text=JSON.stringify(backup);
+  await env.LIBRARY.put(key,text,{
+    httpMetadata:{contentType:"application/json; charset=utf-8"},
+    customMetadata:{medai:"system-backup",version:SYSTEM_VERSION,reason:backup.reason}
+  });
+  await pruneSystemBackups(env,user,10);
+  return {key,created_at:backup.created_at,size:new TextEncoder().encode(text).byteLength,reason:backup.reason};
+}
+
+async function createSystemBackupApi(request,env,user){
+  const body=await readJson(request).catch(()=>({}));
+  const result=await createSystemBackupInternal(env,user,cleanText(body.reason,120)||"manual");
+  return json({ok:true,...result},201);
+}
+
+async function listSystemBackupsApi(env,user){
+  requireLibraryR2(env);
+  const prefix=`${SYSTEM_BACKUP_PREFIX}/${user.id}/`;
+  let cursor=undefined,objects=[];
+  do{
+    const page=await env.LIBRARY.list({prefix,limit:100,cursor,include:["customMetadata"]});
+    objects.push(...(page.objects||[]));
+    cursor=page.truncated?page.cursor:undefined;
+  }while(cursor&&objects.length<500);
+  objects.sort((a,b)=>String(b.uploaded||"").localeCompare(String(a.uploaded||"")));
+  return json({backups:objects.slice(0,20).map(x=>({
+    key:x.key,
+    created_at:x.uploaded||null,
+    size:Number(x.size||0),
+    reason:x.customMetadata?.reason||"backup"
+  }))});
+}
+
+function validSystemBackupKey(user,key){
+  const prefix=`${SYSTEM_BACKUP_PREFIX}/${user.id}/`;
+  return typeof key==="string"&&key.startsWith(prefix)&&key.endsWith(".json")&&!key.includes("..");
+}
+
+async function downloadSystemBackupApi(url,env,user){
+  requireLibraryR2(env);
+  const key=String(url.searchParams.get("key")||"");
+  if(!validSystemBackupKey(user,key))return json({error:"Backup inválido."},400);
+  const obj=await env.LIBRARY.get(key);
+  if(!obj)return json({error:"No encontré ese backup."},404);
+  const text=await obj.text();
+  if(url.searchParams.get("download")==="1"){
+    const name=`MED_AI_DALTON_BACKUP_${String(key.split("/").pop()||"backup.json")}`;
+    return new Response(text,{status:200,headers:{
+      "content-type":"application/json; charset=utf-8",
+      "content-disposition":`attachment; filename="${name}"`,
+      "cache-control":"no-store"
+    }});
+  }
+  const parsed=parseJsonLoose(text);
+  return json({backup:parsed});
+}
+
+function safeBackupColumns(row){
+  return Object.keys(row||{}).filter(k=>/^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+}
+
+async function restoreBackupRows(env,user,backup){
+  const data=backup?.tables&&typeof backup.tables==="object"?backup.tables:{};
+  let restored=0;
+  for(const table of SYSTEM_BACKUP_TABLES){
+    const rows=Array.isArray(data[table])?data[table]:[];
+    for(let start=0;start<rows.length;start+=40){
+      const statements=[];
+      for(const original of rows.slice(start,start+40)){
+        if(!original||typeof original!=="object")continue;
+        const row={...original};
+        if("user_id" in row)row.user_id=user.id;
+        const cols=safeBackupColumns(row);
+        if(!cols.length)continue;
+        const placeholders=cols.map(()=>"?").join(",");
+        const sql=`INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${placeholders})`;
+        statements.push(env.DB.prepare(sql).bind(...cols.map(c=>row[c]??null)));
+      }
+      if(statements.length){
+        await env.DB.batch(statements);
+        restored+=statements.length;
+      }
+    }
+  }
+  return restored;
+}
+
+async function restoreSystemBackupApi(request,env,user){
+  requireLibraryR2(env);
+  const body=await readJson(request);
+  if(body.confirm!=="RESTAURAR")return json({error:"Confirmación de restauración inválida."},400);
+  const key=String(body.key||"");
+  if(!validSystemBackupKey(user,key))return json({error:"Backup inválido."},400);
+  const obj=await env.LIBRARY.get(key);
+  if(!obj)return json({error:"No encontré ese backup."},404);
+  const backup=parseJsonLoose(await obj.text());
+  if(backup?.format!=="MED_AI_DALTON_BACKUP")return json({error:"El archivo no es un backup reconocido de MED AI."},400);
+
+  // Safety restore point before modifying D1.
+  const before=await createSystemBackupInternal(env,user,"before_restore");
+  const restored=await restoreBackupRows(env,user,backup);
+  return json({ok:true,rows_restored:restored,safety_backup:before.key,restored_from:key});
+}
+
+async function systemIntegrityApi(url,env,user){
+  requireLibraryR2(env);
+  const limit=clamp(Number(url.searchParams.get("limit")||250),1,500);
+  const rows=await env.DB.prepare(`
+    SELECT id,title,metadata_json
+    FROM notes
+    WHERE user_id=? AND tags_json LIKE '%library_file%'
+    ORDER BY datetime(updated_at) DESC
+    LIMIT ?
+  `).bind(user.id,limit).all();
+  const results=rows.results||[],missing=[];
+  const concurrency=12;
+  for(let i=0;i<results.length;i+=concurrency){
+    const batch=results.slice(i,i+concurrency);
+    await Promise.all(batch.map(async row=>{
+      try{
+        const meta=parseLibraryMeta(row),key=meta.r2_key;
+        if(!key){missing.push({id:row.id,title:row.title,reason:"El registro D1 no contiene r2_key"});return}
+        const head=await env.LIBRARY.head(key);
+        if(!head)missing.push({id:row.id,title:row.title,reason:"El objeto no existe en R2"});
+      }catch(err){
+        missing.push({id:row.id,title:row.title,reason:String(err?.message||err).slice(0,240)});
+      }
+    }));
+  }
+  const count=await env.DB.prepare(`SELECT COUNT(*) AS n FROM notes WHERE user_id=? AND tags_json LIKE '%library_file%'`).bind(user.id).first().catch(()=>({n:results.length}));
+  return json({
+    ok:missing.length===0,
+    total:Number(count?.n||results.length),
+    checked:results.length,
+    missing,
+    truncated:Number(count?.n||0)>results.length,
+    checked_at:new Date().toISOString()
+  });
+}
+
+async function systemOfflineCourseApi(url,env,user){
+  const subjectId=cleanText(url.searchParams.get("subject_id"),220);
+  if(!subjectId)return json({materials:[]});
+  const rows=await env.DB.prepare(`
+    SELECT id,subject_id,topic_id,title,body,metadata_json,updated_at
+    FROM notes
+    WHERE user_id=? AND subject_id=? AND tags_json LIKE '%material_v19%'
+    ORDER BY datetime(updated_at) DESC LIMIT 300
+  `).bind(user.id,subjectId).all();
+  const seen=new Set(),materials=[];
+  for(const row of (rows.results||[])){
+    const meta=parseJsonLoose(row.metadata_json)||{};
+    const lessonId=cleanText(meta.lesson_id,220);
+    const material=parseJsonLoose(row.body);
+    if(!lessonId||!material)continue;
+    const key=`${row.topic_id||""}|${lessonId}|${meta.language||""}`;
+    if(seen.has(key))continue;seen.add(key);
+    materials.push({
+      id:row.id,subject_id:row.subject_id,topic_id:row.topic_id,lesson_id:lessonId,
+      language:cleanText(meta.language,100),title:row.title,material,updated_at:row.updated_at
+    });
+  }
+  return json({materials,count:materials.length});
 }
 
 // -------------------- AUTH --------------------
@@ -3237,7 +3562,7 @@ function gatewayOptions(task="general",extra={}){
       collectLog:true,
       metadata:{
         app:"MED AI DALTON",
-        version:"25.2",
+        version:"26",
         task,
         ...extra
       }

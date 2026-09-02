@@ -1,13 +1,12 @@
 {
   "name": "MED AI DALTON",
   "short_name": "MED AI",
-  "description": "Plataforma personal de entrenamiento médico con IA.",
+  "description": "Plataforma personal de estudio médico y académico con modo offline.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#07101d",
-  "theme_color": "#0b1220",
-  "lang": "es",
-  "orientation": "any",
+  "background_color": "#0b0e13",
+  "theme_color": "#0b0e13",
   "icons": [
     {
       "src": "/icons/icon.svg",

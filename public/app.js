@@ -1,3 +1,5 @@
+const APP_VERSION="26.0.0";
+
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
   currentSubject:null, currentTopic:null, chatConversation:null, exam:null,
@@ -17,6 +19,7 @@ const state = {
   smartDashboard:null,smartReview:null,smartPastExam:null,smartPastExamFile:null,
   smartPastExamSource:null,smartKeyMode:null,
   historicalKeysPack:null,historicalKeysSource:null,historicalKeysDraft:[],historicalKeysQuiz:null,
+  systemHealth:null,systemIntegrity:null,systemBackups:[],maintenanceMode:false,lastSyncReport:null,
   smartSearchResults:[],smartQuality:localStorage.getItem("medai_smart_quality")||"economy"
 };
 
@@ -148,14 +151,298 @@ async function offlineVaultSummary(){
   };
 }
 
+
+/* ============================================================
+   V26 · STABILITY & RELIABILITY ENGINE
+   Diagnostics · backups · sync visibility · version protection
+   ============================================================ */
+
+const SYSTEM_ERROR_KEY="medai_v26_errors";
+const SYSTEM_BACKUP_DAY_KEY="medai_v26_last_auto_backup";
+
+function getOfflineQueue(){
+  try{
+    const q=JSON.parse(localStorage.getItem("medai_queue")||"[]");
+    return Array.isArray(q)?q:[];
+  }catch{return []}
+}
+function getSystemErrors(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(SYSTEM_ERROR_KEY)||"[]");
+    return Array.isArray(rows)?rows:[];
+  }catch{return []}
+}
+function logSystemError(context,err,meta={}){
+  try{
+    const rows=getSystemErrors();
+    rows.unshift({
+      id:crypto.randomUUID(),
+      at:new Date().toISOString(),
+      context:String(context||"unknown").slice(0,180),
+      message:String(err?.message||err||"Error desconocido").slice(0,1200),
+      status:Number(err?.status||meta.status||0)||null,
+      url:String(meta.url||"").slice(0,500),
+      method:String(meta.method||"").slice(0,20),
+      online:navigator.onLine,
+      view:state.currentView,
+      version:APP_VERSION
+    });
+    localStorage.setItem(SYSTEM_ERROR_KEY,JSON.stringify(rows.slice(0,60)));
+  }catch{}
+}
+function clearSystemErrors(){
+  localStorage.removeItem(SYSTEM_ERROR_KEY);
+}
+function setupSystemErrorCapture(){
+  window.addEventListener("error",e=>logSystemError("window.error",e.error||e.message,{url:e.filename||""}));
+  window.addEventListener("unhandledrejection",e=>logSystemError("unhandledrejection",e.reason||"Promesa rechazada"));
+}
+function ensureSystemBanner(){
+  let el=$("#system-status-banner");
+  if(el)return el;
+  el=document.createElement("div");
+  el.id="system-status-banner";
+  el.className="system-status-banner hidden";
+  const shell=$("#app-shell");
+  if(shell)shell.appendChild(el);
+  return el;
+}
+function updateMaintenanceBanner(message=""){
+  const el=ensureSystemBanner();if(!el)return;
+  if(state.maintenanceMode||!navigator.onLine){
+    el.classList.remove("hidden");
+    el.classList.toggle("offline",!navigator.onLine);
+    el.innerHTML=`<span>${navigator.onLine?"⚠":"●"}</span><strong>${navigator.onLine?"MODO DE CONTINGENCIA":"MODO OFFLINE"}</strong><small>${escapeHtml(message||(navigator.onLine?"Algunos servicios remotos no respondieron. MED AI usará datos guardados cuando sea posible.":"Tus clases y materiales preparados siguen disponibles. La IA se reanudará cuando vuelva internet."))}</small><button id="system-banner-open">VER ESTADO</button>`;
+    $("#system-banner-open")?.addEventListener("click",()=>navigate("system"));
+  }else{
+    el.classList.add("hidden");
+    el.innerHTML="";
+  }
+}
+function showVersionBanner(serverVersion){
+  if(!serverVersion||serverVersion===APP_VERSION)return;
+  const el=ensureSystemBanner();if(!el)return;
+  el.classList.remove("hidden","offline");
+  el.innerHTML=`<span>↻</span><strong>ACTUALIZACIÓN DISPONIBLE</strong><small>Aplicación instalada ${escapeHtml(APP_VERSION)} · servidor ${escapeHtml(serverVersion)}. Actualiza para evitar usar archivos antiguos de caché.</small><button id="system-version-update">ACTUALIZAR AHORA</button>`;
+  $("#system-version-update")?.addEventListener("click",hardRefreshApplication);
+}
+
+async function checkSystemVersionInBackground(){
+  if(!navigator.onLine)return;
+  try{
+    const res=await fetch("/api/system/health",{credentials:"include",cache:"no-store"});
+    if(!res.ok)return;
+    const d=await res.json();
+    state.systemHealth=d;
+    if(d.server_version!==APP_VERSION)showVersionBanner(d.server_version);
+  }catch{}
+}
+async function ensureDailySystemBackup(){
+  if(!navigator.onLine)return;
+  const today=new Date().toISOString().slice(0,10);
+  if(localStorage.getItem(SYSTEM_BACKUP_DAY_KEY)===today)return;
+  try{
+    const d=await api("/api/system/backup",{method:"POST",body:{reason:"auto_daily"}});
+    if(d.ok)localStorage.setItem(SYSTEM_BACKUP_DAY_KEY,today);
+  }catch(err){
+    logSystemError("automatic_backup",err,{url:"/api/system/backup",method:"POST"});
+  }
+}
+async function systemStorageEstimate(){
+  try{
+    const est=await navigator.storage?.estimate?.();
+    return {usage:Number(est?.usage||0),quota:Number(est?.quota||0),persisted:await navigator.storage?.persisted?.()};
+  }catch{return {usage:0,quota:0,persisted:false}}
+}
+function systemStatusCard(label,status,detail,icon="✓"){
+  const ok=status===true,warning=status==="warning";
+  return `<article class="system-health-card ${ok?"ok":warning?"warning":"bad"}"><span>${escapeHtml(icon)}</span><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail||"")}</small></div><b>${ok?"LISTO":warning?"ATENCIÓN":"REVISAR"}</b></article>`;
+}
+function formatSystemDate(v){
+  if(!v)return "Nunca";
+  try{return new Date(v).toLocaleString("es-GT")}catch{return String(v)}
+}
+
+async function renderSystemCenter(){
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Revisando MED AI…</strong><small>El diagnóstico no utiliza Gemini.</small></div>`;
+  const storage=await systemStorageEstimate();
+  let health=null,backups=[];
+  if(navigator.onLine){
+    try{health=await api("/api/system/health?fresh=1");state.systemHealth=health}catch(err){logSystemError("system_health",err);health=null}
+    try{const d=await api("/api/system/backups");backups=d.backups||[];state.systemBackups=backups}catch{}
+  }else{
+    health=state.systemHealth||await offlineGetJson(offlineApiKey("/api/system/health?fresh=1"));
+    backups=state.systemBackups||[];
+  }
+  const queue=getOfflineQueue(),errors=getSystemErrors();
+  const swReady=!!navigator.serviceWorker?.controller;
+  const localDb=("indexedDB" in window);
+  const appMatch=!health?.server_version||health.server_version===APP_VERSION;
+  root.innerHTML=`
+    <section class="system-center-hero">
+      <div>
+        <div class="learning-home-chip"><span></span> STABILITY & RELIABILITY CENTER · V26</div>
+        <h1>MED AI sabe cuándo algo no está bien.</h1>
+        <p>Diagnóstico, copias de seguridad, sincronización y recuperación en un solo lugar. Estas comprobaciones están diseñadas para proteger tu estudio sin gastar créditos de IA.</p>
+        <div class="system-center-actions"><button id="system-run-diagnostic" class="primary-btn">◉ REVISAR MED AI</button><button id="system-sync-now" class="secondary-btn">↻ SINCRONIZAR AHORA</button><button id="system-hard-update" class="secondary-btn">↑ REVISAR ACTUALIZACIÓN</button></div>
+      </div>
+      <div class="system-version-panel ${appMatch?"ok":"warn"}"><span>VERSIÓN</span><strong>${escapeHtml(APP_VERSION)}</strong><small>${health?.server_version?`Servidor ${escapeHtml(health.server_version)}`:"Sin comprobar servidor"}</small><i>${appMatch?"✓":"!"}</i></div>
+    </section>
+
+    <section class="system-health-grid">
+      ${systemStatusCard("Base de datos D1",health?.db===true,health?.db_detail||(!navigator.onLine?"Sin conexión · datos locales activos":"Sin comprobar"),"DB")}
+      ${systemStatusCard("Biblioteca R2",health?.r2===true,health?.r2_detail||(!navigator.onLine?"No requiere R2 para abrir copias offline":"Sin comprobar"),"R2")}
+      ${systemStatusCard("Binding de IA",health?.ai===true,health?.ai===true?"Configurado · no se hizo inferencia para probarlo":"Sin comprobar","AI")}
+      ${systemStatusCard("Assets / PWA",health?.assets===true&&swReady,swReady?"Service Worker activo":"Service Worker todavía no controla esta pestaña","PWA")}
+      ${systemStatusCard("Offline Vault",localDb,"IndexedDB disponible en este dispositivo","↓")}
+      ${systemStatusCard("Sincronización",queue.length? "warning":true,queue.length?`${queue.length} cambio(s) pendiente(s)`:"Sin cambios pendientes","↻")}
+    </section>
+
+    <section class="system-main-grid">
+      <article class="card system-backup-card">
+        <div class="system-section-head"><div><span>BACKUP AUTOMÁTICO</span><h2>Puntos de recuperación</h2></div><button id="system-create-backup" class="primary-btn">＋ CREAR BACKUP</button></div>
+        <p class="system-help">MED AI crea como máximo un backup automático al día cuando abres la aplicación con internet. Guarda tu progreso, notas, errores, exámenes y metadatos en R2 privado. Los libros grandes permanecen en tu Biblioteca R2 y no se duplican.</p>
+        <div id="system-backup-list" class="system-backup-list">
+          ${backups.length?backups.slice(0,10).map((b,i)=>`<article><span>${i===0?"ÚLTIMO":"BACKUP"}</span><div><strong>${formatSystemDate(b.created_at)}</strong><small>${escapeHtml(b.reason||"manual")} · ${formatBytes(Number(b.size||0))}</small></div><button class="system-download-backup" data-key="${escapeAttr(b.key)}">DESCARGAR</button><button class="system-restore-backup" data-key="${escapeAttr(b.key)}" data-date="${escapeAttr(b.created_at||"")}">RESTAURAR</button></article>`).join(""):`<div class="system-empty">No hay backups visibles todavía. Pulsa CREAR BACKUP.</div>`}
+        </div>
+      </article>
+
+      <article class="card system-sync-card">
+        <div class="system-section-head"><div><span>COLA OFFLINE</span><h2>Sincronización</h2></div><b>${queue.length}</b></div>
+        <div class="system-sync-state ${navigator.onLine?"online":"offline"}"><i></i><div><strong>${navigator.onLine?"Internet disponible":"Sin conexión"}</strong><small>${queue.length?`${queue.length} cambios esperando envío`:"Todo lo compatible está sincronizado"}</small></div></div>
+        <div class="system-queue-list">${queue.length?queue.slice(0,8).map(x=>`<div><span>${escapeHtml(String(x.opts?.method||"POST"))}</span><strong>${escapeHtml(x.url||"")}</strong><small>${formatSystemDate(x.at)}</small></div>`).join(""):`<div class="system-empty compact">No hay operaciones pendientes.</div>`}</div>
+        ${state.lastSyncReport?`<div class="system-last-sync"><span>ÚLTIMO INTENTO</span><strong>${Number(state.lastSyncReport.sent||0)} enviados · ${Number(state.lastSyncReport.pending||0)} pendientes</strong></div>`:""}
+      </article>
+    </section>
+
+    <section class="system-main-grid">
+      <article class="card system-integrity-card">
+        <div class="system-section-head"><div><span>INTEGRIDAD</span><h2>Biblioteca y archivos</h2></div><button id="system-check-integrity" class="secondary-btn">REVISAR R2</button></div>
+        <p class="system-help">Comprueba que cada archivo registrado en tu Biblioteca todavía exista físicamente en R2. No abre ni analiza tus documentos.</p>
+        <div id="system-integrity-result">${state.systemIntegrity?renderSystemIntegrityResult(state.systemIntegrity):`<div class="system-empty">Todavía no has ejecutado la comprobación.</div>`}</div>
+      </article>
+
+      <article class="card system-offline-course">
+        <div class="system-section-head"><div><span>PREPARACIÓN OFFLINE</span><h2>Clases ya preparadas</h2></div><span>US$0 IA</span></div>
+        <p class="system-help">Descarga al dispositivo las clases que MED AI ya generó para una materia. No genera clases nuevas y por eso no gasta IA.</p>
+        <div class="field"><label>Materia</label><select id="system-offline-subject"><option value="">Selecciona…</option>${state.subjects.map(s=>`<option value="${escapeAttr(s.id)}">${escapeHtml(s.name)}</option>`).join("")}</select></div>
+        <button id="system-download-course" class="secondary-btn">↓ GUARDAR CLASES EXISTENTES OFFLINE</button>
+        <div id="system-offline-course-result"></div>
+      </article>
+    </section>
+
+    <section class="system-main-grid">
+      <article class="card system-errors-card">
+        <div class="system-section-head"><div><span>REGISTRO LOCAL</span><h2>Errores recientes</h2></div><div><button id="system-copy-diagnostic" class="secondary-btn">COPIAR DIAGNÓSTICO</button><button id="system-clear-errors" class="ghost-btn">LIMPIAR</button></div></div>
+        <div class="system-error-list">${errors.length?errors.slice(0,12).map(e=>`<article><span>${e.status||"!"}</span><div><strong>${escapeHtml(e.context)}</strong><p>${escapeHtml(e.message)}</p><small>${formatSystemDate(e.at)}${e.url?` · ${escapeHtml(e.url)}`:""}</small></div></article>`).join(""):`<div class="system-empty">No hay errores locales registrados. ✓</div>`}</div>
+      </article>
+
+      <article class="card system-storage-card">
+        <div class="system-section-head"><div><span>ESTE DISPOSITIVO</span><h2>Almacenamiento local</h2></div><b>${formatBytes(storage.usage)}</b></div>
+        <div class="system-storage-bar"><i style="width:${storage.quota?Math.min(100,storage.usage/storage.quota*100):0}%"></i></div>
+        <div class="system-storage-meta"><span>Usado <strong>${formatBytes(storage.usage)}</strong></span><span>Disponible aprox. <strong>${storage.quota?formatBytes(Math.max(0,storage.quota-storage.usage)):"—"}</strong></span><span>Persistente <strong>${storage.persisted?"Sí":"Según navegador"}</strong></span></div>
+        <p class="system-help">Los archivos que marcaste OFFLINE ocupan espacio solo en este dispositivo. Los originales siguen en R2.</p>
+      </article>
+    </section>`;
+
+  $("#system-run-diagnostic").onclick=renderSystemCenter;
+  $("#system-sync-now").onclick=async()=>{await flushOfflineQueue();renderSystemCenter()};
+  $("#system-hard-update").onclick=async()=>{await checkSystemVersionInBackground();if(state.systemHealth?.server_version===APP_VERSION)toast("Esta aplicación coincide con la versión del servidor.");else showVersionBanner(state.systemHealth?.server_version)};
+  $("#system-create-backup").onclick=createManualSystemBackup;
+  $$(".system-download-backup").forEach(b=>b.onclick=()=>downloadSystemBackup(b.dataset.key));
+  $$(".system-restore-backup").forEach(b=>b.onclick=()=>restoreSystemBackup(b.dataset.key,b.dataset.date));
+  $("#system-check-integrity").onclick=runSystemIntegrity;
+  $("#system-download-course").onclick=downloadExistingCourseOffline;
+  $("#system-copy-diagnostic").onclick=copySystemDiagnostic;
+  $("#system-clear-errors").onclick=()=>{if(confirm("¿Limpiar el registro local de errores de este dispositivo?")){clearSystemErrors();renderSystemCenter()}};
+}
+
+function renderSystemIntegrityResult(d){
+  const total=Number(d.total||0),missing=d.missing||[],checked=Number(d.checked||0);
+  return `<div class="system-integrity-summary ${missing.length?"warn":"ok"}"><span>${missing.length?"!":"✓"}</span><div><strong>${missing.length?`${missing.length} archivo(s) necesitan revisión`:"Biblioteca íntegra"}</strong><small>${checked} de ${total} registros comprobados${d.truncated?" · comprobación limitada":""}</small></div></div>
+  ${missing.length?`<div class="system-missing-list">${missing.slice(0,15).map(x=>`<div><strong>${escapeHtml(x.title||x.id)}</strong><small>${escapeHtml(x.reason||"No encontrado en R2")}</small></div>`).join("")}</div>`:""}`;
+}
+
+async function createManualSystemBackup(){
+  if(!navigator.onLine)return toast("Necesitas internet para guardar un backup en R2.",true);
+  try{
+    toast("Creando punto de recuperación…");
+    const d=await api("/api/system/backup",{method:"POST",body:{reason:"manual"}});
+    if(d.ok){localStorage.setItem(SYSTEM_BACKUP_DAY_KEY,new Date().toISOString().slice(0,10));toast("Backup creado correctamente.");renderSystemCenter()}
+  }catch(err){logSystemError("manual_backup",err);toast(err.message,true)}
+}
+function downloadSystemBackup(key){
+  if(!navigator.onLine)return toast("Necesitas internet para descargar este backup.",true);
+  const a=document.createElement("a");
+  a.href=`/api/system/backup?key=${encodeURIComponent(key)}&download=1`;
+  a.rel="noopener";document.body.appendChild(a);a.click();a.remove();
+}
+async function restoreSystemBackup(key,date){
+  if(!navigator.onLine)return toast("La restauración necesita internet.",true);
+  const msg=`¿Restaurar el backup de ${formatSystemDate(date)}?\n\nMED AI creará primero un backup de seguridad del estado actual. La restauración combina los datos del punto elegido y puede reemplazar versiones de registros con el mismo ID.`;
+  if(!confirm(msg))return;
+  const typed=prompt('Escribe RESTAURAR para confirmar:');
+  if(typed!=="RESTAURAR")return toast("Restauración cancelada.");
+  try{
+    toast("Creando backup previo y restaurando…");
+    const d=await api("/api/system/restore",{method:"POST",body:{key,confirm:"RESTAURAR"}});
+    toast(`Restauración completada: ${Number(d.rows_restored||0)} registros recuperados.`);
+    setTimeout(()=>hardRefreshApplication(),800);
+  }catch(err){logSystemError("restore_backup",err);toast(err.message,true)}
+}
+async function runSystemIntegrity(){
+  if(!navigator.onLine)return toast("La comprobación R2 necesita internet.",true);
+  const box=$("#system-integrity-result");box.innerHTML=`<div class="system-inline-loading">Comprobando referencias D1 ↔ R2…</div>`;
+  try{
+    const d=await api("/api/system/integrity?limit=250");
+    state.systemIntegrity=d;box.innerHTML=renderSystemIntegrityResult(d);
+  }catch(err){logSystemError("integrity_check",err);box.innerHTML=`<div class="masterclass-error"><strong>No pude comprobar R2.</strong><p>${escapeHtml(err.message)}</p></div>`}
+}
+async function downloadExistingCourseOffline(){
+  const subjectId=$("#system-offline-subject").value,box=$("#system-offline-course-result");
+  if(!subjectId)return toast("Selecciona una materia.",true);
+  if(!navigator.onLine)return toast("Conéctate una vez para descargar las clases guardadas del servidor.",true);
+  box.innerHTML=`<div class="system-inline-loading">Buscando clases ya creadas…</div>`;
+  try{
+    const d=await api(`/api/system/offline-course?subject_id=${encodeURIComponent(subjectId)}`);
+    let saved=0;
+    const langCode={"Hebreo":"he-IL","Latín":"la","Inglés":"en-US","Ruso":"ru-RU","Francés":"fr-FR"};
+    for(const row of (d.materials||[])){
+      const languageKey=langCode[row.language]||row.language||"";
+      const key=`coursepack:${row.subject_id||subjectId}:${row.topic_id||""}:${row.lesson_id||""}:${languageKey}`;
+      await offlinePutJson(key,row.material);
+      saved++;
+    }
+    box.innerHTML=`<div class="system-offline-success"><span>✓</span><strong>${saved} clase${saved===1?"":"s"} guardada${saved===1?"":"s"} en este dispositivo.</strong><small>No se generó contenido nuevo.</small></div>`;
+  }catch(err){logSystemError("offline_course_download",err);box.innerHTML=`<div class="notice">${escapeHtml(err.message)}</div>`}
+}
+async function copySystemDiagnostic(){
+  const errors=getSystemErrors().slice(0,12),queue=getOfflineQueue(),h=state.systemHealth||{};
+  const payload={
+    app:"MED AI DALTON",app_version:APP_VERSION,server_version:h.server_version||null,
+    generated_at:new Date().toISOString(),online:navigator.onLine,
+    user_agent:navigator.userAgent,
+    status:{db:h.db,r2:h.r2,ai:h.ai,assets:h.assets,service_worker:!!navigator.serviceWorker?.controller,indexeddb:"indexedDB" in window},
+    pending_sync:queue.length,
+    integrity:state.systemIntegrity||null,
+    recent_errors:errors
+  };
+  const text=JSON.stringify(payload,null,2);
+  try{await navigator.clipboard.writeText(text);toast("Diagnóstico copiado. Puedes pegarlo en el chat cuando necesitemos revisar un problema.")}catch{
+    const blob=new Blob([text],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`MED_AI_DIAGNOSTICO_${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", boot);
 
 async function boot(){
   applySavedTheme();
+  setupSystemErrorCapture();
   bindAuth();
   bindShell();
   setupPWA();
   updateNetworkBadge();
+  updateMaintenanceBanner();
 
   try{
     const me=await api("/api/me");
@@ -163,7 +450,10 @@ async function boot(){
     showApp();
     await loadSubjects();
     navigate("dashboard");
+    checkSystemVersionInBackground();
+    ensureDailySystemBackup();
   }catch(err){
+    logSystemError("boot",err,{url:"/api/me",method:"GET"});
     $("#auth-screen").classList.remove("hidden");
     $(".auth-card").innerHTML = `
       <div class="brand-lockup">
@@ -215,8 +505,11 @@ function bindShell(){
   document.addEventListener("click",e=>{
     if(!e.target.closest(".global-search")) $("#search-results").classList.add("hidden");
   });
-  window.addEventListener("online",()=>{updateNetworkBadge();flushOfflineQueue()});
-  window.addEventListener("offline",updateNetworkBadge);
+  window.addEventListener("online",async()=>{
+    state.maintenanceMode=false;updateNetworkBadge();updateMaintenanceBanner();
+    await flushOfflineQueue();checkSystemVersionInBackground();ensureDailySystemBackup();
+  });
+  window.addEventListener("offline",()=>{state.maintenanceMode=true;updateNetworkBadge();updateMaintenanceBanner()});
 }
 
 function showAuth(){
@@ -247,13 +540,16 @@ async function navigate(view){
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
       laboratory:()=>renderAIStudio("laboratory"),pharmacology:()=>renderAIStudio("pharmacology"),
       osce:()=>renderAIStudio("osce"),library:renderLibrary,smart:renderSmartStudy,mistakes:renderMistakes,
-      plan:renderPlan,stats:renderStats,profile:renderProfile,
+      plan:renderPlan,stats:renderStats,profile:renderProfile,system:renderSystemCenter,
       mathematics:()=>renderScienceStudio("MATH"),physics:()=>renderScienceStudio("PHYS"),
       astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLabV17,
       course:renderCourse,course_lesson:renderCourseLesson
     };
     await (renderers[view]||renderDashboard)();
-  }catch(err){root.innerHTML=`<div class="card"><h3>No se pudo cargar</h3><p>${escapeHtml(err.message)}</p></div>`}
+  }catch(err){
+    logSystemError(`navigate:${view}`,err);
+    root.innerHTML=`<div class="card"><h3>No se pudo cargar</h3><p>${escapeHtml(err.message)}</p><button class="secondary-btn" onclick="navigate('system')">VER ESTADO DEL SISTEMA</button></div>`;
+  }
 }
 
 async function renderDashboard(){
@@ -3787,7 +4083,7 @@ async function renderSmartStudy(){
     root.innerHTML=`
       <section class="smart-hero">
         <div>
-          <div class="learning-home-chip"><span></span> SMART STUDY ENGINE · V25.2</div>
+          <div class="learning-home-chip"><span></span> SMART STUDY ENGINE · V26</div>
           <h1>Estudia lo que más necesitas, no lo que ya dominas.</h1>
           <p>MED AI combina tus errores, progreso, clases guardadas, Biblioteca y parciales anteriores. Primero reutiliza tus datos; la IA se reserva para cuando realmente agrega valor.</p>
           <div class="smart-hero-actions">
@@ -4749,6 +5045,10 @@ async function searchGlobal(){
 }
 
 async function hardRefreshApplication(){
+  // Create a recovery point before an intentional update whenever possible.
+  if(navigator.onLine){
+    try{await api("/api/system/backup",{method:"POST",body:{reason:"before_update"}})}catch(err){logSystemError("backup_before_update",err)}
+  }
   try{
     if("caches" in window){
       const keys=await caches.keys();
@@ -4758,55 +5058,100 @@ async function hardRefreshApplication(){
       const regs=await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r=>r.unregister()));
     }
-  }catch{}
+  }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v252",Date.now().toString());
+  url.searchParams.set("v26",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=25.2.0",{updateViaCache:"none"}).catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=26.0.0",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
 
 async function api(url,opts={}){
   const method=(opts.method||"GET").toUpperCase();
-  const config={credentials:"include",...opts,headers:{"content-type":"application/json",...(opts.headers||{})}};
+  const config={credentials:"include",...opts,headers:{"content-type":"application/json","x-medai-app-version":APP_VERSION,...(opts.headers||{})}};
   if(opts.body && typeof opts.body!=="string") config.body=JSON.stringify(opts.body);
   const cacheKey=offlineApiKey(url);
   try{
     const res=await fetch(url,config);
     const data=await res.json().catch(()=>({}));
-    if(!res.ok) throw new Error([data.error,data.detail].filter(Boolean).join(" · ")||`Error ${res.status}`);
+    if(!res.ok){
+      const incident=data.incident_id?` · Caso ${data.incident_id}`:"";
+      const component=data.component?` · ${data.component}`:"";
+      const err=new Error(([data.error,data.detail].filter(Boolean).join(" · ")||`Error ${res.status}`)+component+incident);
+      err.status=res.status;err.incident_id=data.incident_id||null;err.component=data.component||null;throw err;
+    }
     if(method==="GET"&&!url.includes("/auth/"))offlinePutJson(cacheKey,data).catch(()=>{});
+    if(navigator.onLine&&state.maintenanceMode){
+      state.maintenanceMode=false;updateMaintenanceBanner();
+    }
     return data;
   }catch(err){
+    logSystemError("api",err,{url,method,status:err?.status});
     if(method==="GET"){
       const saved=await offlineGetJson(cacheKey);
-      if(saved!==null&&saved!==undefined)return {...saved,__offline:true};
+      if(saved!==null&&saved!==undefined){
+        state.maintenanceMode=true;updateMaintenanceBanner("El servidor no respondió; mostrando la última copia guardada.");
+        return {...saved,__offline:true};
+      }
     }
     if(!navigator.onLine && ["POST","PUT","DELETE"].includes(method) && !url.includes("/auth/") &&
-       !url.includes("/api/ai/") && !url.includes("/source-import") && !url.includes("/study-pack") && !url.includes("/library/extract")){
+       !url.includes("/api/ai/") && !url.includes("/source-import") && !url.includes("/study-pack") &&
+       !url.includes("/library/extract") && !url.includes("/system/restore") && !url.includes("/system/backup")){
       queueOffline({url,opts:{...opts,body:typeof opts.body==="string"?JSON.parse(opts.body):opts.body}});
       toast("Sin internet: cambio guardado para sincronizar.",false);
+      updateNetworkBadge();
       return {ok:true,queued:true};
+    }
+    if(navigator.onLine){
+      state.maintenanceMode=true;updateMaintenanceBanner("Un servicio remoto no respondió. Puedes continuar con el material que ya está guardado.");
     }
     throw err;
   }
 }
-function queueOffline(item){const q=JSON.parse(localStorage.getItem("medai_queue")||"[]");q.push({...item,id:crypto.randomUUID(),at:new Date().toISOString()});localStorage.setItem("medai_queue",JSON.stringify(q))}
+function queueOffline(item){
+  const q=getOfflineQueue();
+  q.push({...item,id:crypto.randomUUID(),at:new Date().toISOString(),attempts:0});
+  localStorage.setItem("medai_queue",JSON.stringify(q.slice(-250)));
+}
 async function flushOfflineQueue(){
-  const q=JSON.parse(localStorage.getItem("medai_queue")||"[]");if(!q.length)return;
-  const pending=[];
-  for(const item of q){try{await api(item.url,item.opts)}catch{pending.push(item)}}
+  const q=getOfflineQueue();
+  if(!q.length){state.lastSyncReport={sent:0,pending:0,at:new Date().toISOString()};updateNetworkBadge();return state.lastSyncReport}
+  if(!navigator.onLine){updateNetworkBadge();return {sent:0,pending:q.length}}
+  const pending=[];let sent=0;
+  for(const item of q){
+    try{
+      const config={credentials:"include",...(item.opts||{}),headers:{"content-type":"application/json","x-medai-app-version":APP_VERSION,...(item.opts?.headers||{})}};
+      if(config.body && typeof config.body!=="string")config.body=JSON.stringify(config.body);
+      const res=await fetch(item.url,config);
+      if(!res.ok)throw new Error(`Error ${res.status}`);
+      sent++;
+    }catch(err){
+      pending.push({...item,attempts:Number(item.attempts||0)+1,last_error:String(err?.message||err).slice(0,500)});
+      logSystemError("sync_queue",err,{url:item.url,method:item.opts?.method||"POST"});
+    }
+  }
   localStorage.setItem("medai_queue",JSON.stringify(pending));
-  if(!pending.length)toast("Cambios sin conexión sincronizados.");
+  state.lastSyncReport={sent,pending:pending.length,at:new Date().toISOString()};
+  updateNetworkBadge();
+  if(sent&&!pending.length)toast(`${sent} cambio${sent===1?"":"s"} sin conexión sincronizado${sent===1?"":"s"}.`);
+  if(pending.length)toast(`${pending.length} cambio${pending.length===1?"":"s"} sigue${pending.length===1?"":"n"} pendiente${pending.length===1?"":"s"}.`,true);
+  return state.lastSyncReport;
 }
 function updateNetworkBadge(){
   const b=$("#sync-badge");if(!b)return;
-  b.textContent=navigator.onLine?"● SINCRONIZADO":"● OFFLINE · ESTUDIO LOCAL";
-  b.classList.toggle("offline",!navigator.onLine);
+  const pending=getOfflineQueue().length;
+  if(!navigator.onLine){
+    b.textContent=`● OFFLINE · ${pending?`${pending} PENDIENTE${pending===1?"":"S"}`:"ESTUDIO LOCAL"}`;
+  }else if(pending){
+    b.textContent=`● ${pending} PENDIENTE${pending===1?"":"S"} DE SYNC`;
+  }else{
+    b.textContent="● SINCRONIZADO";
+  }
+  b.classList.toggle("offline",!navigator.onLine||pending>0);
 }
 async function saveResume(data){return api("/api/resume",{method:"PUT",body:{...data,device_id:getDeviceId()}})}
 function getDeviceId(){let id=localStorage.getItem("medai_device");if(!id){id=crypto.randomUUID();localStorage.setItem("medai_device",id)}return id}
