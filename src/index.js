@@ -880,19 +880,23 @@ function aiErrorString(err){
 function classifyWorkersAIError(err){
   const t=aiErrorString(err);
   if(t.includes("3036")||t.includes("daily free allocation")||t.includes("10,000 neurons")||t.includes("used up your daily"))return "quota";
+  if(t.includes("insufficient credit")||t.includes("insufficient balance")||t.includes("credits")&&t.includes("exhaust"))return "credits";
   if(t.includes("3040")||t.includes("out of capacity")||t.includes("capacity"))return "capacity";
   if(t.includes("5035")||t.includes("requires workers paid"))return "paid_model";
-  if(t.includes("429"))return "rate";
+  if(t.includes("504")||t.includes("gateway timeout")||t.includes("timed out")||t.includes("timeout"))return "timeout";
+  if(t.includes("429")||t.includes("rate limited")||t.includes("rate_limit"))return "rate";
   return "other";
 }
 
 function workersAIUserMessage(err){
   const kind=classifyWorkersAIError(err);
-  if(kind==="quota")return "Se agotó la cuota gratuita diaria de Cloudflare Workers AI. Cloudflare la reinicia diariamente a las 00:00 UTC. Tus datos y tu progreso están seguros.";
-  if(kind==="capacity")return "Cloudflare Workers AI está temporalmente sin capacidad. MED AI intentó un modelo alternativo; vuelve a intentarlo en unos minutos.";
-  if(kind==="paid_model")return "El modelo solicitado requiere un plan de pago. MED AI intentará utilizar únicamente modelos compatibles con el plan gratuito.";
-  if(kind==="rate")return "Cloudflare está limitando temporalmente las solicitudes de IA. Espera unos segundos e inténtalo otra vez.";
-  return "Workers AI no pudo responder en este momento.";
+  if(kind==="credits")return "Los créditos de AI Gateway parecen haberse agotado. Tu progreso está seguro; recarga créditos en Cloudflare para continuar usando los modelos premium.";
+  if(kind==="quota")return "El respaldo de Workers AI alcanzó su cuota. MED AI también intentó los modelos premium del AI Gateway antes de mostrar este aviso.";
+  if(kind==="capacity")return "El proveedor de IA está temporalmente sin capacidad. MED AI probó modelos alternativos; vuelve a intentarlo en unos minutos.";
+  if(kind==="paid_model")return "El modelo solicitado no está disponible con la facturación actual. MED AI intentó modelos alternativos.";
+  if(kind==="timeout")return "La IA tardó demasiado en responder. MED AI intentó un modelo alternativo; vuelve a intentarlo.";
+  if(kind==="rate")return "El proveedor está limitando temporalmente las solicitudes. MED AI intentó un modelo alternativo; espera unos segundos e inténtalo otra vez.";
+  return "AI Gateway no pudo completar la respuesta en este momento.";
 }
 
 async function aiCourseMaterialPack(request,env,user){
@@ -996,20 +1000,24 @@ REGLAS ESTRICTAS:
     const response=await callCloudflareAI(env,{
       model,
       fallback:false,
+      task:"course_material",
       messages:[
         {role:"system",content:"Eres un profesor universitario y diseñador instruccional. Creas clases autocontenidas, progresivas, correctas y orientadas a comprensión profunda y práctica activa. Devuelve solo JSON válido."},
         {role:"user",content:prompt}
       ],
-      max_tokens:model===DEFAULT_FAST_MODEL?3600:4000,
+      max_tokens:model===PREMIUM_PRO_MODEL?4096:3600,
       temperature:temp,
       response_format:jsonMode?{type:"json_object"}:undefined
     });
     return parseJsonLoose(extractCloudflareText(response));
   }
   let parsed=null,lastAIError=null;
-  try{parsed=await run(DEFAULT_FAST_MODEL,.16,true)}catch(err){lastAIError=err}
+  try{parsed=await run(PREMIUM_PRO_MODEL,.18,true)}catch(err){lastAIError=err}
   if(!parsed?.sections?.length||!parsed?.practice?.length){
-    try{parsed=await run(DEFAULT_TEXT_MODEL,.18,false)}catch(err){lastAIError=err}
+    try{parsed=await run(PREMIUM_FLASH_MODEL,.16,true)}catch(err){lastAIError=err}
+  }
+  if(!parsed?.sections?.length||!parsed?.practice?.length){
+    try{parsed=await run(WORKERS_TEXT_MODEL,.16,false)}catch(err){lastAIError=err}
   }
   if(!parsed?.sections?.length||parsed.sections.length<3||!Array.isArray(parsed.practice)||parsed.practice.length<6){
     if(lastAIError)return json({error:workersAIUserMessage(lastAIError)},classifyWorkersAIError(lastAIError)==="quota"?429:503);
@@ -1499,9 +1507,69 @@ async function recordExam(request, env, user) {
 
 // -------------------- CLOUDFLARE WORKERS AI --------------------
 
-const DEFAULT_TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
-const DEFAULT_FAST_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
+const AI_GATEWAY_ID = "med-ai-dalton";
+
+// Premium models through AI Gateway Unified Billing.
+const PREMIUM_PRO_MODEL = "google/gemini-2.5-pro";
+const PREMIUM_FLASH_MODEL = "google/gemini-2.5-flash";
+
+// Workers AI remains as automatic backup. These requests also pass through
+// the same AI Gateway so prepaid credits can cover them when necessary.
+const WORKERS_TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const WORKERS_FAST_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
+const DEFAULT_TEXT_MODEL = PREMIUM_PRO_MODEL;
+const DEFAULT_FAST_MODEL = PREMIUM_FLASH_MODEL;
 const DEFAULT_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+
+function isWorkersAIModel(model){
+  return String(model||"").startsWith("@cf/");
+}
+
+function gatewayOptions(task="general",extra={}){
+  return {
+    gateway:{
+      id:AI_GATEWAY_ID,
+      skipCache:true,
+      collectLog:true,
+      metadata:{
+        app:"MED AI DALTON",
+        version:"20",
+        task,
+        ...extra
+      }
+    }
+  };
+}
+
+function modelTier(model){
+  if(model===PREMIUM_PRO_MODEL)return "advanced";
+  if(model===PREMIUM_FLASH_MODEL)return "fast";
+  return "backup";
+}
+
+function modelFallbackChain(requested){
+  const chain=[];
+  const push=m=>{if(m&&!chain.includes(m))chain.push(m)};
+
+  push(requested);
+
+  if(requested===PREMIUM_PRO_MODEL){
+    push(PREMIUM_FLASH_MODEL);
+    push(WORKERS_TEXT_MODEL);
+    push(WORKERS_FAST_MODEL);
+  }else if(requested===PREMIUM_FLASH_MODEL){
+    push(WORKERS_FAST_MODEL);
+    push(WORKERS_TEXT_MODEL);
+  }else if(isWorkersAIModel(requested)){
+    push(WORKERS_TEXT_MODEL);
+    push(WORKERS_FAST_MODEL);
+  }else{
+    push(PREMIUM_FLASH_MODEL);
+    push(WORKERS_TEXT_MODEL);
+    push(WORKERS_FAST_MODEL);
+  }
+  return chain;
+}
 
 async function aiChatStream(request, env, user, ctx) {
   ensureAI(env);
@@ -1544,7 +1612,7 @@ async function aiChatStream(request, env, user, ctx) {
   ];
 
   const model = selectChatModel(mode, message);
-  const maxTokens = model === DEFAULT_FAST_MODEL ? 1250 : 1700;
+  const maxTokens = model===PREMIUM_PRO_MODEL ? 3500 : 2400;
 
   // Save the user message before inference so conversation continuity is safe.
   await env.DB.prepare(`
@@ -1554,31 +1622,36 @@ async function aiChatStream(request, env, user, ctx) {
   `).bind(crypto.randomUUID(),user.id,conversationId,message,now).run();
 
   let aiStream=null,usedModel=model,lastStreamErr=null;
-  const streamModels=[model];
-  const alternate=model===DEFAULT_FAST_MODEL?DEFAULT_TEXT_MODEL:DEFAULT_FAST_MODEL;
-  if(!streamModels.includes(alternate))streamModels.push(alternate);
+  const streamModels=modelFallbackChain(model);
 
   for(const candidate of streamModels){
     try {
-      aiStream=await env.AI.run(candidate,{
+      const input={
         messages,
-        max_tokens:candidate===DEFAULT_FAST_MODEL?1250:maxTokens,
-        temperature:0.28,
-        stream:true,
-        chat_template_kwargs:{enable_thinking:false}
-      });
+        max_tokens:isWorkersAIModel(candidate)?Math.min(maxTokens,2200):maxTokens,
+        temperature:0.30,
+        stream:true
+      };
+      if(isWorkersAIModel(candidate)){
+        input.chat_template_kwargs={enable_thinking:false};
+      }
+
+      aiStream=await env.AI.run(
+        candidate,
+        input,
+        gatewayOptions(`stream_${mode}`,{model_requested:model,model_used:candidate})
+      );
       usedModel=candidate;
       break;
     } catch(err) {
       lastStreamErr=err;
-      console.error("CLOUDFLARE_AI_STREAM_MODEL_ERROR",candidate,err?.stack||err);
-      if(classifyWorkersAIError(err)==="quota")break;
+      console.error("AI_GATEWAY_STREAM_MODEL_ERROR",candidate,err?.stack||err);
     }
   }
 
   if(!aiStream){
     const kind=classifyWorkersAIError(lastStreamErr);
-    return json({error:workersAIUserMessage(lastStreamErr)},kind==="quota"?429:503);
+    return json({error:workersAIUserMessage(lastStreamErr)},["quota","rate","credits"].includes(kind)?429:503);
   }
 
   const [clientStream, archiveStream] = aiStream.tee();
@@ -1594,7 +1667,7 @@ async function aiChatStream(request, env, user, ctx) {
       "x-accel-buffering":"no",
       "x-medai-conversation-id":conversationId,
       "x-medai-model":usedModel,
-      "x-medai-speed-mode":usedModel === DEFAULT_FAST_MODEL ? "fast" : "advanced"
+      "x-medai-speed-mode":modelTier(usedModel)
     }
   });
 }
@@ -1735,9 +1808,11 @@ async function aiChat(request, env, user) {
   ];
 
   const response = await callCloudflareAI(env, {
+    model:selectChatModel(mode,message),
+    task:`chat_${mode}`,
     messages,
-    max_tokens: 1600,
-    temperature: 0.35
+    max_tokens:selectChatModel(mode,message)===PREMIUM_PRO_MODEL?3000:2200,
+    temperature:0.30
   });
 
   const answer = extractCloudflareText(response) ||
@@ -1778,7 +1853,7 @@ async function aiChat(request, env, user) {
     answer,
     conversation_id:conversationId,
     model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
-    provider:"Cloudflare Workers AI"
+    provider:"Cloudflare AI Gateway"
   });
 }
 
@@ -1847,6 +1922,7 @@ REGLAS:
 
   const response=await callCloudflareAI(env,{
     model:DEFAULT_FAST_MODEL,
+    task:"language_lesson",
     messages:[
       {role:"system",content:"Eres diseñador experto de experiencias de aprendizaje de idiomas. Combinas explicación breve, recuperación activa, práctica contextual, corrección inmediata, escucha y producción oral. Tu salida debe ser JSON válido."},
       {role:"user",content:prompt}
@@ -1919,6 +1995,7 @@ Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, co
 
   const response = await callCloudflareAI(env,{
     model: difficulty >= 7 ? DEFAULT_TEXT_MODEL : DEFAULT_FAST_MODEL,
+    task:"exam_generation",
     messages:[
       {
         role:"system",
@@ -1950,7 +2027,7 @@ Devuelve EXCLUSIVAMENTE JSON válido, sin markdown ni texto antes o después, co
   return json({
     questions,
     model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
-    provider:"Cloudflare Workers AI"
+    provider:"Cloudflare AI Gateway"
   });
 }
 
@@ -1992,6 +2069,7 @@ Devuelve SOLO JSON válido, sin markdown ni texto fuera del JSON:
 
   const response = await callCloudflareAI(env,{
     model:DEFAULT_FAST_MODEL,
+    task:"flashcards",
     messages:[
       {
         role:"system",
@@ -2028,7 +2106,7 @@ Devuelve SOLO JSON válido, sin markdown ni texto fuera del JSON:
     level,
     focus,
     model:response.__model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL,
-    provider:"Cloudflare Workers AI"
+    provider:"Cloudflare AI Gateway"
   });
 }
 
@@ -2050,27 +2128,31 @@ async function aiVision(request, env, user) {
   const model = env.CLOUDFLARE_VISION_MODEL || DEFAULT_VISION_MODEL;
 
   try {
-    const response = await env.AI.run(model,{
-      messages:[
-        {role:"system",content:medicalInstructions(mode)},
-        {
-          role:"user",
-          content:[
-            {
-              type:"image_url",
-              image_url:{url:dataUrl}
-            },
-            {
-              type:"text",
-              text:prompt
-            }
-          ]
-        }
-      ],
-      max_tokens:1700,
-      temperature:0.2,
-      chat_template_kwargs:{enable_thinking:false}
-    });
+    const response = await env.AI.run(
+      model,
+      {
+        messages:[
+          {role:"system",content:medicalInstructions(mode)},
+          {
+            role:"user",
+            content:[
+              {
+                type:"image_url",
+                image_url:{url:dataUrl}
+              },
+              {
+                type:"text",
+                text:prompt
+              }
+            ]
+          }
+        ],
+        max_tokens:1900,
+        temperature:0.2,
+        chat_template_kwargs:{enable_thinking:false}
+      },
+      gatewayOptions(`vision_${mode}`,{model_used:model})
+    );
 
     response.__model = model;
 
@@ -2078,7 +2160,7 @@ async function aiVision(request, env, user) {
       answer:extractCloudflareText(response) ||
         "No pude interpretar la imagen.",
       model,
-      provider:"Cloudflare Workers AI"
+      provider:"Cloudflare AI Gateway"
     });
   } catch(err) {
     console.error("CLOUDFLARE_VISION_ERROR",err?.stack||err);
@@ -2092,34 +2174,41 @@ async function aiVision(request, env, user) {
 async function callCloudflareAI(env, options) {
   ensureAI(env);
   const requested = options.model || env.CLOUDFLARE_AI_MODEL || DEFAULT_TEXT_MODEL;
-  const models=[requested];
-  if(options.fallback!==false){
-    const alternate=requested===DEFAULT_FAST_MODEL?DEFAULT_TEXT_MODEL:DEFAULT_FAST_MODEL;
-    if(!models.includes(alternate))models.push(alternate);
-  }
-
+  const models = options.fallback===false ? [requested] : modelFallbackChain(requested);
   let lastErr=null;
+
   for(const model of models){
     try {
       const input={
         messages:options.messages,
-        max_tokens:options.max_tokens || 2500,
-        temperature:options.temperature ?? 0.3,
-        chat_template_kwargs:{enable_thinking:false}
+        max_tokens:options.max_tokens || (model===PREMIUM_PRO_MODEL?3200:2200),
+        temperature:options.temperature ?? 0.30
       };
-      // JSON mode is documented for the fast Llama model. Do not pass it to
-      // models that may not support it.
-      if(options.response_format && model===DEFAULT_FAST_MODEL){
-        input.response_format=options.response_format;
+
+      if(options.stream) input.stream=true;
+      if(options.response_format) input.response_format=options.response_format;
+
+      if(isWorkersAIModel(model)){
+        input.chat_template_kwargs={enable_thinking:false};
       }
 
-      const response=await env.AI.run(model,input);
-      if(response && typeof response==="object")response.__model=model;
+      const response=await env.AI.run(
+        model,
+        input,
+        gatewayOptions(options.task||"general",{
+          model_requested:requested,
+          model_used:model
+        })
+      );
+
+      if(response && typeof response==="object"){
+        response.__model=model;
+        response.__gateway=AI_GATEWAY_ID;
+      }
       return response;
     } catch(err) {
       lastErr=err;
-      console.error("CLOUDFLARE_AI_MODEL_ERROR",model,err?.stack||err);
-      if(classifyWorkersAIError(err)==="quota")break;
+      console.error("AI_GATEWAY_MODEL_ERROR",model,err?.stack||err);
     }
   }
 
