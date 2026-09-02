@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v23-library-study-mode";
+const CACHE = "med-ai-dalton-v24-offline-study-vault";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=23.0.0",
-  "/app.js?v=23.0.0",
+  "/styles.css?v=24.0.0",
+  "/app.js?v=24.0.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];
@@ -28,13 +28,16 @@ self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
 
-  if (request.method !== "GET" || url.pathname.startsWith("/api/")) return;
+  // API data is cached in IndexedDB by app.js, not here.
+  if (url.pathname.startsWith("/api/")) return;
 
-  // Always prefer the newest deployed UI.
+  if (request.method !== "GET") return;
+
+  // App shell: online-first, cache fallback.
   event.respondWith(
     fetch(request)
       .then(response => {
-        if (response && response.ok) {
+        if (response && response.ok && url.origin === self.location.origin) {
           const copy = response.clone();
           caches.open(CACHE).then(cache => cache.put(request, copy));
         }
@@ -43,12 +46,11 @@ self.addEventListener("fetch", event => {
       .catch(async () => {
         const cached = await caches.match(request);
         if (cached) return cached;
-
         if (request.mode === "navigate") {
-          return caches.match("/index.html");
+          return (await caches.match("/index.html")) ||
+                 (await caches.match("/"));
         }
-
-        return new Response("Sin conexión", { status: 503 });
+        return new Response("Sin conexión", {status:503});
       })
   );
 });

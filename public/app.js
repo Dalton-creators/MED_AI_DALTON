@@ -12,12 +12,137 @@ const state = {
   universityPractice:null,universityExam:null,universityChatConversation:null,
   libraryFolderId:null,libraryData:null,libraryView:"files",
   libraryStudyFile:null,libraryStudyPacks:[],libraryStudyPdf:null,
-  libraryStudyDoc:null,libraryStudyRange:null
+  libraryStudyDoc:null,libraryStudyRange:null,
+  offlineDb:null,offlineReady:false
 };
 
 const $ = (s,el=document)=>el.querySelector(s);
 const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
 const root = $("#view-root");
+
+
+/* ============================================================
+   V24 · OFFLINE STUDY VAULT
+   JSON study data + selected R2 files stored locally in IndexedDB
+   ============================================================ */
+
+const OFFLINE_DB_NAME="medai_offline_v24";
+const OFFLINE_DB_VERSION=1;
+
+function openOfflineDB(){
+  if(state.offlineDb)return Promise.resolve(state.offlineDb);
+  if(!("indexedDB" in window))return Promise.reject(new Error("Este navegador no admite almacenamiento offline avanzado."));
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(OFFLINE_DB_NAME,OFFLINE_DB_VERSION);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains("json"))db.createObjectStore("json",{keyPath:"key"});
+      if(!db.objectStoreNames.contains("files"))db.createObjectStore("files",{keyPath:"id"});
+    };
+    req.onsuccess=()=>{state.offlineDb=req.result;state.offlineReady=true;resolve(req.result)};
+    req.onerror=()=>reject(req.error||new Error("No pude abrir el almacenamiento offline."));
+  });
+}
+
+async function offlineStorePut(store,record){
+  const db=await openOfflineDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,"readwrite");
+    tx.objectStore(store).put(record);
+    tx.oncomplete=()=>resolve(true);
+    tx.onerror=()=>reject(tx.error);
+  });
+}
+async function offlineStoreGet(store,key){
+  const db=await openOfflineDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,"readonly"),req=tx.objectStore(store).get(key);
+    req.onsuccess=()=>resolve(req.result||null);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function offlineStoreDelete(store,key){
+  const db=await openOfflineDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,"readwrite");
+    tx.objectStore(store).delete(key);
+    tx.oncomplete=()=>resolve(true);
+    tx.onerror=()=>reject(tx.error);
+  });
+}
+async function offlineStoreAll(store){
+  const db=await openOfflineDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,"readonly"),req=tx.objectStore(store).getAll();
+    req.onsuccess=()=>resolve(req.result||[]);
+    req.onerror=()=>reject(req.error);
+  });
+}
+
+function offlineApiKey(url){return `api:${url}`}
+async function offlinePutJson(key,value){
+  try{await offlineStorePut("json",{key,value,updated_at:new Date().toISOString()})}catch{}
+}
+async function offlineGetJson(key){
+  try{return (await offlineStoreGet("json",key))?.value??null}catch{return null}
+}
+async function offlineDeleteJson(key){
+  try{return offlineStoreDelete("json",key)}catch{}
+}
+async function offlineAllJson(){
+  try{return await offlineStoreAll("json")}catch{return []}
+}
+
+async function offlineGetFileRecord(id){
+  try{return await offlineStoreGet("files",id)}catch{return null}
+}
+async function offlineHasFile(id){return !!(await offlineGetFileRecord(id))}
+async function offlineRemoveFile(id){
+  try{return await offlineStoreDelete("files",id)}catch{}
+}
+async function offlineAllFiles(){
+  try{return await offlineStoreAll("files")}catch{return []}
+}
+
+async function cacheLibraryFileOffline(file){
+  if(!navigator.onLine)throw new Error("Conéctate a internet una vez para guardar este archivo en el dispositivo.");
+  if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});
+  const meta=getLibraryMeta(file);
+  const res=await fetch(libraryFileUrl(file.id,true),{credentials:"same-origin"});
+  if(!res.ok)throw new Error("No pude descargar el archivo para uso offline.");
+  const blob=await res.blob();
+  await offlineStorePut("files",{
+    id:file.id,
+    blob,
+    name:meta.original_name||file.title,
+    title:file.title,
+    mime:meta.mime_type||blob.type||"application/octet-stream",
+    size:blob.size,
+    updated_at:new Date().toISOString()
+  });
+  return true;
+}
+
+function courseOfflinePackKey(item=state.currentLesson,s=state.currentSubject){
+  return `coursepack:${s?.id||""}:${item?.topic_id||""}:${item?.lesson_id||""}:${s?.code==="LANG"?state.courseLanguage:""}`;
+}
+function courseOfflineExamKey(item=state.currentLesson,s=state.currentSubject){
+  return `courseexam:${s?.id||""}:${item?.lesson_id||""}:${s?.code==="LANG"?state.courseLanguage:""}`;
+}
+function languageOfflinePackKey(language,topic,level){
+  return `languagepack:${language}:${topic}:${level}`;
+}
+
+async function offlineVaultSummary(){
+  const [files,jsonRows]=await Promise.all([offlineAllFiles(),offlineAllJson()]);
+  return {
+    files,
+    coursePacks:jsonRows.filter(x=>x.key.startsWith("coursepack:")),
+    exams:jsonRows.filter(x=>x.key.startsWith("courseexam:")),
+    languagePacks:jsonRows.filter(x=>x.key.startsWith("languagepack:")),
+    apiRows:jsonRows.filter(x=>x.key.startsWith("api:"))
+  };
+}
 
 document.addEventListener("DOMContentLoaded", boot);
 
@@ -449,15 +574,26 @@ async function openCoursePhase(phase){
 
 async function loadCourseMasterclass(){
   const item=state.currentLesson,s=state.currentSubject;
-  try{
-    const pack=await api("/api/course/material-pack",{method:"POST",body:{subject_id:s.id,topic_id:item.topic_id,lesson_id:item.lesson_id,language:s.code==="LANG"?state.courseLanguage:null}});
-    state.courseLearningPack=pack.material;
+  const key=courseOfflinePackKey(item,s);
+  const local=await offlineGetJson(key);
+  const usePack=async(material,label)=>{
+    state.courseLearningPack=material;
     $("#course-pdf-side").disabled=false;
-    $("#course-material-status").textContent=pack.cached?"Clase recuperada de tu cuenta.":"Clase creada y guardada automáticamente.";
-    if(!Number(item.completed)&&Number(item.progress_percent||0)<35)await updateCourseLessonProgress(35,false,{stage:"lesson",material_saved:true},false);
+    $("#course-material-status").textContent=label;
+    if(!Number(item.completed)&&Number(item.progress_percent||0)<35)await updateCourseLessonProgress(35,false,{stage:"lesson",material_saved:true,offline_ready:true},false);
     const desired=coursePhaseAllowed(state.coursePhase)?state.coursePhase:"lesson";
     openCoursePhase(desired);
+  };
+  if(!navigator.onLine&&local){
+    await usePack(local,"Disponible sin internet · copia local V24 ✓");
+    return;
+  }
+  try{
+    const pack=await api("/api/course/material-pack",{method:"POST",body:{subject_id:s.id,topic_id:item.topic_id,lesson_id:item.lesson_id,language:s.code==="LANG"?state.courseLanguage:null}});
+    await offlinePutJson(key,pack.material);
+    await usePack(pack.material,pack.cached?"Clase recuperada y guardada offline ✓":"Clase creada, guardada en tu cuenta y offline ✓");
   }catch(err){
+    if(local){await usePack(local,"Usando copia offline porque la red no respondió ✓");return}
     $("#course-learning-body").innerHTML=`<div class="masterclass-error"><strong>No pude preparar el material de esta clase.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-pack" class="primary-btn">INTENTAR DE NUEVO</button></div>`;
     $("#retry-course-pack").onclick=loadCourseMasterclass;
     $("#course-material-status").textContent="Material pendiente.";
@@ -791,14 +927,19 @@ function updateMasterProgressStages(){
 async function startCourseFinalExam(){
   if(!coursePhaseAllowed("exam")){toast("Primero completa clase, práctica y resumen.",true);return}
   const item=state.currentLesson,s=state.currentSubject;
-  const area=$("#course-learning-body");
+  const area=$("#course-learning-body"),key=courseOfflineExamKey(item,s);
   area.innerHTML=`<div class="course-exam-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando examen final</strong><span>${escapeHtml(item.topic_name)}</span><small>10 preguntas · necesitas 8 correctas para aprobar</small></div>`;
   try{
-    const d=await api("/api/ai/exam",{method:"POST",body:{subject:s.name,topic:item.topic_name,count:10,difficulty:Number(item.difficulty||item.difficulty_min||5),language:s.code==="LANG"?state.courseLanguage:null}});
+    let d=await offlineGetJson(key);
+    if(!d){
+      if(!navigator.onLine)throw new Error("Este examen todavía no se ha preparado. Conéctate una vez para generarlo; después podrás repetirlo sin internet.");
+      d=await api("/api/ai/exam",{method:"POST",body:{subject:s.name,topic:item.topic_name,count:10,difficulty:Number(item.difficulty||item.difficulty_min||5),language:s.code==="LANG"?state.courseLanguage:null}});
+      if((d.questions||[]).length>=10)await offlinePutJson(key,d);
+    }
     state.courseExam={questions:(d.questions||[]).slice(0,10),answers:{},started_at:new Date().toISOString(),subject:s.name,topic:item.topic_name,current:0};
-    if(state.courseExam.questions.length<10)throw new Error("El examen no pudo generar las 10 preguntas completas. Inténtalo otra vez.");
+    if(state.courseExam.questions.length<10)throw new Error("El examen no contiene las 10 preguntas completas.");
     renderCourseFinalExam();
-  }catch(err){area.innerHTML=`<div class="masterclass-error"><strong>No pude generar el examen completo.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-exam" class="primary-btn">INTENTAR DE NUEVO</button></div>`;$("#retry-course-exam").onclick=startCourseFinalExam}
+  }catch(err){area.innerHTML=`<div class="masterclass-error"><strong>No pude preparar el examen completo.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-exam" class="primary-btn">INTENTAR DE NUEVO</button></div>`;$("#retry-course-exam").onclick=startCourseFinalExam}
 }
 
 function renderCourseFinalExam(){
@@ -1922,16 +2063,23 @@ async function startV17LanguageLesson(practiceFirst=false){
   updateV17Coach("Estoy preparando una clase corta y ejercicios distintos para que realmente practiques.");
 
   let pack;
+  const langLevel=$("#lang-level")?.value||"A1 — Principiante";
+  const offlineKey=languageOfflinePackKey(state.courseLanguage,item.topic_name,langLevel);
   try{
-    pack=await api("/api/language/lesson-pack",{method:"POST",body:{
-      language:state.courseLanguage,
-      topic:item.topic_name,
-      level:$("#lang-level")?.value||"A1 — Principiante",
-      practice_first:practiceFirst
-    }});
+    pack=await offlineGetJson(offlineKey);
+    if(!pack){
+      if(!navigator.onLine)throw new Error("offline");
+      pack=await api("/api/language/lesson-pack",{method:"POST",body:{
+        language:state.courseLanguage,
+        topic:item.topic_name,
+        level:langLevel,
+        practice_first:practiceFirst
+      }});
+      await offlinePutJson(offlineKey,pack);
+    }
   }catch(err){
     pack=buildV17FallbackLesson(item.topic_name);
-    toast("Usando una lección local de respaldo para evitar interrumpir el estudio.",false);
+    toast("Usando una lección local de respaldo para no interrumpir el estudio.",false);
   }
 
   const exercises=Array.isArray(pack.exercises)&&pack.exercises.length?pack.exercises:buildV17FallbackLesson(item.topic_name).exercises;
@@ -2808,9 +2956,10 @@ async function renderLibrary(){
       </div>
     </section>
 
-    <nav class="study-library-tabs">
+    <nav class="study-library-tabs study-library-tabs-v24">
       <button class="${state.libraryView==="files"?"active":""}" data-library-view="files"><span>▥</span><div><b>ARCHIVOS Y CARPETAS</b><small>Libros · PDF · presentaciones</small></div></button>
       <button class="${state.libraryView==="notes"?"active":""}" data-library-view="notes"><span>¶</span><div><b>APUNTES</b><small>Notas rápidas guardadas en D1</small></div></button>
+      <button class="${state.libraryView==="offline"?"active":""}" data-library-view="offline"><span>↓</span><div><b>ESTUDIO OFFLINE</b><small>Material disponible sin internet</small></div></button>
     </nav>
 
     <div id="study-library-content"></div>`;
@@ -2819,10 +2968,12 @@ async function renderLibrary(){
     state.libraryView=btn.dataset.libraryView;
     $$(".study-library-tabs button").forEach(x=>x.classList.toggle("active",x===btn));
     if(state.libraryView==="notes")renderLibraryNotes();
+    else if(state.libraryView==="offline")renderOfflineStudyVault();
     else loadStudyLibrary(state.libraryFolderId);
   });
 
   if(state.libraryView==="notes")await renderLibraryNotes();
+  else if(state.libraryView==="offline")await renderOfflineStudyVault();
   else await loadStudyLibrary(state.libraryFolderId);
 }
 
@@ -2962,8 +3113,9 @@ function renderStudyLibraryFiles(){
         return `<article class="library-file-tile" data-search="${escapeAttr(searchable)}">
           <div class="library-file-preview ${info.cls}"><span>${info.icon}</span><em>${escapeHtml(info.label)}</em></div>
           <div class="library-file-copy"><strong title="${escapeAttr(file.title)}">${escapeHtml(file.title)}</strong><span>${formatBytes(meta.size_bytes)} · ${formatDate(file.updated_at)}</span></div>
-          <div class="library-file-actions library-file-actions-v23">
+          <div class="library-file-actions library-file-actions-v24">
             <button class="library-study-file" data-id="${escapeAttr(file.id)}"><span>✦</span> ESTUDIAR CON MED AI</button>
+            <button class="library-offline-file" data-id="${escapeAttr(file.id)}"><span>↓</span> OFFLINE</button>
             <button class="library-open-file" data-id="${escapeAttr(file.id)}">ABRIR</button>
             <button class="library-download-file" data-id="${escapeAttr(file.id)}" title="Descargar">↓</button>
             <button class="library-rename" data-id="${escapeAttr(file.id)}" data-type="file" data-name="${escapeAttr(file.title)}" title="Renombrar">✎</button>
@@ -2985,10 +3137,12 @@ function renderStudyLibraryFiles(){
     $$("#library-grid>[data-search]").forEach(x=>x.classList.toggle("hidden",q&&!x.dataset.search.includes(q)));
   };
   $$(".library-study-file").forEach(b=>b.onclick=()=>openLibraryStudyMode(b.dataset.id));
+  $$(".library-offline-file").forEach(b=>b.onclick=()=>toggleLibraryFileOffline(b.dataset.id));
   $$(".library-open-file").forEach(b=>b.onclick=()=>openStudyLibraryFile(b.dataset.id));
   $$(".library-download-file").forEach(b=>b.onclick=()=>downloadStudyLibraryFile(b.dataset.id));
   $$(".library-rename").forEach(b=>b.onclick=()=>renameStudyLibraryItem(b.dataset.id,b.dataset.type,b.dataset.name));
   $$(".library-delete").forEach(b=>b.onclick=()=>deleteStudyLibraryItem(b.dataset.id,b.dataset.type,b.dataset.name));
+  refreshLibraryOfflineButtons().catch(()=>{});
 }
 
 
@@ -3043,24 +3197,64 @@ async function openLibraryStudyMode(fileId){
   }
 }
 
-async function loadPdfJs(){
-  if(window.__medaiPdfJs)return window.__medaiPdfJs;
-  const pdfjs=await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
-  window.__medaiPdfJs=pdfjs;
-  return pdfjs;
+async function inflateRawBytes(bytes){
+  if(!("DecompressionStream" in window))throw new Error("Este navegador no puede descomprimir presentaciones localmente.");
+  const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
-
-async function loadJsZip(){
-  if(window.__medaiJsZip)return window.__medaiJsZip;
-  const mod=await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
-  window.__medaiJsZip=mod.default||mod;
-  return window.__medaiJsZip;
+async function zipEntriesFromBuffer(buffer){
+  const bytes=new Uint8Array(buffer),view=new DataView(buffer);
+  let eocd=-1;
+  for(let i=bytes.length-22;i>=Math.max(0,bytes.length-66000);i--){
+    if(view.getUint32(i,true)===0x06054b50){eocd=i;break}
+  }
+  if(eocd<0)throw new Error("El archivo Office no parece ser un ZIP válido.");
+  const count=view.getUint16(eocd+10,true);
+  let pos=view.getUint32(eocd+16,true);
+  const entries=[];
+  const decoder=new TextDecoder("utf-8");
+  for(let n=0;n<count&&pos+46<=bytes.length;n++){
+    if(view.getUint32(pos,true)!==0x02014b50)break;
+    const method=view.getUint16(pos+10,true);
+    const compressedSize=view.getUint32(pos+20,true);
+    const nameLen=view.getUint16(pos+28,true);
+    const extraLen=view.getUint16(pos+30,true);
+    const commentLen=view.getUint16(pos+32,true);
+    const localOffset=view.getUint32(pos+42,true);
+    const name=decoder.decode(bytes.slice(pos+46,pos+46+nameLen));
+    entries.push({name,method,compressedSize,localOffset});
+    pos+=46+nameLen+extraLen+commentLen;
+  }
+  return {
+    entries,
+    async text(name){
+      const entry=entries.find(e=>e.name===name);if(!entry)return null;
+      const lp=entry.localOffset;
+      if(view.getUint32(lp,true)!==0x04034b50)throw new Error("Cabecera ZIP inválida.");
+      const fn=view.getUint16(lp+26,true),ex=view.getUint16(lp+28,true);
+      const start=lp+30+fn+ex,end=start+entry.compressedSize;
+      let data=bytes.slice(start,end);
+      if(entry.method===8)data=await inflateRawBytes(data);
+      else if(entry.method!==0)throw new Error("Método ZIP no compatible.");
+      return decoder.decode(data);
+    }
+  };
+}
+function splitStudyTextIntoBlocks(text,target=9000){
+  const paras=String(text||"").replace(/\r/g,"").split(/\n{2,}/).map(x=>x.trim()).filter(Boolean);
+  const blocks=[];let current="";
+  for(const p of paras){
+    if(current && current.length+p.length+2>target){blocks.push(current.trim());current=""}
+    current+=(current?"\n\n":"")+p;
+  }
+  if(current.trim())blocks.push(current.trim());
+  if(!blocks.length&&text)blocks.push(String(text).trim());
+  return blocks;
 }
 
 function libraryStudySupport(file){
   const meta=getLibraryMeta(file),mime=meta.mime_type||"",name=(meta.original_name||file.title||"").toLowerCase(),ext=name.split(".").pop();
-  if(mime==="application/pdf"||ext==="pdf")return {type:"pdf",label:"PDF",unit:"páginas",max:20};
+  if(mime==="application/pdf"||ext==="pdf")return {type:"pdf",label:"PDF",unit:"bloques",max:3};
   if(ext==="pptx"||mime==="application/vnd.openxmlformats-officedocument.presentationml.presentation")return {type:"pptx",label:"Presentación",unit:"diapositivas",max:30};
   if(ext==="docx"||mime==="application/vnd.openxmlformats-officedocument.wordprocessingml.document")return {type:"docx",label:"Documento",unit:"documento",max:1};
   if(mime.startsWith("text/")||["txt","md","rtf"].includes(ext))return {type:"text",label:"Texto",unit:"documento",max:1};
@@ -3112,6 +3306,9 @@ async function renderLibraryStudyHome(){
 }
 
 async function fetchLibraryFileBuffer(file){
+  const local=await offlineGetFileRecord(file.id);
+  if(local?.blob)return local.blob.arrayBuffer();
+  if(!navigator.onLine)throw new Error("Este archivo no está guardado offline. Conéctate una vez o marca el archivo como OFFLINE.");
   const res=await fetch(libraryFileUrl(file.id,true),{credentials:"same-origin"});
   if(!res.ok)throw new Error("No pude descargar temporalmente el archivo para leerlo.");
   return res.arrayBuffer();
@@ -3119,27 +3316,27 @@ async function fetchLibraryFileBuffer(file){
 
 async function prepareLibraryStudySource(support){
   const body=$("#library-study-body"),file=state.libraryStudyFile;
-  body.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Leyendo ${escapeHtml(file.title)} en tu dispositivo…</strong><small>Aún no estamos usando créditos de IA.</small></div>`;
+  body.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando ${escapeHtml(file.title)}…</strong><small>${support.type==="pdf"?"La conversión del PDF se guarda para no repetirla.":"Extracción local sin IA."}</small></div>`;
   try{
     if(support.type==="pdf"){
-      const pdfjs=await loadPdfJs();
-      const buffer=await fetchLibraryFileBuffer(file);
-      const pdf=await pdfjs.getDocument({data:new Uint8Array(buffer)}).promise;
-      state.libraryStudyPdf=pdf;
-      renderLibraryStudyRangeForm({type:"pdf",total:pdf.numPages,label:"páginas",max:20});
+      if(!navigator.onLine)throw new Error("Para crear una NUEVA sesión desde un PDF necesitas internet. Las sesiones ya preparadas y el PDF marcado OFFLINE sí pueden repasarse sin conexión.");
+      const converted=await api("/api/library/extract",{method:"POST",body:{file_id:file.id}});
+      const blocks=splitStudyTextIntoBlocks(converted.text||"",9000);
+      if(!blocks.length)throw new Error("No pude extraer texto utilizable de este PDF.");
+      state.libraryStudyDoc={type:"pdf",units:blocks,conversion_cached:!!converted.cached};
+      renderLibraryStudyRangeForm({type:"pdf",total:blocks.length,label:"bloques",max:3});
       return;
     }
     if(support.type==="pptx"||support.type==="docx"){
-      const JSZip=await loadJsZip();
       const buffer=await fetchLibraryFileBuffer(file);
-      const zip=await JSZip.loadAsync(buffer);
+      const zip=await zipEntriesFromBuffer(buffer);
       if(support.type==="pptx"){
-        const slideEntries=Object.keys(zip.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/i.test(n)).sort((a,b)=>{
+        const slideEntries=zip.entries.map(e=>e.name).filter(n=>/^ppt\/slides\/slide\d+\.xml$/i.test(n)).sort((a,b)=>{
           const na=Number(a.match(/slide(\d+)/i)?.[1]||0),nb=Number(b.match(/slide(\d+)/i)?.[1]||0);return na-nb;
         });
         const slides=[];
         for(const name of slideEntries){
-          const xml=await zip.file(name).async("text");
+          const xml=await zip.text(name);
           const doc=new DOMParser().parseFromString(xml,"application/xml");
           const texts=[...doc.getElementsByTagNameNS("*","t")].map(n=>n.textContent||"").filter(Boolean);
           slides.push(texts.join(" "));
@@ -3148,9 +3345,8 @@ async function prepareLibraryStudySource(support){
         renderLibraryStudyRangeForm({type:"pptx",total:slides.length,label:"diapositivas",max:30});
         return;
       }else{
-        const entry=zip.file("word/document.xml");
-        if(!entry)throw new Error("No pude encontrar el texto principal de este documento Word.");
-        const xml=await entry.async("text");
+        const xml=await zip.text("word/document.xml");
+        if(!xml)throw new Error("No pude encontrar el texto principal de este documento Word.");
         const doc=new DOMParser().parseFromString(xml,"application/xml");
         const paras=[...doc.getElementsByTagNameNS("*","p")].map(p=>[...p.getElementsByTagNameNS("*","t")].map(t=>t.textContent||"").join(" ")).filter(Boolean);
         state.libraryStudyDoc={type:"docx",text:paras.join("\n\n")};
@@ -3159,9 +3355,16 @@ async function prepareLibraryStudySource(support){
       }
     }
     if(support.type==="text"){
-      const res=await fetch(libraryFileUrl(file.id,true),{credentials:"same-origin"});
-      if(!res.ok)throw new Error("No pude leer este archivo.");
-      state.libraryStudyDoc={type:"text",text:await res.text()};
+      const local=await offlineGetFileRecord(file.id);
+      let text="";
+      if(local?.blob)text=await local.blob.text();
+      else{
+        if(!navigator.onLine)throw new Error("Marca este archivo como OFFLINE antes de desconectarte.");
+        const res=await fetch(libraryFileUrl(file.id,true),{credentials:"same-origin"});
+        if(!res.ok)throw new Error("No pude leer este archivo.");
+        text=await res.text();
+      }
+      state.libraryStudyDoc={type:"text",text};
       renderLibraryStudyRangeForm({type:"text",total:1,label:"documento",max:1});
     }
   }catch(err){
@@ -3184,11 +3387,12 @@ function renderLibraryStudyRangeForm(info){
       <div class="library-study-range-layout">
         <section class="card">
           ${range?`<div class="library-range-fields">
-            <div class="field"><label>Desde ${info.label==="páginas"?"página":"diapositiva"}</label><input id="library-range-start" type="number" min="1" max="${info.total}" value="1"></div>
+            <div class="field"><label>Desde ${info.label==="bloques"?"bloque":info.label==="páginas"?"página":"diapositiva"}</label><input id="library-range-start" type="number" min="1" max="${info.total}" value="1"></div>
             <div class="library-range-arrow">→</div>
             <div class="field"><label>Hasta</label><input id="library-range-end" type="number" min="1" max="${info.total}" value="${Math.min(info.total,info.max)}"></div>
           </div>
-          <div id="library-range-info" class="library-range-info">${Math.min(info.total,info.max)} ${info.label} seleccionadas</div>`:""}
+          <div id="library-range-info" class="library-range-info">${Math.min(info.total,info.max)} ${info.label} seleccionadas</div>
+          <div id="library-range-preview" class="library-range-preview"></div>`:""}
           <div class="field"><label>¿Qué tema o enfoque estás viendo?</label><input id="library-study-focus" placeholder="Ej. Regulación de la presión arterial, capítulo 19..." value=""></div>
           <div class="field"><label>Instrucción opcional para MED AI</label><textarea id="library-study-instruction" rows="4" placeholder="Ej. El profesor dijo que esto entra al parcial. Quiero entender especialmente los mecanismos y las diferencias..."></textarea></div>
           <div class="library-study-options">
@@ -3215,21 +3419,13 @@ function renderLibraryStudyRangeForm(info){
       const count=b-a+1;
       $("#library-range-info").textContent=count>info.max?`⚠ Máximo ${info.max} ${info.label}. Reduce el rango.`:`${count} ${info.label} seleccionadas`;
       $("#library-range-info").classList.toggle("warning",count>info.max);
+      const units=state.libraryStudyDoc?.units||[];
+      const preview=units.slice(a-1,Math.min(b,a+2)).map((t,i)=>`<div><b>${escapeHtml(info.label==="diapositivas"?`Diapositiva ${a+i}`:`Bloque ${a+i}`)}</b><span>${escapeHtml(String(t||"").slice(0,240))}${String(t||"").length>240?"…":""}</span></div>`).join("");
+      if($("#library-range-preview"))$("#library-range-preview").innerHTML=preview;
     };
-    $("#library-range-start").oninput=update;$("#library-range-end").oninput=update;
+    $("#library-range-start").oninput=update;$("#library-range-end").oninput=update;update();
   }
   $("#library-study-extract").onclick=()=>extractAndCreateLibraryStudyPack(info);
-}
-
-async function extractPdfPages(pdf,start,end){
-  const chunks=[];
-  for(let p=start;p<=end;p++){
-    const page=await pdf.getPage(p);
-    const content=await page.getTextContent();
-    const text=content.items.map(i=>i.str||"").join(" ").replace(/\s+/g," ").trim();
-    chunks.push(`===== PÁGINA ${p} =====\n${text}`);
-  }
-  return chunks.join("\n\n");
 }
 
 async function extractAndCreateLibraryStudyPack(info){
@@ -3244,8 +3440,10 @@ async function extractAndCreateLibraryStudyPack(info){
     const btn=$("#library-study-extract");
     btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>EXTRAYENDO MATERIAL…</strong><small>Todavía sin IA</small></div>`;
 
-    if(info.type==="pdf")text=await extractPdfPages(state.libraryStudyPdf,start,end);
-    else if(info.type==="pptx"){
+    if(info.type==="pdf"){
+      const units=state.libraryStudyDoc.units.slice(start-1,end);
+      text=units.map((t,i)=>`===== BLOQUE ${start+i} DEL PDF =====\n${t}`).join("\n\n");
+    }else if(info.type==="pptx"){
       const units=state.libraryStudyDoc.units.slice(start-1,end);
       text=units.map((t,i)=>`===== DIAPOSITIVA ${start+i} =====\n${t}`).join("\n\n");
     }else text=state.libraryStudyDoc?.text||"";
@@ -3264,12 +3462,12 @@ async function extractAndCreateLibraryStudyPack(info){
 
 function renderLibraryStudyConfirm(ctx){
   const {info,start,end,text,focus,instruction}=ctx,file=state.libraryStudyFile,body=$("#library-study-body");
-  const scope=info.total>1?`${info.label==="páginas"?"Páginas":"Diapositivas"} ${start}–${end}`:"Documento";
+  const scope=info.total>1?`${info.label==="bloques"?"Bloques":info.label==="páginas"?"Páginas":"Diapositivas"} ${start}–${end}`:"Documento";
   const approx=Math.max(1,Math.round(text.length/4));
   body.innerHTML=`
     <section class="library-study-confirm">
       <button id="library-study-confirm-back" class="ghost-btn">← CAMBIAR SELECCIÓN</button>
-      <div class="library-study-confirm-head"><div><span>PASO 2 DE 2</span><h2>Listo para crear tu clase guardada.</h2><p>Ahora sí haremos una única llamada a Gemini 2.5 Flash usando solamente el contenido seleccionado.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} caracteres/tokens estimados de texto local</small></div></div>
+      <div class="library-study-confirm-head"><div><span>PASO 2 DE 2</span><h2>Listo para crear tu clase guardada.</h2><p>Ahora sí haremos una única llamada a Gemini 2.5 Flash usando solamente el contenido seleccionado.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens aproximados de contexto</small></div></div>
       <div class="library-study-confirm-grid">
         <section class="card">
           <div class="panel-code">SESIÓN</div>
@@ -3344,6 +3542,97 @@ async function openLibrarySavedStudyPack(id,justCreated=false){
   }
 }
 
+
+async function refreshLibraryOfflineButtons(){
+  const buttons=$$(".library-offline-file");
+  for(const btn of buttons){
+    const saved=await offlineHasFile(btn.dataset.id);
+    btn.classList.toggle("saved",saved);
+    btn.innerHTML=saved?`<span>✓</span> OFFLINE`:`<span>↓</span> OFFLINE`;
+    btn.title=saved?"Guardado en este dispositivo":"Guardar en este dispositivo";
+  }
+}
+
+async function toggleLibraryFileOffline(id){
+  const file=(state.libraryData?.files||[]).find(x=>x.id===id);
+  if(!file)return;
+  const existing=await offlineGetFileRecord(id);
+  if(existing){
+    if(!confirm(`¿Quitar "${file.title}" del almacenamiento offline de este dispositivo? El archivo seguirá seguro en tu Biblioteca R2.`))return;
+    await offlineRemoveFile(id);
+    toast("Copia offline eliminada. El archivo sigue en tu Biblioteca.");
+    refreshLibraryOfflineButtons();
+    return;
+  }
+  if(!navigator.onLine)return toast("Necesitas internet una vez para descargar la copia offline.",true);
+  const btn=$(`.library-offline-file[data-id="${CSS.escape(id)}"]`);
+  if(btn){btn.disabled=true;btn.innerHTML=`<span class="university-spin">↓</span> GUARDANDO…`}
+  try{
+    await cacheLibraryFileOffline(file);
+    toast("Archivo disponible sin internet en este dispositivo.");
+    await refreshLibraryOfflineButtons();
+  }catch(err){toast(err.message,true)}
+  finally{if(btn)btn.disabled=false}
+}
+
+async function renderOfflineStudyVault(){
+  const box=$("#study-library-content");
+  box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Revisando material offline…</strong></div>`;
+  const summary=await offlineVaultSummary();
+  const bytes=summary.files.reduce((a,f)=>a+Number(f.size||f.blob?.size||0),0);
+  box.innerHTML=`
+    <section class="offline-vault-hero">
+      <div>
+        <div class="learning-home-chip"><span></span> OFFLINE STUDY VAULT · V24</div>
+        <h2>Tu estudio continúa aunque se vaya el internet.</h2>
+        <p>Las clases que ya abriste se conservan localmente. Los libros que marques como OFFLINE también quedan en este dispositivo.</p>
+      </div>
+      <div class="offline-vault-signal ${navigator.onLine?"online":"offline"}"><i></i><strong>${navigator.onLine?"INTERNET DISPONIBLE":"MODO SIN CONEXIÓN"}</strong><small>${navigator.onLine?"La IA está disponible.":"Repaso local activo."}</small></div>
+    </section>
+
+    <section class="offline-vault-stats">
+      <div><span>▥</span><strong>${summary.files.length}</strong><small>archivos offline</small></div>
+      <div><span>📖</span><strong>${summary.coursePacks.length}</strong><small>clases de curso</small></div>
+      <div><span>✓</span><strong>${summary.exams.length}</strong><small>exámenes reutilizables</small></div>
+      <div><span>文</span><strong>${summary.languagePacks.length}</strong><small>lecciones de idiomas</small></div>
+      <div><span>☁</span><strong>${formatBytes(bytes)}</strong><small>en este dispositivo</small></div>
+    </section>
+
+    <section class="offline-vault-info">
+      <div><b>✓</b><span><strong>Funciona sin internet</strong><small>Clases guardadas, resúmenes, mapas, diagramas, práctica, exámenes reutilizados, apuntes cacheados y archivos marcados OFFLINE.</small></span></div>
+      <div><b>✦</b><span><strong>La IA necesita internet</strong><small>Tutor IA, crear una clase nueva o analizar un archivo nuevo vuelve a funcionar automáticamente cuando recuperas conexión.</small></span></div>
+      <div><b>↻</b><span><strong>Sincronización posterior</strong><small>Los cambios compatibles hechos sin conexión quedan en cola y se envían cuando regresa internet.</small></span></div>
+    </section>
+
+    <section class="offline-vault-list">
+      <div class="library-study-saved-head"><div><span>ARCHIVOS EN ESTE DISPOSITIVO</span><h3>${summary.files.length} disponible${summary.files.length===1?"":"s"}</h3></div><small>Solo ocupan espacio local los que tú eliges</small></div>
+      <div class="library-grid">
+        ${summary.files.length?summary.files.map(f=>{
+          const info=libraryFileIcon(f.mime||"",f.name||f.title);
+          return `<article class="library-file-tile offline-file-tile">
+            <div class="library-file-preview ${info.cls}"><span>${info.icon}</span><em>${escapeHtml(info.label)}</em></div>
+            <div class="library-file-copy"><strong>${escapeHtml(f.title||f.name)}</strong><span>${formatBytes(f.size||f.blob?.size||0)} · OFFLINE ✓</span></div>
+            <div class="offline-file-actions"><button class="primary-btn offline-open-local" data-id="${escapeAttr(f.id)}">ABRIR</button><button class="secondary-btn offline-remove-local" data-id="${escapeAttr(f.id)}">QUITAR OFFLINE</button></div>
+          </article>`;
+        }).join(""):`<div class="library-empty-folder"><div><span>↓</span><span>▤</span></div><strong>Aún no has marcado archivos para uso offline.</strong><p>Vuelve a Archivos y carpetas y pulsa OFFLINE en los libros o PDFs que quieras llevar contigo.</p></div>`}
+      </div>
+    </section>`;
+  $$(".offline-open-local").forEach(b=>b.onclick=()=>openOfflineFileById(b.dataset.id));
+  $$(".offline-remove-local").forEach(b=>b.onclick=async()=>{await offlineRemoveFile(b.dataset.id);renderOfflineStudyVault()});
+}
+
+async function openOfflineFileById(id){
+  const rec=await offlineGetFileRecord(id);
+  if(!rec)return toast("Ya no encuentro la copia offline.",true);
+  const fake={id,title:rec.title||rec.name,metadata_json:JSON.stringify({mime_type:rec.mime,original_name:rec.name,size_bytes:rec.size})};
+  const info=libraryFileIcon(rec.mime||"",rec.name||rec.title);
+  const type=info.cls==="pdf"?"pdf":info.cls==="image"?"image":info.cls==="text"?"text":"other";
+  const url=URL.createObjectURL(rec.blob);
+  if(type==="pdf"||type==="image"||type==="text")openLibraryViewer(fake,type,url);
+  else{
+    const a=document.createElement("a");a.href=url;a.download=rec.name||rec.title||"archivo";a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
+  }
+}
 async function createStudyLibraryFolder(){
   const name=prompt("Nombre de la nueva carpeta:");
   if(!name?.trim())return;
@@ -3396,23 +3685,30 @@ async function openStudyLibraryFile(id){
   if(!file)return;
   const meta=getLibraryMeta(file),mime=meta.mime_type||"",name=meta.original_name||file.title;
   const ext=String(name).split(".").pop().toLowerCase();
+  const local=await offlineGetFileRecord(id);
+  let localUrl=null;
+  if(local?.blob)localUrl=URL.createObjectURL(local.blob);
 
   if(mime==="application/pdf"||ext==="pdf"){
-    openLibraryViewer(file,"pdf");
+    openLibraryViewer(file,"pdf",localUrl);
     return;
   }
   if(mime.startsWith("image/")){
-    openLibraryViewer(file,"image");
+    openLibraryViewer(file,"image",localUrl);
     return;
   }
   if(mime.startsWith("text/")||["txt","md","rtf"].includes(ext)){
-    openLibraryViewer(file,"text");
+    openLibraryViewer(file,"text",localUrl);
     return;
   }
+  if(localUrl){
+    const a=document.createElement("a");a.href=localUrl;a.download=name||file.title;a.click();setTimeout(()=>URL.revokeObjectURL(localUrl),5000);return;
+  }
+  if(!navigator.onLine)return toast("Este archivo no fue guardado para uso offline.",true);
   window.open(libraryFileUrl(id,true),"_blank","noopener,noreferrer");
 }
 
-function openLibraryViewer(file,type){
+function openLibraryViewer(file,type,localUrl=null){
   const meta=getLibraryMeta(file);
   let overlay=$("#library-file-viewer");
   if(!overlay){
@@ -3421,19 +3717,27 @@ function openLibraryViewer(file,type){
     overlay.className="library-file-viewer";
     document.body.appendChild(overlay);
   }
-  const url=libraryFileUrl(file.id,true);
+  const url=localUrl||libraryFileUrl(file.id,true);
   overlay.innerHTML=`<div class="library-viewer-shell">
     <header><div><span>${escapeHtml(libraryFileIcon(meta.mime_type||"",meta.original_name||file.title).label)}</span><strong>${escapeHtml(file.title)}</strong></div><div><button id="library-viewer-download" class="secondary-btn">↓ DESCARGAR</button><button id="library-viewer-close" class="library-viewer-close">×</button></div></header>
     <main>${type==="pdf"?`<iframe src="${escapeAttr(url)}" title="${escapeAttr(file.title)}"></iframe>`:type==="image"?`<div class="library-image-view"><img src="${escapeAttr(url)}" alt="${escapeAttr(file.title)}"></div>`:`<iframe src="${escapeAttr(url)}" title="${escapeAttr(file.title)}"></iframe>`}</main>
   </div>`;
   document.body.classList.add("modal-open");
-  $("#library-viewer-close").onclick=()=>{overlay.remove();document.body.classList.remove("modal-open")};
+  const close=()=>{overlay.remove();document.body.classList.remove("modal-open");if(localUrl)URL.revokeObjectURL(localUrl)};
+  $("#library-viewer-close").onclick=close;
   $("#library-viewer-download").onclick=()=>downloadStudyLibraryFile(file.id);
-  overlay.onclick=e=>{if(e.target===overlay){overlay.remove();document.body.classList.remove("modal-open")}};
+  overlay.onclick=e=>{if(e.target===overlay)close()};
 }
 
-function downloadStudyLibraryFile(id){
+async function downloadStudyLibraryFile(id){
+  const local=await offlineGetFileRecord(id);
   const a=document.createElement("a");
+  if(local?.blob){
+    const url=URL.createObjectURL(local.blob);
+    a.href=url;a.download=local.name||local.title||"archivo";
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);return;
+  }
+  if(!navigator.onLine)return toast("Este archivo no está guardado offline.",true);
   a.href=libraryFileUrl(id,false);
   a.rel="noopener";
   document.body.appendChild(a);a.click();a.remove();
@@ -3592,26 +3896,34 @@ async function hardRefreshApplication(){
     }
   }catch{}
   const url=new URL(location.href);
-  url.searchParams.set("v23",Date.now().toString());
+  url.searchParams.set("v24",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=23.0.0",{updateViaCache:"none"}).catch(()=>{});
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=24.0.0",{updateViaCache:"none"}).catch(()=>{});
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
 
 async function api(url,opts={}){
+  const method=(opts.method||"GET").toUpperCase();
   const config={credentials:"include",...opts,headers:{"content-type":"application/json",...(opts.headers||{})}};
   if(opts.body && typeof opts.body!=="string") config.body=JSON.stringify(opts.body);
+  const cacheKey=offlineApiKey(url);
   try{
     const res=await fetch(url,config);
     const data=await res.json().catch(()=>({}));
     if(!res.ok) throw new Error([data.error,data.detail].filter(Boolean).join(" · ")||`Error ${res.status}`);
+    if(method==="GET"&&!url.includes("/auth/"))offlinePutJson(cacheKey,data).catch(()=>{});
     return data;
   }catch(err){
-    if(!navigator.onLine && ["POST","PUT","DELETE"].includes((opts.method||"GET").toUpperCase()) && !url.includes("/auth/")){
+    if(method==="GET"){
+      const saved=await offlineGetJson(cacheKey);
+      if(saved!==null&&saved!==undefined)return {...saved,__offline:true};
+    }
+    if(!navigator.onLine && ["POST","PUT","DELETE"].includes(method) && !url.includes("/auth/") &&
+       !url.includes("/api/ai/") && !url.includes("/source-import") && !url.includes("/study-pack") && !url.includes("/library/extract")){
       queueOffline({url,opts:{...opts,body:typeof opts.body==="string"?JSON.parse(opts.body):opts.body}});
       toast("Sin internet: cambio guardado para sincronizar.",false);
       return {ok:true,queued:true};
@@ -3629,7 +3941,8 @@ async function flushOfflineQueue(){
 }
 function updateNetworkBadge(){
   const b=$("#sync-badge");if(!b)return;
-  b.textContent=navigator.onLine?"● Sincronizado":"● Sin conexión";b.classList.toggle("offline",!navigator.onLine);
+  b.textContent=navigator.onLine?"● SINCRONIZADO":"● OFFLINE · ESTUDIO LOCAL";
+  b.classList.toggle("offline",!navigator.onLine);
 }
 async function saveResume(data){return api("/api/resume",{method:"PUT",body:{...data,device_id:getDeviceId()}})}
 function getDeviceId(){let id=localStorage.getItem("medai_device");if(!id){id=crypto.randomUUID();localStorage.setItem("medai_device",id)}return id}

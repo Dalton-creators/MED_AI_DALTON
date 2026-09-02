@@ -1,0 +1,20 @@
+MED AI DALTON V13 — CURSOS GUIADOS Y PROGRESO REAL
+
+Ahora Estudiar funciona como un curso real:
+- materias con ruta ordenada de básico a avanzado
+- temas bloqueados hasta completar el anterior
+- porcentaje por lección y curso
+- progreso persistente en Cloudflare D1
+- botón Continuar curso
+- notas por tema sincronizadas
+- lecciones guiadas por IA dentro del tema actual
+- progreso visible desde cualquier dispositivo
+
+No requiere ejecutar SQL nuevo porque usa tablas que ya existen en tu base D1: user_lesson_progress, user_topic_progress, study_resume_state y notes.
+
+Reemplaza:
+public/index.html
+public/styles.css
+public/app.js
+public/sw.js
+src/index.js

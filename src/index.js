@@ -198,6 +198,10 @@ export default {
         return createLibraryStudyPackApi(request, env, user);
       }
 
+      if (url.pathname === "/api/library/extract" && request.method === "POST") {
+        return extractLibraryDocument(request, env, user);
+      }
+
       if (url.pathname === "/api/notes" && request.method === "GET") {
         return listNotes(env, user);
       }
@@ -257,9 +261,11 @@ export default {
       return json({ error: "Ruta API no encontrada." }, 404);
     } catch (err) {
       console.error("MED_AI_ERROR", err?.stack || err);
+      const msg=String(err?.message||err||"");
+      const safeSetup=/binding R2|LIBRARY|R2 bucket|almacenamiento offline/i.test(msg);
       return json({
-        error: "Ocurrió un error interno.",
-        detail: env.ENVIRONMENT === "development" ? String(err?.message || err) : undefined
+        error: safeSetup ? msg : "Ocurrió un error interno.",
+        detail: env.ENVIRONMENT === "development" ? msg : undefined
       }, 500);
     }
   }
@@ -1939,6 +1945,78 @@ async function deleteStudyLibraryItemApi(url,env,user){
   return json({ok:true,deleted:targets.length});
 }
 
+
+
+function markdownConversionText(result){
+  if(typeof result==="string")return result;
+  if(typeof result?.data==="string")return result.data;
+  if(typeof result?.result?.data==="string")return result.result.data;
+  if(Array.isArray(result?.results)){
+    return result.results.map(x=>typeof x?.data==="string"?x.data:"").filter(Boolean).join("\n\n");
+  }
+  if(Array.isArray(result)){
+    return result.map(x=>typeof x?.data==="string"?x.data:"").filter(Boolean).join("\n\n");
+  }
+  return "";
+}
+
+async function extractLibraryDocument(request,env,user){
+  requireLibraryR2(env);
+  const body=await readJson(request);
+  const fileId=cleanText(body.file_id,220);
+  if(!fileId)return json({error:"Falta el archivo."},400);
+  const row=await env.DB.prepare(`
+    SELECT id,title,metadata_json FROM notes
+    WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
+  `).bind(fileId,user.id).first();
+  if(!row)return json({error:"No encontré ese archivo en tu Biblioteca."},404);
+  const meta=parseLibraryMeta(row);
+  if(!meta.r2_key)return json({error:"El archivo no tiene referencia R2."},500);
+
+  const sidecar=`${meta.r2_key}.medai-v24.txt`;
+  const cached=await env.LIBRARY.get(sidecar);
+  if(cached){
+    const text=await cached.text();
+    return json({ok:true,text,cached:true});
+  }
+
+  const object=await env.LIBRARY.get(meta.r2_key);
+  if(!object)return json({error:"El archivo no está disponible en R2."},404);
+  const mime=meta.mime_type||"application/octet-stream";
+  const name=meta.original_name||row.title||"documento";
+  let text="";
+
+  if(mime.startsWith("text/")){
+    text=await object.text();
+  }else{
+    const allowed=["application/pdf","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.oasis.opendocument.text"];
+    if(!allowed.includes(mime)&&!/\.(pdf|docx|odt)$/i.test(name)){
+      return json({error:"Este formato se estudia mediante extracción local o debe convertirse a PDF/DOCX."},400);
+    }
+    if(!env.AI?.toMarkdown)return json({error:"La conversión documental de Workers AI no está disponible."},503);
+    const buffer=await object.arrayBuffer();
+    const input={name,blob:new Blob([buffer],{type:mime})};
+    const options={conversionOptions:{output:{format:"text"},pdf:{metadata:false}}};
+    let converted;
+    try{
+      const converter=env.AI.toMarkdown();
+      if(converter&&typeof converter.transform==="function")converted=await converter.transform(input,options);
+      else converted=await env.AI.toMarkdown(input,options);
+    }catch(firstErr){
+      try{converted=await env.AI.toMarkdown(input,options)}catch(err){throw firstErr}
+    }
+    text=markdownConversionText(converted);
+  }
+
+  text=String(text||"").trim();
+  if(text.length<80)return json({error:"No pude extraer suficiente texto de este documento."},422);
+  // Sidecar stays private in R2 and avoids converting the same book repeatedly.
+  await env.LIBRARY.put(sidecar,text,{
+    httpMetadata:{contentType:"text/plain; charset=utf-8"},
+    customMetadata:{source_file_id:fileId,user_id:user.id,medai:"v24-extracted-text"}
+  });
+  return json({ok:true,text,cached:false});
+}
 
 async function listLibraryStudyPacks(url,env,user){
   const fileId=cleanText(url.searchParams.get("file_id"),220);

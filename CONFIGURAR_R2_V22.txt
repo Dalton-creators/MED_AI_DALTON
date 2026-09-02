@@ -1,0 +1,54 @@
+MED AI DALTON V22 — CONFIGURACIÓN ÚNICA DE CLOUDFLARE R2
+
+La nueva Biblioteca está programada y aislada del resto de MED AI.
+Para guardar archivos grandes de forma sincronizada entre dispositivos debes
+crear una vez un bucket R2 y vincularlo al Worker.
+
+NOMBRE RECOMENDADO DEL BUCKET
+med-ai-dalton-library
+
+BINDING QUE ESPERA EL CÓDIGO
+LIBRARY
+
+PASOS GENERALES EN CLOUDFLARE
+1. En Cloudflare abre R2 Object Storage.
+2. Crea un bucket llamado:
+   med-ai-dalton-library
+3. Abre tu Worker:
+   med-ai-dalton
+4. Ve a Settings / Bindings.
+5. Agrega un binding de tipo R2 bucket.
+6. Variable name / Binding name:
+   LIBRARY
+7. Bucket:
+   med-ai-dalton-library
+8. Guarda y vuelve a desplegar el Worker.
+
+NO REQUIERE SQL.
+Los metadatos (carpetas, nombres, tamaños y relación padre/hijo) usan la tabla
+notes ya existente. Los bytes del archivo viven únicamente en R2.
+
+SEGURIDAD
+Los endpoints de Biblioteca reutilizan el mismo usuario personal del Worker.
+El bucket no necesita ser público. Los archivos se sirven a través del Worker.
+
+LÍMITE CONFIGURADO EN MED AI
+50 MB por archivo.
+
+TIPOS PENSADOS PARA LA BIBLIOTECA
+- PDF
+- PowerPoint PPT / PPTX
+- Word DOC / DOCX
+- TXT / Markdown / RTF
+- imágenes
+- MP4 / WebM cortos
+
+VISTA INTERNA
+- PDF: visor dentro de MED AI.
+- imágenes: visor dentro de MED AI.
+- texto: navegador/visor.
+- PowerPoint/Word: abrir/descargar según soporte del navegador.
+
+NOTA
+Esta configuración agrega almacenamiento. No modifica AI Gateway, D1, cursos,
+Tutor IA, Clínica, Interpretación, Idiomas ni University Source Studio.

@@ -1,0 +1,13 @@
+V24 incluye un wrangler.jsonc nuevo.
+
+SUBE TAMBIÉN ESTE ARCHIVO AL REPOSITORIO:
+wrangler.jsonc
+
+A partir de V24 no reemplaces solamente public/ y src/.
+Conserva wrangler.jsonc en GitHub porque ahí están declarados los bindings:
+AI, ASSETS, DB y LIBRARY.
+
+No contiene claves privadas.
+No contiene el valor de OPENAI_API_KEY.
+La opción keep_vars=true conserva variables configuradas en el dashboard.
+Los secretos cifrados de Cloudflare no se borran con wrangler deploy.
