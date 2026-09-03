@@ -3,9 +3,6 @@ const JSON_HEADERS = {
   "cache-control": "no-store"
 };
 
-const SESSION_DAYS = 30;
-const PASSWORD_ITERATIONS = 210000;
-
 const COURSE_PATHS = {"ANAT":["Orientación anatómica, planos y términos","Osteología y articulaciones","Músculo y biomecánica básica","Tórax","Abdomen","Pelvis y periné","Miembro superior","Miembro inferior","Cabeza y cuello","Neuroanatomía e integración"],"HIST":["Microscopía y organización celular","Epitelios","Tejido conectivo","Cartílago y hueso","Tejido muscular","Tejido nervioso","Sangre y hematopoyesis","Histología de órganos y sistemas"],"EMBR":["Gametogénesis","Fecundación e implantación","Semanas 2 y 3: disco embrionario y gastrulación","Plegamiento corporal y derivados germinales","Placenta y membranas fetales","Organogénesis cardiovascular","Desarrollo del sistema nervioso","Desarrollo gastrointestinal y respiratorio","Desarrollo urogenital","Malformaciones y principios de teratología"],"FISIO":["Homeostasis, membrana y transporte","Potencial de membrana, nervio y músculo","Fisiología cardiovascular","Fisiología respiratoria","Fisiología renal","Equilibrio ácido-base","Fisiología gastrointestinal","Fisiología endocrina","Fisiología reproductiva","Integración, ejercicio y termorregulación"],"BIOQ":["Biomoléculas y agua","Enzimas y cinética","Bioenergética y ATP","Metabolismo de carbohidratos","Metabolismo de lípidos","Aminoácidos y proteínas","Nucleótidos","Replicación, transcripción y traducción","Integración metabólica","Nutrición y bioquímica clínica"],"GEN":["ADN, cromosomas y ciclo celular","Herencia mendeliana","Pedigrí y riesgo genético","Alteraciones cromosómicas","Genética molecular","Herencia multifactorial","Genética de poblaciones","Pruebas genéticas y consejo genético","Genómica y medicina de precisión"],"INMUNO":["Inmunidad innata","Antígenos y presentación por MHC","Linfocitos T","Linfocitos B y anticuerpos","Complemento y citocinas","Hipersensibilidad","Autoinmunidad","Inmunodeficiencias","Vacunas e inmunización","Trasplante e inmunología clínica"],"MICRO":["Principios de microbiología y diagnóstico","Bacteriología general","Bacterias grampositivas","Bacterias gramnegativas","Virología","Micología","Antimicrobianos y resistencia","Infecciones por síndromes","Prevención y control de infecciones"],"PARA":["Conceptos y ciclos parasitarios","Protozoos intestinales","Protozoos sanguíneos y tisulares","Nematodos","Cestodos","Trematodos","Diagnóstico parasitológico","Prevención y tratamiento antiparasitario"],"FARMA":["Farmacocinética","Farmacodinamia","Sistema nervioso autónomo","Farmacología cardiovascular","Fármacos renales y diuréticos","Farmacología endocrina","Sistema nervioso central","Antimicrobianos","Antiinflamatorios e inmunomoduladores","Oncología farmacológica","Toxicología e interacciones"],"PATO":["Lesión y adaptación celular","Inflamación aguda y crónica","Reparación y cicatrización","Trastornos hemodinámicos y trombosis","Patología inmunológica","Neoplasia","Patología genética","Patología cardiovascular y respiratoria","Patología gastrointestinal, renal y endocrina","Integración anatomopatológica"],"EPI":["Frecuencia de enfermedad y medidas de efecto","Diseños de estudio","Sesgos y confusión","Pruebas diagnósticas","Tamizaje","Estadística descriptiva","Probabilidad e inferencia","Intervalos de confianza y pruebas de hipótesis","Lectura crítica y medicina basada en evidencia","Salud pública y prevención"],"SEMIO":["Entrevista clínica y comunicación","Signos vitales y examen general","Semiología cardiovascular","Semiología respiratoria","Semiología abdominal","Semiología neurológica","Semiología musculoesquelética","Piel y faneras","Aparato genitourinario","Integración de historia y examen físico"],"MI":["Razonamiento clínico y lista de problemas","Cardiología","Neumología","Nefrología y ácido-base","Gastroenterología y hepatología","Endocrinología","Hematología y oncología","Enfermedades infecciosas","Reumatología","Geriatría y multimorbilidad","Paciente crítico y urgencias del internista"],"PED":["Crecimiento y desarrollo","Neonatología","Nutrición pediátrica","Enfermedades respiratorias","Gastroenterología pediátrica","Infecciones y vacunas","Cardiología pediátrica","Neurología pediátrica","Urgencias pediátricas","Adolescencia y prevención"],"CIR":["Principios quirúrgicos y seguridad","Evaluación preoperatoria","Líquidos, electrolitos y nutrición","Heridas e infección quirúrgica","Trauma","Abdomen agudo","Cirugía gastrointestinal","Cirugía vascular","Mama, tiroides y cirugía endocrina","Complicaciones postoperatorias"],"GINOBS":["Ciclo menstrual y fisiología reproductiva","Anticoncepción","Sangrado uterino anormal","Infecciones ginecológicas","Infertilidad","Control prenatal","Trabajo de parto y parto","Emergencias obstétricas","Puerperio","Oncología ginecológica"],"PSIQ":["Entrevista psiquiátrica y examen mental","Psicofarmacología básica","Trastornos depresivos y bipolares","Ansiedad y trauma","Psicosis","Uso de sustancias","Trastornos de personalidad","Sueño y conducta alimentaria","Psiquiatría de urgencias"],"NEURO":["Examen neurológico y localización","Cefaleas","Epilepsia","Enfermedad cerebrovascular","Trastornos del movimiento","Enfermedades desmielinizantes","Neuropatías y enfermedad neuromuscular","Demencias","Urgencias neurológicas"],"DERM":["Lesiones elementales y examen dermatológico","Dermatitis y eccemas","Infecciones cutáneas","Acné y trastornos foliculares","Psoriasis","Enfermedades autoinmunes","Tumores cutáneos","Urgencias dermatológicas"],"OFT":["Anatomía y examen ocular","Ojo rojo","Refracción y agudeza visual","Catarata y glaucoma","Retina","Neurooftalmología","Trauma ocular","Urgencias oftalmológicas"],"ORL":["Examen de oído y audición","Otitis y patología del oído","Vértigo","Nariz y senos paranasales","Faringe y laringe","Vía aérea","Masas cervicales","Urgencias ORL"],"TRAUMA":["Evaluación musculoesquelética","Principios de fracturas","Articulaciones y lesiones deportivas","Miembro superior","Miembro inferior","Columna vertebral","Ortopedia pediátrica","Urgencias traumatológicas"],"EMERG":["ABCDE y evaluación inicial","Reanimación y paro cardiorrespiratorio","Shock","Dolor torácico","Disnea aguda","Emergencias neurológicas","Sepsis","Trauma","Intoxicaciones","Emergencias metabólicas"],"CRIT":["Fundamentos de UCI","Vía aérea y ventilación mecánica","Shock y monitorización hemodinámica","Sepsis y falla multiorgánica","Lesión renal aguda y soporte renal","Neurocrítico","Sedación, analgesia y delirium","Nutrición en el paciente crítico","Ética y toma de decisiones en UCI"],"FAM":["Prevención y promoción de salud","Consulta de atención primaria","Hipertensión y riesgo cardiovascular","Diabetes y obesidad","Problemas agudos frecuentes","Salud de la mujer","Niñez y adolescencia","Adulto mayor","Salud mental en atención primaria","Medicina comunitaria"],"MATH":["Aritmética y proporciones","Álgebra","Ecuaciones e inecuaciones","Funciones y gráficas","Geometría","Trigonometría","Geometría analítica","Límites y continuidad","Derivadas","Integrales","Probabilidad y estadística","Vectores y matrices","Ecuaciones diferenciales"],"PHYS":["Unidades, medición y vectores","Cinemática","Leyes de Newton","Trabajo y energía","Cantidad de movimiento","Rotación y torque","Fluidos","Termodinámica","Ondas y sonido","Electricidad","Magnetismo","Óptica","Relatividad","Física cuántica y moderna"],"ASTRO":["Esfera celeste y coordenadas","Gravedad y órbitas","Sistema Solar","El Sol","Propiedades de las estrellas","Evolución estelar","Exoplanetas","Vía Láctea","Galaxias","Cosmología","Telescopios y observación","Astrobiología"],"LANG":["A1 · Primer contacto y supervivencia","A1 · Rutinas y comunicación básica","A2 · Vida cotidiana y descripciones","A2 · Pasado, futuro y situaciones prácticas","B1 · Conversación independiente","B1 · Comprensión y producción extendida","B2 · Argumentación y precisión","B2 · Comprensión de contenido complejo","C1 · Comunicación académica y profesional","C1 · Matices y fluidez","C2 · Precisión, registro y estilo","C2 · Dominio funcional avanzado"]};
 
 const COURSE_EXPANSIONS = {"ANAT":["Anatomía de superficie y correlación por imagen","Espalda y columna vertebral","Vascularización, linfáticos y nervios periféricos","Órganos de los sentidos","Anatomía seccional y radiológica","Integración anatómica clínica"],"HIST":["Sistema cardiovascular y linfático","Sistema respiratorio","Tubo digestivo y glándulas anexas","Sistema urinario","Sistema endocrino","Sistema reproductor masculino y femenino"],"EMBR":["Desarrollo craneofacial","Desarrollo musculoesquelético y extremidades","Desarrollo endocrino","Desarrollo de ojo y oído","Circulación fetal y transición neonatal"],"FISIO":["Sangre, hemostasia y grupos sanguíneos","Neurofisiología y sistemas sensoriales","Sistema nervioso autónomo","Sueño, vigilia y ritmos biológicos","Metabolismo, ejercicio y balance energético","Calcio, hueso y regulación mineral"],"BIOQ":["Vitaminas y cofactores","Señalización celular","Regulación de la expresión génica","Estrés oxidativo y antioxidantes","Biología molecular diagnóstica","Errores innatos del metabolismo"],"GEN":["Epigenética","Herencia mitocondrial","Genética del cáncer","Farmacogenómica","Diagnóstico prenatal y reproductivo","Interpretación de variantes genéticas"],"INMUNO":["Tolerancia inmunológica","Inmunidad de mucosas","Inmunología tumoral","Pruebas inmunológicas de laboratorio","Inmunoterapia y fármacos biológicos"],"MICRO":["Anaerobios y bacterias especiales","Espiroquetas y bacterias atípicas","Virus emergentes y zoonosis","Microbiología clínica por aparatos","Bioseguridad y epidemiología hospitalaria"],"PARA":["Ectoparásitos","Síndromes parasitarios tropicales","Respuesta inmune frente a parásitos","Parasitología del viajero y medicina tropical"],"FARMA":["Fármacos de coagulación y hemostasia","Farmacología respiratoria","Farmacología gastrointestinal","Anestésicos locales y generales","Hematología y factores de crecimiento","Farmacología en embarazo, pediatría y geriatría","Principios de prescripción segura"],"PATO":["Patología hematolinfoide","Patología renal y urinaria","Patología del sistema nervioso","Patología ósea y de tejidos blandos","Dermatopatología","Patología de aparato reproductor y mama"],"EPI":["Regresión y modelado básico","Análisis de supervivencia","Revisiones sistemáticas y metaanálisis","Inferencia causal","Investigación de brotes","Vigilancia epidemiológica"],"SEMIO":["Cabeza, cuello, ORL y ojo","Semiología endocrina","Semiología hematológica","Examen mental y estado cognitivo","Valoración geriátrica integral","Semiología pediátrica"],"MI":["Hipertensión arterial","Cardiopatía isquémica","Arritmias","Insuficiencia cardíaca","Asma y EPOC","Neumonía y enfermedad pleural","Lesión renal aguda y enfermedad renal crónica","Trastornos hidroelectrolíticos","Diabetes mellitus","Trastornos tiroideos","Cirrosis y complicaciones","Hemorragia digestiva","Anemias","Trastornos trombóticos y anticoagulación","Sepsis","VIH e infecciones oportunistas","Enfermedades autoinmunes sistémicas","Cuidados paliativos y fin de vida"],"PED":["Nefrología pediátrica","Endocrinología pediátrica","Hematología y oncología pediátrica","Reumatología pediátrica","Dermatología pediátrica","Toxicología pediátrica","Maltrato y protección infantil"],"CIR":["Cirugía hepatobiliar y pancreática","Cirugía colorrectal","Hernias y pared abdominal","Cirugía torácica básica","Urología quirúrgica básica","Principios de cirugía oncológica"],"GINOBS":["Endometriosis y dolor pélvico","Menopausia","Embarazo ectópico","Trastornos hipertensivos del embarazo","Diabetes gestacional","Monitoreo fetal","Diagnóstico prenatal"],"PSIQ":["Trastorno obsesivo-compulsivo","Trastornos neurocognitivos","Trastornos somáticos","Psiquiatría infantil y del adolescente","Psicoterapias","Capacidad, consentimiento y ética psiquiátrica"],"NEURO":["Infecciones del sistema nervioso","Tumores del sistema nervioso","Mielopatías y lesión medular","Trastornos del sueño neurológicos","Dolor neuropático","Neuroinmunología"],"DERM":["Urticaria y reacciones medicamentosas","Enfermedades ampollosas","Trastornos de pigmentación","Cabello y uñas","Dermatología pediátrica","Dermatosis genitales"],"OFT":["Córnea y superficie ocular","Uveítis","Retina vascular y desprendimiento","Oftalmología pediátrica","Manifestaciones oculares de enfermedad sistémica"],"ORL":["Hipoacusia y audiología","Apnea obstructiva del sueño","Cáncer de cabeza y cuello","Trastornos de voz y deglución","Patología de glándulas salivales"],"TRAUMA":["Mano y muñeca","Hombro y codo","Cadera y rodilla","Pie y tobillo","Osteoporosis y fracturas por fragilidad","Infecciones y tumores musculoesqueléticos"],"EMERG":["Arritmias inestables","Hemorragia digestiva aguda","Emergencias hidroelectrolíticas","Emergencias obstétricas","Emergencias pediátricas","Emergencias ambientales"],"CRIT":["Insuficiencia respiratoria y SDRA","Ácido-base en UCI","Coagulopatía del paciente crítico","Emergencias endocrinas en UCI","Ultrasonido a pie de cama","Cuidados post-paro"],"FAM":["Tamizaje basado en riesgo","Dolor crónico","Cuidados paliativos en atención primaria","Salud del hombre","Medicina del viajero","Salud ocupacional"],"MATH":["Lógica y teoría de conjuntos","Potencias, radicales y logaritmos","Sucesiones y series","Números complejos","Cálculo multivariable","Álgebra lineal avanzada","Métodos numéricos","Matemática discreta"],"PHYS":["Oscilaciones","Gravitación","Electrostática y circuitos","Ondas electromagnéticas","Física nuclear","Física de partículas","Física estadística"],"ASTRO":["Técnicas observacionales y fotometría","Atmósferas estelares","Medio interestelar","Objetos compactos y agujeros negros","Astronomía de altas energías","Ondas gravitacionales","Materia oscura y energía oscura","Universo temprano"],"LANG":["Pronunciación y fonética aplicada","Comprensión auditiva intensiva","Escritura académica y profesional","Conversación avanzada por situaciones","Idioma médico y científico"]};
@@ -38,6 +35,10 @@ export default {
         return systemHealthApi(env, user);
       }
 
+      if (url.pathname === "/api/system/self-test" && request.method === "GET") {
+        return systemSelfTestApi(env, user);
+      }
+
       if (url.pathname === "/api/system/backups" && request.method === "GET") {
         return listSystemBackupsApi(env, user);
       }
@@ -62,8 +63,8 @@ export default {
         return systemOfflineCourseApi(url, env, user);
       }
 
-      if (url.pathname === "/api/auth/change-password" && request.method === "POST") {
-        return changePassword(request, env, user);
+      if (url.pathname === "/api/system/export" && request.method === "GET") {
+        return systemExportApi(env, user);
       }
 
       if (url.pathname === "/api/me" && request.method === "GET") {
@@ -206,6 +207,14 @@ export default {
         return extractLibraryDocument(request, env, user);
       }
 
+      if (url.pathname === "/api/library/ocr-index" && request.method === "POST") {
+        return libraryOcrIndexApi(request, env, user);
+      }
+
+      if (url.pathname === "/api/library/transcribe" && request.method === "POST") {
+        return transcribeLibraryMediaApi(request, env, user);
+      }
+
       if (url.pathname === "/api/notes" && request.method === "GET") {
         return listNotes(env, user);
       }
@@ -258,8 +267,28 @@ export default {
         return getHistoricalKeysApi(url, env, user);
       }
 
-      if (url.pathname === "/api/smart/past-exam/mistakes" && request.method === "GET") {
-        return pastExamKeyMistakesApi(url, env, user);
+      if (url.pathname === "/api/exam-prep/plan" && request.method === "GET") {
+        return getExamPrepPlanApi(url, env, user);
+      }
+
+      if (url.pathname === "/api/exam-prep/plan" && request.method === "POST") {
+        return createExamPrepPlanApi(request, env, user);
+      }
+
+      if (url.pathname === "/api/question-bank" && request.method === "GET") {
+        return questionBankApi(url, env, user);
+      }
+
+      if (url.pathname === "/api/question-bank" && request.method === "DELETE") {
+        return deleteQuestionBankApi(url, env, user);
+      }
+
+      if (url.pathname === "/api/adaptive-exam/start" && request.method === "GET") {
+        return adaptiveExamStartApi(url, env, user);
+      }
+
+      if (url.pathname === "/api/progress/overview" && request.method === "GET") {
+        return progressOverviewApi(env, user);
       }
 
       if (url.pathname === "/api/stats" && request.method === "GET") {
@@ -368,7 +397,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="26.2.0";
+const SYSTEM_VERSION="29.0.0";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -424,6 +453,45 @@ async function systemHealthApi(env,user){
     checked_at:new Date().toISOString(),
     note:"AI=true confirma el binding; el diagnóstico no ejecuta una inferencia de pago."
   });
+}
+
+
+async function systemSelfTestApi(env,user){
+  const checks=[];
+  const add=(name,ok,detail)=>checks.push({name,ok:!!ok,detail:cleanText(detail,800)});
+  try{
+    const n=await env.DB.prepare("SELECT COUNT(*) AS n FROM subjects WHERE active=1").first();
+    add("D1 · subjects",Number(n?.n||0)>0,`${Number(n?.n||0)} materias activas`);
+  }catch(err){add("D1 · subjects",false,String(err?.message||err))}
+  try{
+    const n=await env.DB.prepare("SELECT COUNT(*) AS n FROM notes WHERE user_id=?").bind(user.id).first();
+    add("D1 · notes",true,`${Number(n?.n||0)} notas/materiales`);
+  }catch(err){add("D1 · notes",false,String(err?.message||err))}
+  try{
+    const r=await env.DB.prepare("SELECT body FROM notes WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%' LIMIT 1").bind(user.id).first();
+    add("Paquetes históricos",true,r?((parseJsonLoose(r.body)||{}).historical_keys_pack?"JSON válido":"Registro legible"):"Sin paquetes todavía");
+  }catch(err){add("Paquetes históricos",false,String(err?.message||err))}
+  try{
+    const bank=await questionBankRows(env,user);
+    add("Banco de preguntas",true,`${bank.length} preguntas válidas`);
+  }catch(err){add("Banco de preguntas",false,String(err?.message||err))}
+  try{
+    requireLibraryR2(env);
+    const list=await env.LIBRARY.list({limit:1});
+    add("R2 · Biblioteca",true,`${(list.objects||[]).length?"Objetos accesibles":"Bucket accesible"}`);
+  }catch(err){add("R2 · Biblioteca",false,String(err?.message||err))}
+  try{
+    const file=await env.DB.prepare("SELECT metadata_json,title FROM notes WHERE user_id=? AND tags_json LIKE '%library_file%' LIMIT 1").bind(user.id).first();
+    if(!file)add("D1 ↔ R2 muestra",true,"Sin archivos para comprobar");
+    else{
+      const m=parseJsonLoose(file.metadata_json)||{},head=m.r2_key?await env.LIBRARY.head(m.r2_key):null;
+      add("D1 ↔ R2 muestra",!!head,head?`OK · ${file.title}`:`Falta objeto de ${file.title}`);
+    }
+  }catch(err){add("D1 ↔ R2 muestra",false,String(err?.message||err))}
+  add("AI binding",!!env.AI,env.AI?"Binding configurado (sin inferencia de pago)":"Falta binding AI");
+  add("Assets binding",!!env.ASSETS,env.ASSETS?"Assets disponible":"Falta ASSETS");
+  const passed=checks.filter(x=>x.ok).length;
+  return json({ok:passed===checks.length,passed,total:checks.length,checks,server_version:SYSTEM_VERSION,checked_at:new Date().toISOString()});
 }
 
 async function collectSystemBackupData(env,user){
@@ -623,197 +691,67 @@ async function systemIntegrityApi(url,env,user){
 
 async function systemOfflineCourseApi(url,env,user){
   const subjectId=cleanText(url.searchParams.get("subject_id"),220);
-  if(!subjectId)return json({materials:[]});
-  const rows=await env.DB.prepare(`
-    SELECT id,subject_id,topic_id,title,body,metadata_json,updated_at
-    FROM notes
-    WHERE user_id=? AND subject_id=? AND tags_json LIKE '%material_v19%'
-    ORDER BY datetime(updated_at) DESC LIMIT 300
-  `).bind(user.id,subjectId).all();
+  if(!subjectId)return json({materials:[],flashcards:[],historical_packs:[],question_bank:[],count:0});
+  const subject=await env.DB.prepare(`SELECT id,name,code FROM subjects WHERE id=? LIMIT 1`).bind(subjectId).first();
+  if(!subject)return json({error:"No encontré esa materia."},404);
+
+  const [materialRows,flashRows,historicalRows]=await Promise.all([
+    env.DB.prepare(`
+      SELECT id,subject_id,topic_id,title,body,metadata_json,updated_at
+      FROM notes
+      WHERE user_id=? AND subject_id=? AND tags_json LIKE '%material_v19%'
+      ORDER BY datetime(updated_at) DESC LIMIT 400
+    `).bind(user.id,subjectId).all(),
+    env.DB.prepare(`
+      SELECT id,topic_id,source_type,front,back,hint,tags_json,interval_days,ease_factor,due_at,metadata_json,created_at
+      FROM flashcards WHERE user_id=? ORDER BY datetime(created_at) DESC LIMIT 1500
+    `).bind(user.id).all().catch(()=>({results:[]})),
+    env.DB.prepare(`
+      SELECT id,title,body,metadata_json,updated_at FROM notes
+      WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%'
+      ORDER BY datetime(updated_at) DESC LIMIT 100
+    `).bind(user.id).all()
+  ]);
+
   const seen=new Set(),materials=[];
-  for(const row of (rows.results||[])){
-    const meta=parseJsonLoose(row.metadata_json)||{};
-    const lessonId=cleanText(meta.lesson_id,220);
-    const material=parseJsonLoose(row.body);
+  for(const row of (materialRows.results||[])){
+    const meta=parseJsonLoose(row.metadata_json)||{},lessonId=cleanText(meta.lesson_id,220),material=parseJsonLoose(row.body);
     if(!lessonId||!material)continue;
     const key=`${row.topic_id||""}|${lessonId}|${meta.language||""}`;
     if(seen.has(key))continue;seen.add(key);
-    materials.push({
-      id:row.id,subject_id:row.subject_id,topic_id:row.topic_id,lesson_id:lessonId,
-      language:cleanText(meta.language,100),title:row.title,material,updated_at:row.updated_at
-    });
+    materials.push({id:row.id,subject_id:row.subject_id,topic_id:row.topic_id,lesson_id:lessonId,language:cleanText(meta.language,100),title:row.title,material,updated_at:row.updated_at});
   }
-  return json({materials,count:materials.length});
-}
 
-// -------------------- AUTH --------------------
-
-async function register(request, env) {
-  const body = await readJson(request);
-  const email = normalizeEmail(body.email);
-  const password = String(body.password || "");
-  const fullName = cleanText(body.fullName, 120);
-
-  if (!isEmail(email)) return json({ error: "Correo electrónico inválido." }, 400);
-  if (password.length < 10) return json({ error: "La contraseña debe tener al menos 10 caracteres." }, 400);
-
-  if (env.ALLOW_SIGNUPS === "false") {
-    const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
-    if (Number(count?.n || 0) > 0) {
-      return json({ error: "El registro de nuevas cuentas está desactivado." }, 403);
+  const historical_packs=[];
+  for(const r of (historicalRows.results||[])){
+    const p=parseJsonLoose(r.body)||{},m=parseJsonLoose(r.metadata_json)||{},subj=p.subject||m.subject||"";
+    if(smartNormalize(subj).includes(smartNormalize(subject.name))||smartNormalize(subj).includes(smartNormalize(subject.code))){
+      historical_packs.push({id:r.id,title:r.title,pack:p,updated_at:r.updated_at});
     }
   }
 
-  const exists = await env.DB.prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE").bind(email).first();
-  if (exists) return json({ error: "Ese correo ya está registrado." }, 409);
+  const topicRows=await env.DB.prepare(`SELECT id FROM topics WHERE subject_id=?`).bind(subjectId).all().catch(()=>({results:[]}));
+  const subjectTopics=new Set((topicRows.results||[]).map(x=>x.id));
+  const flashcards=(flashRows.results||[]).filter(c=>{
+    const m=parseJsonLoose(c.metadata_json)||{},tags=parseJsonLoose(c.tags_json)||[];
+    const hay=smartNormalize(`${m.subject||""} ${tags.join(" ")}`);
+    return subjectTopics.has(c.topic_id)||hay.includes(smartNormalize(subject.name))||hay.includes(smartNormalize(subject.code));
+  }).slice(0,600);
 
-  const userId = crypto.randomUUID();
-  const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-  const salt = bytesToBase64url(saltBytes);
-  const hash = await derivePassword(password, saltBytes, PASSWORD_ITERATIONS);
+  const allBank=await questionBankRows(env,user),normName=smartNormalize(subject.name),normCode=smartNormalize(subject.code);
+  const question_bank=allBank.filter(q=>{
+    const s=smartNormalize(`${q.subject} ${q.topic}`);
+    return s.includes(normName)||s.includes(normCode);
+  }).slice(0,500);
 
-  const now = new Date().toISOString();
-  const statements = [
-    env.DB.prepare(`
-      INSERT INTO users
-      (id,email,password_hash,password_salt,password_algorithm,password_iterations,email_verified,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,1,'active',?,?)
-    `).bind(userId, email, hash, salt, "PBKDF2-SHA256", PASSWORD_ITERATIONS, now, now),
-
-    env.DB.prepare(`
-      INSERT INTO profiles (user_id,full_name,target_specialty,country,timezone,preferred_language,created_at,updated_at)
-      VALUES (?,?, 'Medicina Interna','Guatemala','America/Guatemala','es',?,?)
-    `).bind(userId, fullName || email.split("@")[0], now, now),
-
-    env.DB.prepare(`
-      INSERT INTO user_preferences (user_id,created_at,updated_at) VALUES (?,?,?)
-    `).bind(userId, now, now),
-
-    env.DB.prepare(`
-      INSERT INTO study_resume_state (user_id,route,progress_percent,context_json,sync_version,updated_at)
-      VALUES (?, '/',0,'{}',1,?)
-    `).bind(userId, now)
-  ];
-
-  await env.DB.batch(statements);
-  return issueSession(request, env, { id: userId, email }, 201);
+  return json({
+    subject:{id:subject.id,name:subject.name,code:subject.code},
+    materials,flashcards,historical_packs,question_bank,count:materials.length,bundle_version:29,
+    note:"Los PDF/libros quedan offline cuando los marcaste OFFLINE en Biblioteca; este paquete añade clases, flashcards, claves históricas y banco de preguntas."
+  });
 }
 
-async function login(request, env) {
-  const body = await readJson(request);
-  const email = normalizeEmail(body.email);
-  const password = String(body.password || "");
-
-  const user = await env.DB.prepare(`
-    SELECT id,email,password_hash,password_salt,password_iterations,status
-    FROM users WHERE email = ? COLLATE NOCASE
-  `).bind(email).first();
-
-  if (!user || user.status !== "active") {
-    await delay(180);
-    return json({ error: "Correo o contraseña incorrectos." }, 401);
-  }
-
-  const salt = base64urlToBytes(user.password_salt);
-  const candidate = await derivePassword(password, salt, Number(user.password_iterations || PASSWORD_ITERATIONS));
-  if (!constantTimeEqual(candidate, user.password_hash)) {
-    await delay(180);
-    return json({ error: "Correo o contraseña incorrectos." }, 401);
-  }
-
-  await env.DB.prepare("UPDATE users SET last_login_at=?, updated_at=? WHERE id=?")
-    .bind(new Date().toISOString(), new Date().toISOString(), user.id).run();
-
-  return issueSession(request, env, user, 200);
-}
-
-async function issueSession(request, env, user, status = 200) {
-  const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
-  const rawToken = bytesToBase64url(tokenBytes);
-  const tokenHash = await sha256(rawToken);
-  const id = crypto.randomUUID();
-  const now = new Date();
-  const expires = new Date(now.getTime() + SESSION_DAYS * 86400000);
-  const ua = request.headers.get("user-agent") || "";
-
-  await env.DB.prepare(`
-    INSERT INTO sessions (id,user_id,token_hash,user_agent,created_at,last_seen_at,expires_at)
-    VALUES (?,?,?,?,?,?,?)
-  `).bind(id, user.id, tokenHash, ua.slice(0, 500), now.toISOString(), now.toISOString(), expires.toISOString()).run();
-
-  const secure = new URL(request.url).protocol === "https:";
-  const cookie = [
-    `medai_session=${rawToken}`,
-    "HttpOnly",
-    "Path=/",
-    "SameSite=Lax",
-    secure ? "Secure" : "",
-    `Max-Age=${SESSION_DAYS * 86400}`
-  ].filter(Boolean).join("; ");
-
-  return json({ ok: true, user: { id: user.id, email: user.email } }, status, { "set-cookie": cookie });
-}
-
-async function requireAuth(request, env) {
-  const token = parseCookie(request.headers.get("cookie") || "", "medai_session");
-  if (!token) return { ok: false, response: json({ error: "Debes iniciar sesión." }, 401) };
-
-  const tokenHash = await sha256(token);
-  const user = await env.DB.prepare(`
-    SELECT u.id,u.email,u.status,s.id AS session_id
-    FROM sessions s
-    JOIN users u ON u.id=s.user_id
-    WHERE s.token_hash=? AND s.revoked_at IS NULL
-      AND datetime(s.expires_at) > datetime('now')
-    LIMIT 1
-  `).bind(tokenHash).first();
-
-  if (!user || user.status !== "active") {
-    return { ok: false, response: json({ error: "Sesión vencida o inválida." }, 401) };
-  }
-
-  env.DB.prepare("UPDATE sessions SET last_seen_at=? WHERE id=?")
-    .bind(new Date().toISOString(), user.session_id).run().catch(() => {});
-
-  return { ok: true, user };
-}
-
-async function logout(request, env, user) {
-  return json({ ok: true, personal_mode: true });
-}
-
-async function changePassword(request, env, user) {
-  const body = await readJson(request);
-  const currentPassword = String(body.currentPassword || "");
-  const newPassword = String(body.newPassword || "");
-  if (newPassword.length < 10) return json({ error: "La nueva contraseña debe tener al menos 10 caracteres." }, 400);
-
-  const row = await env.DB.prepare(`
-    SELECT password_hash,password_salt,password_iterations FROM users WHERE id=?
-  `).bind(user.id).first();
-
-  const candidate = await derivePassword(
-    currentPassword,
-    base64urlToBytes(row.password_salt),
-    Number(row.password_iterations)
-  );
-  if (!constantTimeEqual(candidate, row.password_hash)) return json({ error: "Contraseña actual incorrecta." }, 401);
-
-  const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-  const salt = bytesToBase64url(saltBytes);
-  const hash = await derivePassword(newPassword, saltBytes, PASSWORD_ITERATIONS);
-  const now = new Date().toISOString();
-
-  await env.DB.batch([
-    env.DB.prepare(`
-      UPDATE users SET password_hash=?,password_salt=?,password_iterations=?,updated_at=? WHERE id=?
-    `).bind(hash, salt, PASSWORD_ITERATIONS, now, user.id),
-    env.DB.prepare("UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL")
-      .bind(now, user.id)
-  ]);
-
-  return json({ ok: true, relogin: true });
-}
+// -------------------- AUTH --------------------
 
 // -------------------- PROFILE / DASHBOARD --------------------
 
@@ -2261,11 +2199,24 @@ async function deleteStudyLibraryItemApi(url,env,user){
     targets=rows.filter(r=>ids.has(r.id));
   }else targets=[row];
 
-  const r2Keys=targets.filter(r=>libraryRowType(r)==="file").map(r=>parseLibraryMeta(r).r2_key).filter(Boolean);
+  const fileTargets=targets.filter(r=>libraryRowType(r)==="file");
+  const r2Keys=fileTargets.map(r=>parseLibraryMeta(r).r2_key).filter(Boolean);
   if(r2Keys.length){
-    // R2 supports batch delete; keep chunks conservative.
-    for(let i=0;i<r2Keys.length;i+=1000){
-      await env.LIBRARY.delete(r2Keys.slice(i,i+1000));
+    // Remove original objects plus private extraction/transcription sidecars.
+    const objects=[];
+    for(const key of r2Keys)objects.push(key,`${key}.medai-v24.txt`,`${key}.medai-v29.txt`,`${key}.medai-v29-transcript.txt`);
+    for(let i=0;i<objects.length;i+=1000){
+      await env.LIBRARY.delete(objects.slice(i,i+1000)).catch(()=>{});
+    }
+  }
+  // Remove search-index chunks that belonged to deleted source files.
+  const fileIds=new Set(fileTargets.map(r=>r.id));
+  if(fileIds.size){
+    const chunks=await env.DB.prepare(`SELECT id,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%source_chunk_v29%' LIMIT 5000`).bind(user.id).all().catch(()=>({results:[]}));
+    const chunkIds=(chunks.results||[]).filter(r=>fileIds.has((parseJsonLoose(r.metadata_json)||{}).source_file_id)).map(r=>r.id);
+    for(let i=0;i<chunkIds.length;i+=100){
+      const part=chunkIds.slice(i,i+100),qs=part.map(()=>"?").join(",");
+      await env.DB.prepare(`DELETE FROM notes WHERE user_id=? AND id IN (${qs})`).bind(user.id,...part).run();
     }
   }
   const ids=targets.map(r=>r.id);
@@ -2291,62 +2242,190 @@ function markdownConversionText(result){
   return "";
 }
 
-async function extractLibraryDocument(request,env,user){
-  requireLibraryR2(env);
-  const body=await readJson(request);
-  const fileId=cleanText(body.file_id,220);
-  if(!fileId)return json({error:"Falta el archivo."},400);
+
+async function getLibraryFileRow(env,user,fileId){
   const row=await env.DB.prepare(`
-    SELECT id,title,metadata_json FROM notes
+    SELECT id,title,metadata_json,tags_json,updated_at FROM notes
     WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
   `).bind(fileId,user.id).first();
-  if(!row)return json({error:"No encontré ese archivo en tu Biblioteca."},404);
+  if(!row)throw new Error("No encontré ese archivo en tu Biblioteca.");
   const meta=parseLibraryMeta(row);
-  if(!meta.r2_key)return json({error:"El archivo no tiene referencia R2."},500);
+  if(!meta.r2_key)throw new Error("El archivo no tiene referencia R2.");
+  return {row,meta};
+}
 
-  const sidecar=`${meta.r2_key}.medai-v24.txt`;
-  const cached=await env.LIBRARY.get(sidecar);
-  if(cached){
-    const text=await cached.text();
-    return json({ok:true,text,cached:true});
+function sourceLocatorBlocks(text,name="Documento"){
+  const raw=String(text||"").replace(/\r/g,"").trim();
+  if(!raw)return [];
+  // First honor explicit page/slide separators when conversion preserved them.
+  const pagePattern=/(?:^|\n)(?:#{0,3}\s*)?(?:p[aá]gina|page|diapositiva|slide)\s+(\d+)[^\n]*\n/gi;
+  const matches=[...raw.matchAll(pagePattern)];
+  const blocks=[];
+  if(matches.length){
+    for(let i=0;i<matches.length;i++){
+      const start=matches[i].index+matches[i][0].length;
+      const end=i+1<matches.length?matches[i+1].index:raw.length;
+      const chunk=raw.slice(start,end).trim();
+      if(chunk.length>40)blocks.push({
+        locator:`${/slide|diapositiva/i.test(matches[i][0])?"diapositiva":"pág."} ${matches[i][1]}`,
+        text:chunk.slice(0,7000),precision:"exact_marker"
+      });
+    }
+    if(blocks.length)return blocks.slice(0,160);
+  }
+  // Form-feed often survives PDF extraction and is a reliable page boundary.
+  const pages=raw.split(/\f+/).map(x=>x.trim()).filter(x=>x.length>40);
+  if(pages.length>1){
+    return pages.slice(0,160).map((text,i)=>({locator:`pág. ${i+1}`,text:text.slice(0,7000),precision:"page_break"}));
+  }
+  // Never invent a page number when extraction lost pagination.
+  const size=4200,overlap=350;
+  for(let start=0,n=1;start<raw.length&&blocks.length<160;start+=size-overlap,n++){
+    const chunk=raw.slice(start,start+size).trim();
+    if(chunk.length>40)blocks.push({locator:`bloque ${n}`,text:chunk,precision:"block"});
+  }
+  return blocks;
+}
+
+async function libraryExtractTextCore(env,user,fileId,{allowLowQuality=false}={}){
+  requireLibraryR2(env);
+  const {row,meta}=await getLibraryFileRow(env,user,fileId);
+  const name=meta.original_name||row.title||"documento";
+  const mime=meta.mime_type||"application/octet-stream";
+  const sidecar=`${meta.r2_key}.medai-v29.txt`;
+  const oldSidecar=`${meta.r2_key}.medai-v24.txt`;
+
+  for(const key of [sidecar,oldSidecar]){
+    const cached=await env.LIBRARY.get(key);
+    if(cached){
+      const text=String(await cached.text()).trim();
+      // A sparse legacy PDF sidecar should not prevent the V29 OCR-oriented retry.
+      if(text && (text.length>=160 || key===sidecar || !/\.pdf$/i.test(name))){
+        return {text,row,meta,cached:true,low_quality:text.length<120,engine:key===sidecar?"v29":"legacy"};
+      }
+    }
   }
 
   const object=await env.LIBRARY.get(meta.r2_key);
-  if(!object)return json({error:"El archivo no está disponible en R2."},404);
-  const mime=meta.mime_type||"application/octet-stream";
-  const name=meta.original_name||row.title||"documento";
-  let text="";
+  if(!object)throw new Error("El archivo no está disponible en R2.");
+  let text="",engine="document-conversion";
 
-  if(mime.startsWith("text/")){
-    text=await object.text();
-  }else{
-    const allowed=["application/pdf","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.oasis.opendocument.text"];
-    if(!allowed.includes(mime)&&!/\.(pdf|docx|odt)$/i.test(name)){
-      return json({error:"Este formato se estudia mediante extracción local o debe convertirse a PDF/DOCX."},400);
-    }
-    if(!env.AI?.toMarkdown)return json({error:"La conversión documental de Workers AI no está disponible."},503);
+  if(mime.startsWith("text/")||/\.(txt|md|rtf)$/i.test(name)){
+    text=await object.text();engine="text";
+  }else if(mime.startsWith("image/")||/\.(png|jpe?g|webp)$/i.test(name)){
+    ensureAI(env);
     const buffer=await object.arrayBuffer();
-    const input={name,blob:new Blob([buffer],{type:mime})};
-    const options={conversionOptions:{output:{format:"text"},pdf:{metadata:false}}};
-    let converted;
+    if(buffer.byteLength>7_000_000)throw new Error("La imagen supera 7 MB. Reduce su tamaño antes de ejecutar OCR.");
+    const dataUrl=`data:${mime||"image/jpeg"};base64,${bytesToBase64Standard(new Uint8Array(buffer))}`;
+    const model=env.CLOUDFLARE_VISION_MODEL||DEFAULT_VISION_MODEL;
+    const response=await env.AI.run(model,{
+      messages:[
+        {role:"system",content:"Realiza OCR académico fiel. Transcribe todo el texto legible, tablas, encabezados, opciones y numeración. No inventes contenido."},
+        {role:"user",content:[
+          {type:"image_url",image_url:{url:dataUrl}},
+          {type:"text",text:"Transcribe fielmente esta imagen para estudio. Conserva estructura y numeración. Devuelve solo el texto extraído."}
+        ]}
+      ],
+      max_tokens:5200,temperature:0.03,chat_template_kwargs:{enable_thinking:false}
+    },gatewayOptions("library_ocr_image",{model_used:model}));
+    text=extractCloudflareText(response);engine="vision-ocr";
+  }else{
+    const allowed=[
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.oasis.opendocument.text",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ];
+    if(!allowed.includes(mime)&&!/\.(pdf|docx|odt|pptx)$/i.test(name)){
+      throw new Error("Este formato no admite OCR/indexación documental directa.");
+    }
+    if(!env.AI?.toMarkdown)throw new Error("La conversión documental de Workers AI no está disponible.");
+    const buffer=await object.arrayBuffer(),input={name,blob:new Blob([buffer],{type:mime})};
+    const normal={conversionOptions:{output:{format:"text"},pdf:{metadata:false}}};
+    const ocr={conversionOptions:{output:{format:"text"},pdf:{metadata:false,ocr:true}}};
+    let converted=null,firstErr=null;
     try{
       const converter=env.AI.toMarkdown();
-      if(converter&&typeof converter.transform==="function")converted=await converter.transform(input,options);
-      else converted=await env.AI.toMarkdown(input,options);
-    }catch(firstErr){
-      try{converted=await env.AI.toMarkdown(input,options)}catch(err){throw firstErr}
+      converted=converter&&typeof converter.transform==="function"?await converter.transform(input,normal):await env.AI.toMarkdown(input,normal);
+    }catch(err){firstErr=err}
+    text=String(markdownConversionText(converted)||"").trim();
+    // A second OCR-oriented conversion is attempted only when the first extraction is sparse.
+    if(text.length<160&&/\.pdf$/i.test(name)){
+      try{
+        const converter=env.AI.toMarkdown();
+        const second=converter&&typeof converter.transform==="function"?await converter.transform(input,ocr):await env.AI.toMarkdown(input,ocr);
+        const candidate=String(markdownConversionText(second)||"").trim();
+        if(candidate.length>text.length){text=candidate;engine="document-conversion-ocr"}
+      }catch(err){if(!firstErr)firstErr=err}
     }
-    text=markdownConversionText(converted);
+    if(!text&&firstErr)throw firstErr;
   }
 
   text=String(text||"").trim();
-  if(text.length<80)return json({error:"No pude extraer suficiente texto de este documento."},422);
-  // Sidecar stays private in R2 and avoids converting the same book repeatedly.
-  await env.LIBRARY.put(sidecar,text,{
-    httpMetadata:{contentType:"text/plain; charset=utf-8"},
-    customMetadata:{source_file_id:fileId,user_id:user.id,medai:"v24-extracted-text"}
+  const lowQuality=text.length<120;
+  if(lowQuality&&!allowLowQuality){
+    throw new Error("No pude extraer suficiente texto. Si es un escaneo muy borroso, prueba con una imagen/foto más clara o páginas separadas.");
+  }
+  if(text){
+    await env.LIBRARY.put(sidecar,text,{
+      httpMetadata:{contentType:"text/plain; charset=utf-8"},
+      customMetadata:{source_file_id:fileId,user_id:user.id,medai:"v29-extracted-text",engine}
+    });
+  }
+  return {text,row,meta,cached:false,low_quality:lowQuality,engine};
+}
+
+async function replaceV29SourceChunks(env,user,fileId,sourceName,blocks){
+  const old=await env.DB.prepare(`
+    SELECT id,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%source_chunk_v29%' LIMIT 1000
+  `).bind(user.id).all();
+  const deletes=(old.results||[]).filter(r=>(parseJsonLoose(r.metadata_json)||{}).source_file_id===fileId)
+    .map(r=>env.DB.prepare("DELETE FROM notes WHERE id=? AND user_id=?").bind(r.id,user.id));
+  if(deletes.length)await env.DB.batch(deletes);
+
+  const now=new Date().toISOString(),statements=[];
+  for(let i=0;i<Math.min(160,blocks.length);i++){
+    const b=blocks[i],id=`src29_${await sha256(`${user.id}|${fileId}|${b.locator}|${i}`)}`;
+    const meta={source_chunk_v29:true,source_file_id:fileId,source_name:sourceName,locator:b.locator,precision:b.precision,chunk_index:i};
+    statements.push(env.DB.prepare(`
+      INSERT OR REPLACE INTO notes
+      (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+    `).bind(id,user.id,null,null,`${sourceName} · ${b.locator}`,b.text,JSON.stringify(["source_chunk_v29","library_source","v29"]),JSON.stringify(meta),now,now));
+  }
+  for(let i=0;i<statements.length;i+=40)await env.DB.batch(statements.slice(i,i+40));
+  return statements.length;
+}
+
+async function libraryOcrIndexApi(request,env,user){
+  const body=await readJson(request),fileId=cleanText(body.file_id,220);
+  if(!fileId)return json({error:"Falta el archivo."},400);
+  const extracted=await libraryExtractTextCore(env,user,fileId,{allowLowQuality:true});
+  if(String(extracted.text||"").trim().length<40){
+    return json({error:"No pude obtener texto útil de este archivo. El escaneo puede estar demasiado borroso."},422);
+  }
+  const name=extracted.meta.original_name||extracted.row.title||"Documento";
+  const blocks=sourceLocatorBlocks(extracted.text,name);
+  const indexed=await replaceV29SourceChunks(env,user,fileId,name,blocks);
+  const exact=blocks.filter(x=>x.precision!=="block").length;
+  return json({
+    ok:true,file_id:fileId,source_name:name,indexed_blocks:indexed,
+    exact_locators:exact,approximate_blocks:indexed-exact,
+    engine:extracted.engine,cached:extracted.cached,low_quality:extracted.low_quality,
+    message:exact?`Se conservaron ${exact} localizadores de página/diapositiva detectables.`:"La extracción perdió la paginación; MED AI citará bloques y no inventará páginas."
   });
-  return json({ok:true,text,cached:false});
+}
+
+async function extractLibraryDocument(request,env,user){
+  const body=await readJson(request);
+  const fileId=cleanText(body.file_id,220);
+  if(!fileId)return json({error:"Falta el archivo."},400);
+  try{
+    const d=await libraryExtractTextCore(env,user,fileId);
+    return json({ok:true,text:d.text,cached:d.cached,engine:d.engine,low_quality:d.low_quality});
+  }catch(err){
+    return json({error:String(err?.message||err)},422);
+  }
 }
 
 async function listLibraryStudyPacks(url,env,user){
@@ -2466,6 +2545,12 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     now,now
   ).run();
 
+  try{
+    await questionBankUpsertQuestions(env,user,[...(pack.practice||[]),...(pack.practice_questions||[]),...(pack.exam||[]),...(pack.final_exam||[])],{
+      source_type:"library_study",source_ref:id,subject:studyFocus,source_name:file.title
+    });
+  }catch(err){console.error("LIBRARY_BANK_SAVE_ERROR",err?.stack||err)}
+
   return json({ok:true,id,title:pack.title,model:PREMIUM_FLASH_MODEL},201);
 }
 
@@ -2565,7 +2650,9 @@ function smartSourceFromNote(row){
   if(pack&&typeof pack==="object")text=smartCompactPack(pack);
   else text=String(row.body||"");
   let type="note",label="Apunte",scope="";
-  if(tags.includes("historical_keys_pack")){type="historical_keys";label="Claves de años pasados";scope=meta.subject||""}
+  if(tags.includes("source_chunk_v29")){type="library_source";label="Fuente de Biblioteca";scope=[meta.source_name,meta.locator].filter(Boolean).join(" · ")}
+  else if(tags.includes("transcription_pack_v29")){type="transcription";label="Clase transcrita";scope=meta.source_name||""}
+  else if(tags.includes("historical_keys_pack")){type="historical_keys";label="Claves de años pasados";scope=meta.subject||""}
   else if(tags.includes("past_exam_pack")){type="past_exam";label="Parcial anterior";scope=meta.subject?`${meta.subject}${meta.year?` · ${meta.year}`:""}`:""}
   else if(tags.includes("library_study_pack")){type="library_session";label="Sesión de Biblioteca";scope=meta.study_scope||meta.source_name||""}
   else if(tags.includes("university_source")){type="university";label="Material universitario";scope=meta.source_name||meta.source_detail||""}
@@ -2602,7 +2689,7 @@ async function smartMaterialSources(env,user,query,limit=8){
   const rows=await env.DB.prepare(`
     SELECT id,title,body,tags_json,metadata_json,subject_id,topic_id,updated_at
     FROM notes
-    WHERE user_id=? ORDER BY datetime(updated_at) DESC LIMIT 350
+    WHERE user_id=? ORDER BY datetime(updated_at) DESC LIMIT 650
   `).bind(user.id).all();
   return (rows.results||[])
     .map(smartSourceFromNote).filter(Boolean)
@@ -2934,7 +3021,7 @@ ${documents}
 
   const id=crypto.randomUUID(),now=new Date().toISOString();
   const meta={
-    historical_keys_pack:true,version:25.2,subject,study_title:pack.title,
+    historical_keys_pack:true,version:29,subject,study_title:pack.title,
     source_file_ids:fileIds,source_files:sourceFiles,source_count:fileIds.length,source_signature:signature
   };
   await env.DB.prepare(`
@@ -2943,9 +3030,12 @@ ${documents}
     VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
   `).bind(
     id,user.id,null,null,`CLAVES HISTÓRICAS · ${subject}`,JSON.stringify(pack),
-    JSON.stringify(["historical_keys_pack","smart_study","study_pack","v25_2"]),
+    JSON.stringify(["historical_keys_pack","smart_study","study_pack","v29"]),
     JSON.stringify(meta),now,now
   ).run();
+  await questionBankUpsertQuestions(env,user,[...(pack.practice_questions||[]),...(pack.final_exam||[])],{
+    source_type:"historical_keys",source_ref:id,subject,source_name:pack.title
+  });
   return json({ok:true,id,cached:false,model:PREMIUM_FLASH_MODEL},201);
 }
 
@@ -2974,36 +3064,7 @@ async function getHistoricalKeysApi(url,env,user){
 }
 
 async function getLibraryExtractedText(env,user,fileId){
-  requireLibraryR2(env);
-  const row=await env.DB.prepare(`
-    SELECT id,title,metadata_json FROM notes
-    WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
-  `).bind(fileId,user.id).first();
-  if(!row)throw new Error("No encontré ese PDF en tu Biblioteca.");
-  const meta=parseLibraryMeta(row);
-  if(!meta.r2_key)throw new Error("El archivo no tiene referencia R2.");
-  const sidecar=`${meta.r2_key}.medai-v24.txt`;
-  const cached=await env.LIBRARY.get(sidecar);
-  if(cached)return {text:await cached.text(),row,meta,cached:true};
-
-  const object=await env.LIBRARY.get(meta.r2_key);
-  if(!object)throw new Error("El archivo no está disponible en R2.");
-  const mime=meta.mime_type||"application/octet-stream",name=meta.original_name||row.title||"documento.pdf";
-  if(mime!=="application/pdf"&&!/\.pdf$/i.test(name))throw new Error("El análisis de parciales está diseñado para PDF.");
-  if(!env.AI?.toMarkdown)throw new Error("La conversión documental de Workers AI no está disponible.");
-  const buffer=await object.arrayBuffer(),input={name,blob:new Blob([buffer],{type:mime})};
-  const options={conversionOptions:{output:{format:"text"},pdf:{metadata:false}}};
-  let converted;
-  try{
-    const converter=env.AI.toMarkdown();
-    converted=converter&&typeof converter.transform==="function"?await converter.transform(input,options):await env.AI.toMarkdown(input,options);
-  }catch(firstErr){
-    converted=await env.AI.toMarkdown(input,options);
-  }
-  const text=String(markdownConversionText(converted)||"").trim();
-  if(text.length<120)throw new Error("No pude extraer suficiente texto del parcial. Si es un PDF escaneado como imagen, más adelante podremos añadir OCR específico.");
-  await env.LIBRARY.put(sidecar,text,{httpMetadata:{contentType:"text/plain; charset=utf-8"},customMetadata:{source_file_id:fileId,user_id:user.id,medai:"v25-past-exam-text"}});
-  return {text,row,meta,cached:false};
+  return libraryExtractTextCore(env,user,fileId);
 }
 
 function bytesToBase64Standard(bytes){
@@ -3016,31 +3077,6 @@ function bytesToBase64Standard(bytes){
   return btoa(binary);
 }
 
-function sanitizeKeyedQuestions(parsed){
-  const arr=Array.isArray(parsed?.keyed_questions)?parsed.keyed_questions:[];
-  return arr.slice(0,100).map((q,i)=>{
-    const options=Array.isArray(q.options)?q.options.slice(0,6).map(x=>cleanText(x,1400)).filter(Boolean):[];
-    let idx=Number(q.correctIndex);
-    if(!Number.isFinite(idx)){
-      const k=String(q.key_answer||"").trim().toUpperCase().match(/[A-F]/)?.[0];
-      idx=k?k.charCodeAt(0)-65:0;
-    }
-    idx=clamp(idx,0,Math.max(0,options.length-1));
-    return {
-      number:cleanText(q.number,80)||String(i+1),
-      stem:cleanText(q.stem||q.question,3500),
-      options,
-      correctIndex:idx,
-      key_answer:cleanText(q.key_answer,300)||String.fromCharCode(65+idx),
-      explanation:cleanText(q.explanation,2600),
-      topic:cleanText(q.topic,300),
-      confidence:clamp(Number(q.confidence??0.85),0,1),
-      warning:cleanText(q.warning,1400),
-      source_note:cleanText(q.source_note,1000)
-    };
-  }).filter(q=>q.stem&&q.options.length>=2);
-}
-
 async function listMistakes(env, user) {
   const rows = await env.DB.prepare(`
     SELECT m.*,t.name AS topic_name
@@ -3048,6 +3084,506 @@ async function listMistakes(env, user) {
     WHERE m.user_id=? ORDER BY resolved ASC, datetime(m.updated_at) DESC LIMIT 300
   `).bind(user.id).all();
   return json({ mistakes: rows.results || [] });
+}
+
+
+// ============================================================
+// V29 FINAL · MEDIA, EXAM PREP, QUESTION BANK, PROGRESS & EXPORT
+// ============================================================
+
+function sanitizeTranscriptionPack(parsed,sourceName){
+  const flash=(Array.isArray(parsed?.flashcards)?parsed.flashcards:[]).slice(0,20).map(x=>({
+    front:cleanText(x.front,1400),back:cleanText(x.back,2600)
+  })).filter(x=>x.front&&x.back);
+  const questions=sanitizeHistoricalQuiz(parsed?.questions,15);
+  const sections=(Array.isArray(parsed?.sections)?parsed.sections:[]).slice(0,12).map(x=>({
+    title:cleanText(x.title,360),
+    explanation:cleanText(x.explanation||x.content,6000),
+    key_points:Array.isArray(x.key_points)?x.key_points.slice(0,10).map(y=>cleanText(y,900)).filter(Boolean):[]
+  })).filter(x=>x.title&&x.explanation);
+  if(!sections.length)return null;
+  return {
+    version:29,transcription_pack:true,
+    title:cleanText(parsed?.title,380)||`Clase transcrita · ${sourceName}`,
+    overview:cleanText(parsed?.overview,2800),
+    sections,
+    must_remember:Array.isArray(parsed?.must_remember)?parsed.must_remember.slice(0,20).map(x=>cleanText(x,1000)).filter(Boolean):[],
+    flashcards:flash,
+    questions,
+    source_digest:cleanText(parsed?.source_digest,14000)
+  };
+}
+
+async function transcribeLibraryMediaApi(request,env,user){
+  ensureAI(env);requireLibraryR2(env);
+  const body=await readJson(request),fileId=cleanText(body.file_id,220),subject=cleanText(body.subject,300);
+  if(!fileId)return json({error:"Falta el archivo de audio/video."},400);
+
+  const {row,meta}=await getLibraryFileRow(env,user,fileId);
+  const name=meta.original_name||row.title||"Clase";
+  const mime=String(meta.mime_type||"").toLowerCase();
+  if(!mime.startsWith("audio/")&&!mime.startsWith("video/")&&!/\.(mp3|wav|m4a|ogg|webm|mp4|mpeg|mpga)$/i.test(name)){
+    return json({error:"Selecciona un archivo de audio o video compatible."},400);
+  }
+
+  const existing=await env.DB.prepare(`
+    SELECT id,body,metadata_json,updated_at FROM notes
+    WHERE user_id=? AND tags_json LIKE '%transcription_pack_v29%'
+    ORDER BY datetime(updated_at) DESC LIMIT 100
+  `).bind(user.id).all();
+  for(const r of (existing.results||[])){
+    const m=parseJsonLoose(r.metadata_json)||{};
+    if(m.source_file_id===fileId){
+      return json({ok:true,id:r.id,cached:true,pack:parseJsonLoose(r.body),transcript_cached:true});
+    }
+  }
+
+  const obj=await env.LIBRARY.get(meta.r2_key);
+  if(!obj)return json({error:"El audio/video ya no está disponible en R2."},404);
+  const buffer=await obj.arrayBuffer();
+  if(buffer.byteLength>25_000_000){
+    return json({error:"Para transcripción directa, usa archivos de hasta 25 MB. Divide una clase larga en partes y MED AI podrá estudiar cada segmento."},413);
+  }
+  const audioBytes=new Uint8Array(buffer);
+  const whisperModels=["@cf/openai/whisper-large-v3-turbo","@cf/openai/whisper"];
+  let transcript="",usedWhisper="",lastErr=null;
+  for(const model of whisperModels){
+    try{
+      // Prefer the compact typed-array shape to avoid multiplying memory on long recordings.
+      let res;
+      try{
+        res=await env.AI.run(model,{audio:audioBytes},gatewayOptions("lecture_transcription",{model_used:model}));
+      }catch(first){
+        // Some Workers AI revisions expect a normal number array. Only use that
+        // fallback for smaller files so a large class cannot exhaust Worker memory.
+        if(buffer.byteLength>8_000_000)throw first;
+        res=await env.AI.run(model,{audio:[...audioBytes]},gatewayOptions("lecture_transcription",{model_used:model}));
+      }
+      transcript=cleanText(res?.text||res?.transcription||res?.result?.text||extractCloudflareText(res),120000);
+      if(transcript.length>40){usedWhisper=model;break}
+    }catch(err){lastErr=err}
+  }
+  if(transcript.length<40){
+    return json({error:`No pude transcribir este archivo${lastErr?`: ${String(lastErr?.message||lastErr).slice(0,220)}`:"."}`},422);
+  }
+
+  const transcriptKey=`${meta.r2_key}.medai-v29-transcript.txt`;
+  await env.LIBRARY.put(transcriptKey,transcript,{
+    httpMetadata:{contentType:"text/plain; charset=utf-8"},
+    customMetadata:{source_file_id:fileId,user_id:user.id,medai:"v29-transcript",model:usedWhisper}
+  });
+
+  const prompt=`Convierte esta TRANSCRIPCIÓN DE CLASE en un paquete de estudio riguroso.
+Materia/contexto: ${subject||"no indicado"}
+Archivo: ${name}
+
+Devuelve SOLO JSON:
+{
+ "title":"...",
+ "overview":"...",
+ "sections":[{"title":"...","explanation":"explicación completa","key_points":["..."]}],
+ "must_remember":["..."],
+ "flashcards":[{"front":"...","back":"..."}],
+ "questions":[{"stem":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","topic":"...","difficulty":2}],
+ "source_digest":"..."
+}
+REQUISITOS:
+- 4 a 10 sections si el contenido lo permite.
+- hasta 15 flashcards.
+- EXACTAMENTE 12 preguntas nuevas si hay suficiente contenido.
+- No inventes que el profesor dijo algo que no aparece en la transcripción.
+- Si agregas explicación académica complementaria, mantenla coherente y claramente docente.
+
+===== TRANSCRIPCIÓN =====
+${transcript.slice(0,100000)}
+===== FIN =====`;
+
+  let parsed=null,lastAI=null;
+  try{
+    const res=await callCloudflareAI(env,{
+      model:PREMIUM_FLASH_MODEL,task:"lecture_study_pack",
+      messages:[
+        {role:"system",content:"Eres un profesor universitario. Organiza una transcripción en material de estudio y devuelve únicamente JSON válido."},
+        {role:"user",content:prompt}
+      ],
+      max_tokens:7200,temperature:0.12,response_format:{type:"json_object"}
+    });
+    parsed=parseJsonLoose(extractCloudflareText(res));
+  }catch(err){lastAI=err}
+  const pack=sanitizeTranscriptionPack(parsed,name);
+  if(!pack)return json({error:lastAI?workersAIUserMessage(lastAI):"La transcripción se obtuvo, pero no pude construir el paquete de estudio."},502);
+
+  const id=crypto.randomUUID(),now=new Date().toISOString();
+  const metadata={transcription_pack_v29:true,source_file_id:fileId,source_name:name,subject,whisper_model:usedWhisper,transcript_r2_key:transcriptKey,study_title:pack.title};
+  await env.DB.prepare(`
+    INSERT INTO notes
+    (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+  `).bind(id,user.id,null,null,`CLASE TRANSCRITA · ${name}`,JSON.stringify(pack),JSON.stringify(["transcription_pack_v29","study_pack","v29"]),JSON.stringify(metadata),now,now).run();
+
+  const cardStatements=[];
+  for(const card of (pack.flashcards||[]).slice(0,20)){
+    cardStatements.push(env.DB.prepare(`
+      INSERT INTO flashcards
+      (id,user_id,topic_id,source_type,front,back,hint,tags_json,ease_factor,interval_days,repetitions,lapses,due_at,suspended,metadata_json,sync_version,created_at,updated_at)
+      VALUES (?,?,NULL,'transcription',?,?,?,?,2.5,0,0,0,?,0,?,1,?,?)
+    `).bind(
+      crypto.randomUUID(),user.id,card.front,card.back,"",JSON.stringify(["transcription","v29",subject||""]),
+      now,JSON.stringify({source_ref:id,source_file_id:fileId,source_name:name,subject}),now,now
+    ));
+  }
+  if(cardStatements.length)await env.DB.batch(cardStatements);
+  await questionBankUpsertQuestions(env,user,pack.questions,{source_type:"transcription",source_ref:id,subject:subject||"",source_name:name});
+  return json({ok:true,id,cached:false,pack,transcript_preview:transcript.slice(0,3500),whisper_model:usedWhisper,flashcards_saved:cardStatements.length},201);
+}
+
+function normalizeBankQuestion(q,context={}){
+  const options=Array.isArray(q?.options)?q.options.slice(0,4).map(x=>cleanText(x,1000)):[];
+  const stem=cleanText(q?.stem||q?.question,1800);
+  if(!stem||options.length!==4)return null;
+  let inferred=Number(q.difficulty||context.difficulty||0);
+  if(!Number.isFinite(inferred)||inferred<=0){
+    inferred=2;
+    if(stem.length>220||/caso|paciente|calcula|determine|integra|analiza|razonamiento|mecanismo/i.test(stem))inferred=3;
+    if(stem.length>420||/mejor conducta|más probable|excepto|combinación|multietapa|demuestre/i.test(stem))inferred=4;
+  }
+  return {
+    stem,
+    options,
+    correctIndex:clamp(Number(q.correctIndex),0,3),
+    explanation:cleanText(q.explanation,2400),
+    topic:cleanText(q.topic||context.topic,300),
+    subject:cleanText(q.subject||context.subject,300),
+    difficulty:clamp(inferred,1,5),
+    source_type:cleanText(context.source_type||q.source_type,80)||"generated",
+    source_ref:cleanText(context.source_ref||q.source_ref,220),
+    source_name:cleanText(context.source_name||q.source_name,320)
+  };
+}
+
+async function questionBankUpsertQuestions(env,user,questions,context={}){
+  const normalized=(Array.isArray(questions)?questions:[]).map(q=>normalizeBankQuestion(q,context)).filter(Boolean).slice(0,100);
+  if(!normalized.length)return 0;
+  const now=new Date().toISOString(),statements=[];
+  for(const q of normalized){
+    const fingerprint=await sha256(smartNormalize(q.stem));
+    const id=`qb29_${fingerprint}`;
+    const metadata={question_bank_v29:true,fingerprint,subject:q.subject,topic:q.topic,difficulty:q.difficulty,source_type:q.source_type,source_ref:q.source_ref,source_name:q.source_name};
+    statements.push(env.DB.prepare(`
+      INSERT OR IGNORE INTO notes
+      (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+    `).bind(id,user.id,null,null,`PREGUNTA · ${q.topic||q.subject||"Banco"}`,JSON.stringify(q),JSON.stringify(["question_bank_v29","v29"]),JSON.stringify(metadata),now,now));
+  }
+  for(let i=0;i<statements.length;i+=40)await env.DB.batch(statements.slice(i,i+40));
+  return statements.length;
+}
+
+async function questionBankRows(env,user){
+  const rows=await env.DB.prepare(`
+    SELECT id,title,body,metadata_json,created_at,updated_at FROM notes
+    WHERE user_id=? AND tags_json LIKE '%question_bank_v29%'
+    ORDER BY datetime(updated_at) DESC LIMIT 3000
+  `).bind(user.id).all();
+  return (rows.results||[]).map(r=>{
+    const q=parseJsonLoose(r.body)||{},m=parseJsonLoose(r.metadata_json)||{};
+    return {id:r.id,...q,difficulty:Number(q.difficulty||m.difficulty||2),subject:q.subject||m.subject||"",topic:q.topic||m.topic||"",updated_at:r.updated_at};
+  }).filter(q=>q.stem&&Array.isArray(q.options)&&q.options.length===4);
+}
+
+async function questionBankApi(url,env,user){
+  const subject=smartNormalize(url.searchParams.get("subject")||"");
+  const q=smartNormalize(url.searchParams.get("q")||"");
+  let rows=await questionBankRows(env,user);
+  if(subject)rows=rows.filter(x=>smartNormalize(x.subject).includes(subject)||smartNormalize(x.topic).includes(subject));
+  if(q)rows=rows.filter(x=>smartNormalize(`${x.stem} ${x.topic} ${x.subject}`).includes(q));
+  const byDifficulty={1:0,2:0,3:0,4:0,5:0},subjects={};
+  for(const x of rows){
+    byDifficulty[clamp(Number(x.difficulty||2),1,5)]++;
+    const s=x.subject||"Sin materia";subjects[s]=(subjects[s]||0)+1;
+  }
+  return json({questions:rows.slice(0,600),total:rows.length,by_difficulty:byDifficulty,subjects});
+}
+
+async function deleteQuestionBankApi(url,env,user){
+  const id=cleanText(url.searchParams.get("id"),220);
+  if(!id)return json({error:"Falta id."},400);
+  await env.DB.prepare(`DELETE FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%question_bank_v29%'`).bind(id,user.id).run();
+  return json({ok:true});
+}
+
+async function adaptiveExamStartApi(url,env,user){
+  const subject=cleanText(url.searchParams.get("subject"),300);
+  const count=clamp(Number(url.searchParams.get("count")||20),10,40);
+  let bank=await questionBankRows(env,user);
+  if(subject){
+    const norm=smartNormalize(subject);
+    bank=bank.filter(q=>smartNormalize(q.subject).includes(norm)||smartNormalize(q.topic).includes(norm));
+  }
+  // If the permanent bank is still small, seed it from saved historical-key packs.
+  if(bank.length<count){
+    const packs=await env.DB.prepare(`
+      SELECT id,body,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%'
+      ORDER BY datetime(updated_at) DESC LIMIT 80
+    `).bind(user.id).all();
+    const candidates=[];
+    for(const r of (packs.results||[])){
+      const p=parseJsonLoose(r.body)||{},m=parseJsonLoose(r.metadata_json)||{};
+      const subj=p.subject||m.subject||"";
+      if(subject&&!smartNormalize(subj).includes(smartNormalize(subject)))continue;
+      candidates.push(...(p.practice_questions||[]),...(p.final_exam||[]));
+    }
+    if(candidates.length){
+      await questionBankUpsertQuestions(env,user,candidates,{source_type:"historical_keys",subject});
+      bank=await questionBankRows(env,user);
+      if(subject){
+        const norm=smartNormalize(subject);
+        bank=bank.filter(q=>smartNormalize(q.subject).includes(norm)||smartNormalize(q.topic).includes(norm));
+      }
+    }
+  }
+  if(bank.length<5)return json({error:"Aún no hay suficientes preguntas para un examen adaptativo. Haz exámenes o crea un paquete en Antes del parcial para alimentar el banco."},422);
+
+  // Return a broad pool. The browser selects the next item according to current difficulty.
+  bank.sort((a,b)=>Number(a.difficulty||2)-Number(b.difficulty||2));
+  const perLevel=Math.max(8,Math.ceil(count*1.5));
+  const pool=[];
+  for(let level=1;level<=5;level++)pool.push(...bank.filter(x=>Number(x.difficulty||2)===level).slice(0,perLevel));
+  const unique=[],seen=new Set();
+  for(const q of [...pool,...bank]){
+    const k=smartNormalize(q.stem);if(!k||seen.has(k))continue;seen.add(k);unique.push(q);
+    if(unique.length>=Math.min(100,count*4))break;
+  }
+  return json({subject:subject||"Mi banco",target_count:Math.min(count,unique.length),pool:unique});
+}
+
+function examPlanTopicCandidates(historical,weakRows){
+  const map=new Map();
+  for(const t of (historical?.recurring_topics||[])){
+    const key=smartNormalize(t.name);if(!key)continue;
+    map.set(key,{name:t.name,score:Number(t.historical_weight||10)+Number(t.occurrence_count||1)*8,reason:`Apareció en ${Number(t.occurrence_count||1)} archivo(s) histórico(s)`});
+  }
+  for(const w of (weakRows||[])){
+    const key=smartNormalize(w.topic_name);if(!key)continue;
+    const weakness=100-Number(w.mastery||0),prev=map.get(key)||{name:w.topic_name,score:0,reason:""};
+    prev.score+=weakness;
+    prev.reason=[prev.reason,`dominio actual ${Math.round(Number(w.mastery||0))}%`].filter(Boolean).join(" · ");
+    map.set(key,prev);
+  }
+  return [...map.values()].sort((a,b)=>b.score-a.score);
+}
+
+async function createExamPrepPlanApi(request,env,user){
+  const body=await readJson(request);
+  const subject=cleanText(body.subject,300),title=cleanText(body.title,300)||`Parcial de ${subject||"estudio"}`;
+  const dueAt=cleanText(body.due_at,80),dailyMinutes=clamp(Number(body.daily_minutes||60),20,240);
+  if(!subject||!dueAt)return json({error:"Materia y fecha del parcial son obligatorias."},400);
+  const due=new Date(dueAt),today=new Date();
+  if(!Number.isFinite(due.getTime()))return json({error:"Fecha inválida."},400);
+  const days=Math.max(1,Math.min(60,Math.ceil((due-today)/86400000)));
+
+  const subjectRow=await env.DB.prepare(`SELECT id,name FROM subjects WHERE lower(name)=lower(?) OR lower(code)=lower(?) LIMIT 1`).bind(subject,subject).first().catch(()=>null);
+  const weak=subjectRow?await env.DB.prepare(`
+    SELECT p.mastery,t.name AS topic_name FROM user_topic_progress p JOIN topics t ON t.id=p.topic_id
+    WHERE p.user_id=? AND t.subject_id=? ORDER BY p.mastery ASC LIMIT 25
+  `).bind(user.id,subjectRow.id).all():{results:[]};
+
+  const packs=await env.DB.prepare(`
+    SELECT body,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%'
+    ORDER BY datetime(updated_at) DESC LIMIT 100
+  `).bind(user.id).all();
+  let historical=null;
+  for(const r of (packs.results||[])){
+    const p=parseJsonLoose(r.body)||{},m=parseJsonLoose(r.metadata_json)||{};
+    if(smartNormalize(p.subject||m.subject).includes(smartNormalize(subject))){historical=p;break}
+  }
+
+  let topics=examPlanTopicCandidates(historical,weak.results||[]);
+  if(!topics.length)topics=[{name:`Fundamentos de ${subject}`,score:50,reason:"Aún no hay datos de dominio; usa tu programa oficial y materiales de clase."}];
+
+  const sessions=[];
+  const studyDays=Math.max(1,days-2);
+  for(let d=0;d<studyDays;d++){
+    const date=new Date(today.getTime()+d*86400000).toISOString().slice(0,10);
+    const t1=topics[d%topics.length],t2=topics[(d+1)%topics.length];
+    sessions.push({
+      day:d+1,date,title:`Clase + práctica · ${t1.name}`,
+      minutes:dailyMinutes,
+      focus:[t1.name,...(dailyMinutes>=80&&t2.name!==t1.name?[t2.name]:[])],
+      task:"Estudia el concepto, haz recuperación activa y termina con preguntas del banco.",
+      reason:t1.reason
+    });
+  }
+  if(days>=2)sessions.push({
+    day:sessions.length+1,
+    date:new Date(due.getTime()-2*86400000).toISOString().slice(0,10),
+    title:"Repaso de errores",minutes:dailyMinutes,
+    focus:topics.slice(0,4).map(x=>x.name),
+    task:"Haz Repaso inteligente y vuelve a los conceptos que aún fallas.",
+    reason:"Consolidación antes del simulacro"
+  });
+  sessions.push({
+    day:sessions.length+1,
+    date:new Date(due.getTime()-86400000).toISOString().slice(0,10),
+    title:"Simulacro final",minutes:Math.min(120,dailyMinutes),
+    focus:topics.slice(0,6).map(x=>x.name),
+    task:"Haz un examen adaptativo o el examen final de Antes del parcial. Después revisa solo errores.",
+    reason:"Evaluación final antes del parcial"
+  });
+
+  const plan={version:29,exam_prep_plan:true,title,subject,due_at:dueAt,daily_minutes:dailyMinutes,days_remaining:days,priority_topics:topics.slice(0,12),sessions};
+  const now=new Date().toISOString();
+  const meta={exam_prep_plan_v29:true,subject,due_at:dueAt,study_title:title};
+
+  // Reuse/update the latest plan for the same subject instead of creating duplicates.
+  let planId=null;
+  const existingPlans=await env.DB.prepare(`
+    SELECT id,metadata_json FROM notes
+    WHERE user_id=? AND tags_json LIKE '%exam_prep_plan_v29%'
+    ORDER BY datetime(updated_at) DESC LIMIT 100
+  `).bind(user.id).all();
+  for(const r of (existingPlans.results||[])){
+    const m=parseJsonLoose(r.metadata_json)||{};
+    if(smartNormalize(m.subject)===smartNormalize(subject)){planId=r.id;break}
+  }
+
+  if(planId){
+    await env.DB.prepare(`
+      UPDATE notes SET subject_id=?,title=?,body=?,metadata_json=?,updated_at=?,sync_version=sync_version+1
+      WHERE id=? AND user_id=?
+    `).bind(subjectRow?.id||null,`PLAN PARCIAL · ${subject}`,JSON.stringify(plan),JSON.stringify(meta),now,planId,user.id).run();
+  }else{
+    planId=crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO notes
+      (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
+    `).bind(planId,user.id,subjectRow?.id||null,null,`PLAN PARCIAL · ${subject}`,JSON.stringify(plan),JSON.stringify(["exam_prep_plan_v29","smart_study","v29"]),JSON.stringify(meta),now,now).run();
+  }
+
+  // Reuse/update an existing incomplete exam deadline for the same subject/title.
+  let deadline=null;
+  if(subjectRow?.id){
+    deadline=await env.DB.prepare(`
+      SELECT id FROM academic_deadlines
+      WHERE user_id=? AND completed=0 AND deadline_type='exam' AND subject_id=?
+      ORDER BY datetime(updated_at) DESC LIMIT 1
+    `).bind(user.id,subjectRow.id).first();
+  }else{
+    deadline=await env.DB.prepare(`
+      SELECT id FROM academic_deadlines
+      WHERE user_id=? AND completed=0 AND deadline_type='exam' AND lower(title)=lower(?)
+      ORDER BY datetime(updated_at) DESC LIMIT 1
+    `).bind(user.id,title).first();
+  }
+
+  let deadlineId=deadline?.id||crypto.randomUUID();
+  if(deadline?.id){
+    await env.DB.prepare(`
+      UPDATE academic_deadlines
+      SET title=?,subject_id=?,due_at=?,importance=5,notes=?,updated_at=?
+      WHERE id=? AND user_id=?
+    `).bind(title,subjectRow?.id||null,dueAt,"Creado/actualizado desde Antes del parcial · V29",now,deadline.id,user.id).run();
+  }else{
+    await env.DB.prepare(`
+      INSERT INTO academic_deadlines
+      (id,user_id,title,deadline_type,subject_id,due_at,importance,notes,completed,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,0,?,?)
+    `).bind(deadlineId,user.id,title,"exam",subjectRow?.id||null,dueAt,5,"Creado desde Antes del parcial · V29",now,now).run();
+  }
+
+  return json({ok:true,id:planId,deadline_id:deadlineId,updated:!!planId,plan},201);
+}
+
+async function getExamPrepPlanApi(url,env,user){
+  const subject=smartNormalize(url.searchParams.get("subject")||"");
+  const rows=await env.DB.prepare(`
+    SELECT id,title,body,metadata_json,updated_at FROM notes
+    WHERE user_id=? AND tags_json LIKE '%exam_prep_plan_v29%'
+    ORDER BY datetime(updated_at) DESC LIMIT 50
+  `).bind(user.id).all();
+  for(const r of (rows.results||[])){
+    const p=parseJsonLoose(r.body)||{};
+    if(!subject||smartNormalize(p.subject).includes(subject))return json({id:r.id,plan:p,updated_at:r.updated_at});
+  }
+  return json({plan:null});
+}
+
+async function progressOverviewApi(env,user){
+  const rows=await env.DB.prepare(`
+    SELECT s.id AS subject_id,s.code,s.name AS subject_name,t.id AS topic_id,t.name AS topic_name,
+           COALESCE(p.mastery,0) AS mastery,COALESCE(p.questions_answered,0) AS questions_answered,
+           COALESCE(p.questions_correct,0) AS questions_correct
+    FROM subjects s JOIN topics t ON t.subject_id=s.id AND t.active=1
+    LEFT JOIN user_topic_progress p ON p.topic_id=t.id AND p.user_id=?
+    WHERE s.active=1
+    ORDER BY s.sort_order,s.name,t.sort_order,t.name
+  `).bind(user.id).all();
+  const subjects=new Map(),totals={dominated:0,learning:0,review:0,not_started:0};
+  for(const r of (rows.results||[])){
+    const answered=Number(r.questions_answered||0),mastery=Number(r.mastery||0);
+    const status=!answered?"not_started":mastery>=85?"dominated":mastery>=50?"learning":"review";
+    totals[status]++;
+    if(!subjects.has(r.subject_id))subjects.set(r.subject_id,{id:r.subject_id,code:r.code,name:r.subject_name,dominated:0,learning:0,review:0,not_started:0,topics:[]});
+    const s=subjects.get(r.subject_id);s[status]++;s.topics.push({id:r.topic_id,name:r.topic_name,mastery,questions_answered:answered,status});
+  }
+  return json({totals,subjects:[...subjects.values()]});
+}
+
+// ---------- ZIP export without external dependencies ----------
+const CRC32_TABLE=(()=>{
+  const table=new Uint32Array(256);
+  for(let n=0;n<256;n++){
+    let c=n;
+    for(let k=0;k<8;k++)c=(c&1)?0xEDB88320^(c>>>1):c>>>1;
+    table[n]=c>>>0;
+  }
+  return table;
+})();
+function crc32(bytes){
+  let c=0xFFFFFFFF;
+  for(const b of bytes)c=CRC32_TABLE[(c^b)&0xFF]^(c>>>8);
+  return (c^0xFFFFFFFF)>>>0;
+}
+function le16(n){return Uint8Array.of(n&255,(n>>>8)&255)}
+function le32(n){return Uint8Array.of(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255)}
+function concatBytes(parts){
+  const len=parts.reduce((s,p)=>s+p.length,0),out=new Uint8Array(len);let at=0;
+  for(const p of parts){out.set(p,at);at+=p.length}return out;
+}
+function buildStoreZip(entries){
+  const enc=new TextEncoder(),locals=[],centrals=[];let offset=0;
+  for(const entry of entries){
+    const name=enc.encode(entry.name),data=typeof entry.data==="string"?enc.encode(entry.data):entry.data;
+    const crc=crc32(data);
+    const local=concatBytes([le32(0x04034b50),le16(20),le16(0),le16(0),le16(0),le16(0),le32(crc),le32(data.length),le32(data.length),le16(name.length),le16(0),name,data]);
+    locals.push(local);
+    const central=concatBytes([le32(0x02014b50),le16(20),le16(20),le16(0),le16(0),le16(0),le16(0),le32(crc),le32(data.length),le32(data.length),le16(name.length),le16(0),le16(0),le16(0),le16(0),le32(0),le32(offset),name]);
+    centrals.push(central);offset+=local.length;
+  }
+  const centralData=concatBytes(centrals),localData=concatBytes(locals);
+  const end=concatBytes([le32(0x06054b50),le16(0),le16(0),le16(entries.length),le16(entries.length),le32(centralData.length),le32(localData.length),le16(0)]);
+  return concatBytes([localData,centralData,end]);
+}
+async function systemExportApi(env,user){
+  const backup=await collectSystemBackupData(env,user);
+  const tables=backup.tables||{};
+  const questionBank=(tables.notes||[]).filter(r=>String(r.tags_json||"").includes("question_bank_v29"));
+  const entries=[
+    {name:"MED_AI_EXPORT.json",data:JSON.stringify(backup,null,2)},
+    {name:"library_manifest.json",data:JSON.stringify(backup.library_manifest||[],null,2)},
+    {name:"notes.json",data:JSON.stringify(tables.notes||[],null,2)},
+    {name:"exams.json",data:JSON.stringify(tables.exams||[],null,2)},
+    {name:"mistakes.json",data:JSON.stringify(tables.mistakes||[],null,2)},
+    {name:"question_bank.json",data:JSON.stringify(questionBank,null,2)}
+  ];
+  const zip=buildStoreZip(entries);
+  const date=new Date().toISOString().slice(0,10);
+  return new Response(zip,{headers:{
+    "content-type":"application/zip",
+    "content-disposition":`attachment; filename="MED_AI_DALTON_EXPORT_${date}.zip"`,
+    "cache-control":"no-store"
+  }});
 }
 
 // -------------------- STATS / SEARCH / EXAMS --------------------
@@ -3105,8 +3641,8 @@ async function recordExam(request, env, user) {
   const questions = Array.isArray(body.questions) ? body.questions.slice(0, 100) : [];
   const answers = body.answers && typeof body.answers === "object" ? body.answers : {};
   const settings = body.settings && typeof body.settings === "object" ? body.settings : {};
-  const attemptSourceType = settings.past_exam_key ? "past_exam_key" : "ai_exam";
-  const attemptSourceRef = settings.past_exam_key && settings.past_exam_pack_id ? String(settings.past_exam_pack_id) : id;
+  const attemptSourceType = settings.adaptive_exam ? "adaptive_exam" : settings.historical_keys ? "historical_keys_exam" : "ai_exam";
+  const attemptSourceRef = settings.historical_keys_pack_id ? String(settings.historical_keys_pack_id) : id;
 
   const statements = [
     env.DB.prepare(`
@@ -3159,6 +3695,13 @@ async function recordExam(request, env, user) {
     questions_correct:Number(body.score||0),
     xp_earned:Math.round(Number(body.score||0)*2)
   });
+  try{
+    await questionBankUpsertQuestions(env,user,questions,{
+      source_type:attemptSourceType,source_ref:id,
+      subject:cleanText(settings.subject,300),source_name:cleanText(body.title,300),
+      difficulty:settings.difficulty?Math.max(1,Math.min(5,Math.ceil(Number(settings.difficulty)/2))):undefined
+    });
+  }catch(err){console.error("QUESTION_BANK_SAVE_ERROR",err?.stack||err)}
   return json({ok:true,id});
 }
 
@@ -3190,7 +3733,7 @@ function gatewayOptions(task="general",extra={}){
       collectLog:true,
       metadata:{
         app:"MED AI DALTON",
-        version:"26.2",
+        version:"29",
         task,
         ...extra
       }
@@ -4006,31 +4549,10 @@ async function readJson(request){
   return text?JSON.parse(text):{};
 }
 
-function normalizeEmail(v){return String(v||"").trim().toLowerCase();}
-function isEmail(v){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);}
 function cleanText(v,max=5000){return String(v??"").trim().slice(0,max);}
 function nullable(v){const s=String(v??"").trim(); return s?s:null;}
 function clamp(n,min,max){return Math.min(max,Math.max(min,Number.isFinite(n)?n:min));}
 function delay(ms){return new Promise(r=>setTimeout(r,ms));}
-
-function parseCookie(header,name){
-  for(const part of header.split(";")){
-    const [k,...rest]=part.trim().split("=");
-    if(k===name) return rest.join("=");
-  }
-  return "";
-}
-
-async function derivePassword(password,saltBytes,iterations){
-  const keyMaterial=await crypto.subtle.importKey(
-    "raw",new TextEncoder().encode(password),{name:"PBKDF2"},false,["deriveBits"]
-  );
-  const bits=await crypto.subtle.deriveBits(
-    {name:"PBKDF2",hash:"SHA-256",salt:saltBytes,iterations},
-    keyMaterial,256
-  );
-  return bytesToBase64url(new Uint8Array(bits));
-}
 
 async function sha256(text){
   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
@@ -4041,21 +4563,6 @@ function bytesToBase64url(bytes){
   let binary="";
   for(let i=0;i<bytes.length;i++) binary+=String.fromCharCode(bytes[i]);
   return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-}
-
-function base64urlToBytes(str){
-  let s=str.replace(/-/g,"+").replace(/_/g,"/");
-  while(s.length%4) s+="=";
-  const bin=atob(s), out=new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
-  return out;
-}
-
-function constantTimeEqual(a,b){
-  if(a.length!==b.length) return false;
-  let diff=0;
-  for(let i=0;i<a.length;i++) diff|=a.charCodeAt(i)^b.charCodeAt(i);
-  return diff===0;
 }
 
 function parseJsonLoose(text){
