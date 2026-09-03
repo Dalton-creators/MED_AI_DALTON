@@ -79,6 +79,38 @@ export default {
         return dashboard(env, user);
       }
 
+      if (url.pathname === "/api/academic/home" && request.method === "GET") {
+        return academicHomeApi(env, user);
+      }
+
+      if (url.pathname === "/api/academic/semester" && request.method === "GET") {
+        return academicSemesterApi(request, env, user, "GET");
+      }
+
+      if (url.pathname === "/api/academic/semester" && request.method === "POST") {
+        return academicSemesterApi(request, env, user, "POST");
+      }
+
+      if (url.pathname === "/api/academic/diagnostic/start" && request.method === "POST") {
+        return academicDiagnosticStartApi(request, env, user);
+      }
+
+      if (url.pathname === "/api/academic/diagnostic" && request.method === "GET") {
+        return academicDiagnosticApi(request, env, user, "GET");
+      }
+
+      if (url.pathname === "/api/academic/diagnostic" && request.method === "POST") {
+        return academicDiagnosticApi(request, env, user, "POST");
+      }
+
+      if (url.pathname === "/api/academic/credentials" && request.method === "GET") {
+        return academicCredentialsApi(env, user);
+      }
+
+      if (url.pathname === "/api/academic/explain" && request.method === "POST") {
+        return academicExplainApi(request, env, user);
+      }
+
       if (url.pathname === "/api/subjects" && request.method === "GET") {
         return subjects(env);
       }
@@ -189,6 +221,10 @@ export default {
 
       if (url.pathname === "/api/library/item" && request.method === "PUT") {
         return updateStudyLibraryItem(request, env, user);
+      }
+
+      if (url.pathname === "/api/library/source-priority" && request.method === "PUT") {
+        return updateLibrarySourcePriorityApi(request, env, user);
       }
 
       if (url.pathname === "/api/library/item" && request.method === "DELETE") {
@@ -397,7 +433,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="29.0.4";
+const SYSTEM_VERSION="30.0.0";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -488,6 +524,14 @@ async function systemSelfTestApi(env,user){
       add("D1 ↔ R2 muestra",!!head,head?`OK · ${file.title}`:`Falta objeto de ${file.title}`);
     }
   }catch(err){add("D1 ↔ R2 muestra",false,String(err?.message||err))}
+  try{
+    const n=await env.DB.prepare("SELECT COUNT(*) AS n FROM notes WHERE user_id=? AND (tags_json LIKE '%semester_v30%' OR tags_json LIKE '%diagnostic_v30%')").bind(user.id).first();
+    add("Academic Experience V30",true,`${Number(n?.n||0)} registros académicos V30`);
+  }catch(err){add("Academic Experience V30",false,String(err?.message||err))}
+  try{
+    const n=await env.DB.prepare("SELECT COUNT(*) AS n FROM academic_deadlines WHERE user_id=?").bind(user.id).first();
+    add("Calendario académico",true,`${Number(n?.n||0)} fechas registradas`);
+  }catch(err){add("Calendario académico",false,String(err?.message||err))}
   add("AI binding",!!env.AI,env.AI?"Binding configurado (sin inferencia de pago)":"Falta binding AI");
   add("Assets binding",!!env.ASSETS,env.ASSETS?"Assets disponible":"Falta ASSETS");
   const passed=checks.filter(x=>x.ok).length;
@@ -746,7 +790,7 @@ async function systemOfflineCourseApi(url,env,user){
 
   return json({
     subject:{id:subject.id,name:subject.name,code:subject.code},
-    materials,flashcards,historical_packs,question_bank,count:materials.length,bundle_version:29,
+    materials,flashcards,historical_packs,question_bank,count:materials.length,bundle_version:30,
     note:"Los PDF/libros quedan offline cuando los marcaste OFFLINE en Biblioteca; este paquete añade clases, flashcards, claves históricas y banco de preguntas."
   });
 }
@@ -842,6 +886,378 @@ async function dashboard(env, user) {
     recentTopics: recent.results || [],
     deadlines: deadlines.results || []
   });
+}
+
+
+// ============================================================
+// V30 · ACADEMIC EXPERIENCE
+// ============================================================
+
+function academicNoteMeta(row){
+  return parseJsonLoose(row?.metadata_json)||{};
+}
+function academicNoteBody(row){
+  const parsed=parseJsonLoose(row?.body);
+  return parsed&&typeof parsed==="object"?parsed:{};
+}
+
+async function latestAcademicNote(env,user,tag,subjectId=""){
+  const rows=await env.DB.prepare(`
+    SELECT id,title,body,metadata_json,created_at,updated_at
+    FROM notes WHERE user_id=? AND tags_json LIKE ?
+    ORDER BY datetime(updated_at) DESC LIMIT 100
+  `).bind(user.id,`%${tag}%`).all();
+  const list=rows.results||[];
+  if(!subjectId)return list[0]||null;
+  return list.find(r=>{
+    const b=academicNoteBody(r),m=academicNoteMeta(r);
+    return String(b.subject_id||m.subject_id||"")===String(subjectId);
+  })||null;
+}
+
+async function academicHomeApi(env,user){
+  const now=new Date(),today=now.toISOString().slice(0,10);
+  const [
+    profile,resume,dueCards,dueMistakes,deadlineRows,weakRows,weekRows,semesterRow,diagnosticRows
+  ]=await Promise.all([
+    env.DB.prepare(`SELECT * FROM profiles WHERE user_id=?`).bind(user.id).first(),
+    env.DB.prepare(`
+      SELECT r.*,s.name AS subject_name,t.name AS topic_name,l.title AS lesson_title
+      FROM study_resume_state r
+      LEFT JOIN subjects s ON s.id=r.subject_id
+      LEFT JOIN topics t ON t.id=r.topic_id
+      LEFT JOIN lessons l ON l.id=r.lesson_id
+      WHERE r.user_id=?
+    `).bind(user.id).first(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM flashcards WHERE user_id=? AND suspended=0 AND datetime(due_at)<=datetime('now')`).bind(user.id).first(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM mistakes WHERE user_id=? AND resolved=0 AND (next_review_at IS NULL OR datetime(next_review_at)<=datetime('now'))`).bind(user.id).first(),
+    env.DB.prepare(`
+      SELECT d.id,d.title,d.due_at,d.deadline_type,d.importance,d.subject_id,s.name AS subject_name
+      FROM academic_deadlines d LEFT JOIN subjects s ON s.id=d.subject_id
+      WHERE d.user_id=? AND d.completed=0 AND datetime(d.due_at)>=datetime('now')
+      ORDER BY datetime(d.due_at) ASC LIMIT 8
+    `).bind(user.id).all(),
+    env.DB.prepare(`
+      SELECT p.topic_id,p.mastery,p.questions_answered,p.questions_correct,p.last_studied_at,
+             t.name AS topic_name,t.subject_id,s.name AS subject_name
+      FROM user_topic_progress p
+      JOIN topics t ON t.id=p.topic_id JOIN subjects s ON s.id=t.subject_id
+      WHERE p.user_id=? AND p.questions_answered>0
+      ORDER BY p.mastery ASC, datetime(p.last_studied_at) ASC LIMIT 12
+    `).bind(user.id).all(),
+    env.DB.prepare(`
+      SELECT metric_date,study_seconds,questions_answered,questions_correct,flashcards_reviewed,xp_earned
+      FROM daily_metrics WHERE user_id=? AND metric_date>=date('now','-14 day')
+      ORDER BY metric_date DESC
+    `).bind(user.id).all(),
+    latestAcademicNote(env,user,"semester_v30"),
+    env.DB.prepare(`
+      SELECT id,title,body,metadata_json,updated_at FROM notes
+      WHERE user_id=? AND tags_json LIKE '%diagnostic_v30%'
+      ORDER BY datetime(updated_at) DESC LIMIT 30
+    `).bind(user.id).all()
+  ]);
+
+  const semester=semesterRow?academicNoteBody(semesterRow):null;
+  const activeSubjects=new Set(Array.isArray(semester?.subject_ids)?semester.subject_ids:[]);
+  const allDeadlines=deadlineRows.results||[];
+  const deadlines=activeSubjects.size?allDeadlines.filter(x=>!x.subject_id||activeSubjects.has(x.subject_id)):allDeadlines;
+  const nextDeadline=deadlines[0]||allDeadlines[0]||null;
+  const allWeak=weakRows.results||[];
+  const weak=activeSubjects.size?allWeak.filter(x=>activeSubjects.has(x.subject_id)):allWeak;
+  const diagnosticPreview=(diagnosticRows.results||[]).map(r=>({id:r.id,...academicNoteBody(r),updated_at:r.updated_at}));
+  const dueF=Number(dueCards?.n||0),dueM=Number(dueMistakes?.n||0);
+  const week=weekRows.results||[];
+  const studyToday=week.find(x=>x.metric_date===today);
+  const weekMinutes=Math.round(week.filter(x=>{
+    const d=new Date(`${x.metric_date}T12:00:00Z`);
+    return (now-d)<=7*86400000;
+  }).reduce((s,x)=>s+Number(x.study_seconds||0),0)/60);
+
+  const studiedDates=new Set(week.filter(x=>Number(x.study_seconds||0)>0).map(x=>x.metric_date));
+  let streak=0;
+  for(let i=0;i<30;i++){
+    const d=new Date(now.getTime()-i*86400000).toISOString().slice(0,10);
+    if(studiedDates.has(d))streak++;
+    else if(i===0)continue;
+    else break;
+  }
+
+  let recommendation={
+    title:resume?.topic_name||resume?.subject_name||"Empieza una materia",
+    subject_id:resume?.subject_id||null,
+    subject_name:resume?.subject_name||"",
+    detail:resume?.lesson_title||"Continúa tu ruta académica.",
+    reason:"continuidad",
+    minutes:25,
+    action:"study"
+  };
+  const lowDiagnostic=diagnosticPreview.find(x=>(!activeSubjects.size||activeSubjects.has(x.subject_id))&&Number(x.percentage||0)<70);
+  if(!weak.length&&lowDiagnostic){
+    recommendation={
+      title:lowDiagnostic.recommendations?.[0]?.skill||lowDiagnostic.subject_name||"Fundamentos",
+      subject_id:lowDiagnostic.subject_id||null,
+      subject_name:lowDiagnostic.subject_name||"",
+      detail:`Tu diagnóstico fue ${Math.round(Number(lowDiagnostic.percentage||0))}%. Conviene reforzar esta base antes de avanzar.`,
+      reason:"diagnóstico inicial",
+      minutes:30,
+      action:"study"
+    };
+  }
+  if(nextDeadline){
+    const days=Math.max(0,Math.ceil((new Date(nextDeadline.due_at)-now)/86400000));
+    if(days<=14){
+      recommendation={
+        title:nextDeadline.subject_name||nextDeadline.title,
+        subject_id:nextDeadline.subject_id||null,
+        subject_name:nextDeadline.subject_name||"",
+        detail:`${nextDeadline.title} · ${days===0?"hoy":days===1?"mañana":`en ${days} días`}`,
+        reason:"parcial próximo",
+        minutes:days<=3?45:35,
+        action:"exam_prep"
+      };
+    }
+  }
+  if(dueM>=4&&(!nextDeadline||new Date(nextDeadline.due_at)-now>2*86400000)){
+    recommendation={
+      title:weak[0]?.topic_name||"Repaso de errores",
+      subject_id:weak[0]?.subject_id||null,
+      subject_name:weak[0]?.subject_name||"",
+      detail:`Tienes ${dueM} errores listos para repasar.`,
+      reason:"debilidad detectada",
+      minutes:20,
+      action:"smart"
+    };
+  }
+
+  const missionTasks=[];
+  if(dueF)missionTasks.push({id:"flashcards",title:`Repasar ${Math.min(10,dueF)} flashcards`,view:"flashcards",minutes:8});
+  if(dueM)missionTasks.push({id:"mistakes",title:`Corregir ${Math.min(4,dueM)} errores`,view:"smart",minutes:10});
+  missionTasks.push({id:"focus",title:`Estudiar ${recommendation.title}`,view:recommendation.action||"study",subject_id:recommendation.subject_id||null,minutes:recommendation.minutes||25});
+  missionTasks.push({id:"questions",title:"Responder 10 preguntas de recuperación activa",view:"question_bank",minutes:12});
+  const missionMinutes=missionTasks.reduce((s,x)=>s+Number(x.minutes||0),0);
+
+  const diagnostics=diagnosticPreview;
+
+  return json({
+    profile,recommendation,
+    mission:{date:today,minutes:missionMinutes,tasks:missionTasks},
+    due_flashcards:dueF,due_mistakes:dueM,
+    next_deadline:nextDeadline,deadlines,
+    weak_topics:weak,
+    week_minutes:weekMinutes,today_minutes:Math.round(Number(studyToday?.study_seconds||0)/60),
+    streak_days:streak,
+    semester,
+    latest_diagnostics:diagnostics.slice(0,12)
+  });
+}
+
+async function academicSemesterApi(request,env,user,method){
+  if(method==="GET"){
+    const rows=await env.DB.prepare(`
+      SELECT id,title,body,metadata_json,created_at,updated_at FROM notes
+      WHERE user_id=? AND tags_json LIKE '%semester_v30%'
+      ORDER BY datetime(updated_at) DESC LIMIT 20
+    `).bind(user.id).all();
+    return json({semesters:(rows.results||[]).map(r=>({id:r.id,...academicNoteBody(r),created_at:r.created_at,updated_at:r.updated_at}))});
+  }
+
+  const body=await readJson(request);
+  const name=cleanText(body.name,220),startDate=cleanText(body.start_date,30),endDate=cleanText(body.end_date,30);
+  const subjectIds=Array.isArray(body.subject_ids)?[...new Set(body.subject_ids.map(x=>cleanText(x,220)).filter(Boolean))].slice(0,30):[];
+  if(!name)return json({error:"Escribe el nombre del semestre."},400);
+  const subjects=subjectIds.length?await env.DB.prepare(`
+    SELECT id,code,name FROM subjects WHERE active=1
+  `).all():{results:[]};
+  const selected=(subjects.results||[]).filter(s=>subjectIds.includes(s.id));
+  const payload={
+    version:30,semester_v30:true,name,start_date:startDate||null,end_date:endDate||null,
+    subject_ids:selected.map(s=>s.id),
+    subjects:selected.map(s=>({id:s.id,code:s.code,name:s.name})),
+    goal:cleanText(body.goal,1200),
+    active:body.active!==false
+  };
+  const now=new Date().toISOString(),id=cleanText(body.id,220)||crypto.randomUUID();
+  const existing=body.id?await env.DB.prepare(`SELECT id FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%semester_v30%'`).bind(id,user.id).first():null;
+  if(existing){
+    await env.DB.prepare(`UPDATE notes SET title=?,body=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?`)
+      .bind(`SEMESTRE · ${name}`,JSON.stringify(payload),JSON.stringify({semester_v30:true,name,active:payload.active}),now,id,user.id).run();
+  }else{
+    await env.DB.prepare(`
+      INSERT INTO notes(id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+      VALUES(?,?,NULL,NULL,?,?,?,0,?,1,?,?)
+    `).bind(id,user.id,`SEMESTRE · ${name}`,JSON.stringify(payload),JSON.stringify(["semester_v30","academic_v30"]),JSON.stringify({semester_v30:true,name,active:payload.active}),now,now).run();
+  }
+  return json({ok:true,id,semester:payload});
+}
+
+async function academicDiagnosticStartApi(request,env,user){
+  ensureAI(env);
+  const body=await readJson(request),subjectId=cleanText(body.subject_id,220);
+  if(!subjectId)return json({error:"Selecciona una materia."},400);
+  const subject=await env.DB.prepare(`SELECT id,code,name FROM subjects WHERE id=? AND active=1`).bind(subjectId).first();
+  if(!subject)return json({error:"Materia no encontrada."},404);
+  const diagnosticLanguage=normalizeCourseLanguage(body.language||"en-US");
+  const diagnosticLanguageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
+  const subjectLabel=subject.code==="LANG"?`Idiomas · ${diagnosticLanguageNames[diagnosticLanguage]||"Inglés"}`:subject.name;
+  const topics=await env.DB.prepare(`
+    SELECT id,name,description FROM topics
+    WHERE subject_id=? AND active=1
+    ORDER BY sort_order,name LIMIT 40
+  `).bind(subjectId).all();
+  const topicNames=(topics.results||[]).map(x=>x.name).slice(0,24);
+  const prompt=`Crea un diagnóstico académico de 20 preguntas para "${subjectLabel}".
+Distribuye las preguntas entre estos temas cuando sean pertinentes:
+${topicNames.map((x,i)=>`${i+1}. ${x}`).join("\n")}
+
+OBJETIVO:
+- Detectar conocimientos previos.
+- Mezclar fundamentos, comprensión y aplicación.
+- Evitar contenido excesivamente avanzado si la materia empieza desde fundamentos.
+- Cada pregunta debe tener 4 opciones, una correcta, explicación y una habilidad/tema evaluado.
+
+Devuelve SOLO JSON:
+{"questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"...","skill":"nombre del tema evaluado"}]}`;
+
+  const response=await callCloudflareAI(env,{
+    model:DEFAULT_FAST_MODEL,task:"academic_diagnostic",
+    messages:[
+      {role:"system",content:"Eres un evaluador académico. Diseña diagnósticos equilibrados y válidos. Devuelve únicamente JSON válido."},
+      {role:"user",content:prompt}
+    ],
+    max_tokens:4800,temperature:0.15
+  });
+  const parsed=parseJsonLoose(extractCloudflareText(response));
+  const questions=(Array.isArray(parsed?.questions)?parsed.questions:[]).slice(0,20).map((q,i)=>({
+    id:`diag_${Date.now()}_${i}`,
+    stem:cleanText(q.stem,1800),
+    options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,1000)):[],
+    correctIndex:clamp(Number(q.correctIndex),0,3),
+    explanation:cleanText(q.explanation,2200),
+    skill:cleanText(q.skill,300)||"Fundamentos"
+  })).filter(q=>q.stem&&q.options.length===4);
+  if(questions.length<12)return json({error:"No pude construir un diagnóstico completo. Inténtalo de nuevo."},502);
+  return json({subject:{...subject,name:subjectLabel,language:subject.code==="LANG"?diagnosticLanguage:null},questions,model:response.__model||DEFAULT_FAST_MODEL});
+}
+
+async function academicDiagnosticApi(request,env,user,method){
+  if(method==="GET"){
+    const url=new URL(request.url),subjectId=cleanText(url.searchParams.get("subject_id"),220);
+    const rows=await env.DB.prepare(`
+      SELECT id,title,body,metadata_json,updated_at FROM notes
+      WHERE user_id=? AND tags_json LIKE '%diagnostic_v30%'
+      ORDER BY datetime(updated_at) DESC LIMIT 80
+    `).bind(user.id).all();
+    let list=(rows.results||[]).map(r=>({id:r.id,...academicNoteBody(r),updated_at:r.updated_at}));
+    if(subjectId)list=list.filter(x=>x.subject_id===subjectId);
+    return json({diagnostics:list});
+  }
+  const body=await readJson(request),subjectId=cleanText(body.subject_id,220),subjectName=cleanText(body.subject_name,300);
+  const questions=Array.isArray(body.questions)?body.questions.slice(0,40):[];
+  const answers=body.answers&&typeof body.answers==="object"?body.answers:{};
+  if(!subjectId||!questions.length)return json({error:"Diagnóstico incompleto."},400);
+  let score=0;const skills=new Map();
+  questions.forEach((q,i)=>{
+    const chosen=Number(answers[`q${i}`]),correct=Number(q.correctIndex),ok=Number.isFinite(chosen)&&chosen===correct;
+    if(ok)score++;
+    const skill=cleanText(q.skill,300)||"Fundamentos";
+    if(!skills.has(skill))skills.set(skill,{skill,correct:0,total:0});
+    const s=skills.get(skill);s.total++;if(ok)s.correct++;
+  });
+  const skillScores=[...skills.values()].map(s=>({...s,percentage:Math.round(s.correct/s.total*100)})).sort((a,b)=>a.percentage-b.percentage);
+  const pct=Math.round(score/questions.length*100),now=new Date().toISOString(),id=crypto.randomUUID();
+  const payload={
+    version:30,diagnostic_v30:true,subject_id:subjectId,subject_name:subjectName,
+    score,max_score:questions.length,percentage:pct,skills:skillScores,
+    recommendations:skillScores.slice(0,5).map(x=>({skill:x.skill,percentage:x.percentage})),
+    completed_at:now
+  };
+  await env.DB.prepare(`
+    INSERT INTO notes(id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
+    VALUES(?,?,?,NULL,?,?,?,0,?,1,?,?)
+  `).bind(id,user.id,subjectId,`DIAGNÓSTICO · ${subjectName||"Materia"}`,JSON.stringify(payload),JSON.stringify(["diagnostic_v30","academic_v30"]),JSON.stringify({diagnostic_v30:true,subject_id:subjectId,percentage:pct}),now,now).run();
+  return json({ok:true,id,diagnostic:payload},201);
+}
+
+async function academicCredentialsApi(env,user){
+  const subjects=await env.DB.prepare(`SELECT id,code,name FROM subjects WHERE active=1 ORDER BY sort_order,name`).all();
+  const progress=await env.DB.prepare(`
+    SELECT t.subject_id,p.mastery,p.questions_answered,p.questions_correct
+    FROM user_topic_progress p JOIN topics t ON t.id=p.topic_id
+    WHERE p.user_id=?
+  `).bind(user.id).all();
+  const course=await env.DB.prepare(`
+    SELECT t.subject_id,COUNT(*) AS total,SUM(CASE WHEN COALESCE(p.completed,0)=1 THEN 1 ELSE 0 END) AS completed
+    FROM topics t JOIN lessons l ON l.topic_id=t.id AND l.active=1
+    LEFT JOIN user_lesson_progress p ON p.lesson_id=l.id AND p.user_id=?
+    WHERE t.active=1 AND t.id LIKE 'course_%'
+    GROUP BY t.subject_id
+  `).bind(user.id).all();
+  const credentials=[];
+  for(const s of (subjects.results||[])){
+    const rows=(progress.results||[]).filter(x=>x.subject_id===s.id);
+    const answered=rows.reduce((a,x)=>a+Number(x.questions_answered||0),0);
+    const weightedAnswered=rows.reduce((a,x)=>a+Number(x.questions_answered||0),0);
+    const weightedMastery=weightedAnswered?rows.reduce((a,x)=>a+Number(x.mastery||0)*Number(x.questions_answered||0),0)/weightedAnswered:0;
+    const c=(course.results||[]).find(x=>x.subject_id===s.id);
+    const coursePct=c&&Number(c.total)>0?Math.round(Number(c.completed||0)/Number(c.total)*100):0;
+    const earned=coursePct===100||(answered>=30&&weightedMastery>=85);
+    const progressPct=Math.max(coursePct,Math.round(weightedMastery));
+    if(earned||progressPct>=50){
+      credentials.push({
+        subject_id:s.id,subject_name:s.name,code:s.code,
+        earned,progress_percent:Math.min(100,progressPct),
+        evidence:coursePct===100?`${Number(c.completed)}/${Number(c.total)} temas del curso aprobados`:`${answered} preguntas · dominio ${Math.round(weightedMastery)}%`,
+        level:earned?"Dominio alcanzado":"En progreso"
+      });
+    }
+  }
+  return json({credentials});
+}
+
+async function academicExplainApi(request,env,user){
+  ensureAI(env);
+  const body=await readJson(request),mode=cleanText(body.mode,60),subject=cleanText(body.subject,300),topic=cleanText(body.topic,400);
+  const material=cleanText(body.material,16000),question=cleanText(body.question,1000);
+  const styles={
+    simple:"Explícalo con lenguaje más fácil, sin perder precisión.",
+    steps:"Explícalo paso a paso, sin saltos.",
+    analogy:"Usa una analogía clara y luego conecta cada parte con el concepto real.",
+    clinical:"Usa un ejemplo clínico educativo que ayude a comprender el mecanismo.",
+    visual:"Construye un diagrama textual/visual por etapas que pueda imaginarse fácilmente.",
+    university:"Explícalo con profundidad universitaria y conexiones importantes.",
+    socratic:"No des toda la respuesta de inmediato. Haz 3 a 5 preguntas socráticas progresivas y agrega pistas."
+  };
+  const instruction=styles[mode]||styles.simple;
+  const response=await callCloudflareAI(env,{
+    model:PREMIUM_FLASH_MODEL,task:"academic_explain_differently",
+    messages:[
+      {role:"system",content:"Eres MED AI DALTON. Enseña con rigor y adapta la explicación al formato pedido. Si el contexto es medicina, recuerda que es educación y no sustituye atención clínica."},
+      {role:"user",content:`Materia: ${subject}\nTema: ${topic}\nFormato: ${instruction}\n${question?`Duda del estudiante: ${question}\n`:""}\nCONTEXTO DE LA CLASE:\n${material}`}
+    ],
+    max_tokens:2200,temperature:0.22
+  });
+  return json({answer:extractCloudflareText(response),mode,model:response.__model||PREMIUM_FLASH_MODEL});
+}
+
+async function updateLibrarySourcePriorityApi(request,env,user){
+  const body=await readJson(request),id=cleanText(body.file_id,220),primary=body.primary===true,subjectId=cleanText(body.subject_id,220);
+  if(!id)return json({error:"Falta el archivo."},400);
+  const row=await env.DB.prepare(`
+    SELECT id,title,metadata_json,tags_json FROM notes
+    WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
+  `).bind(id,user.id).first();
+  if(!row)return json({error:"Archivo no encontrado."},404);
+  const meta=parseLibraryMeta(row);
+  let subject=null;
+  if(subjectId)subject=await env.DB.prepare(`SELECT id,name FROM subjects WHERE id=? AND active=1`).bind(subjectId).first();
+  meta.primary_source_v30=primary;
+  meta.primary_subject_id=primary?(subject?.id||subjectId||null):null;
+  meta.primary_subject_name=primary?(subject?.name||null):null;
+  meta.primary_updated_at=new Date().toISOString();
+  await env.DB.prepare(`UPDATE notes SET metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?`)
+    .bind(JSON.stringify(meta),new Date().toISOString(),id,user.id).run();
+  return json({ok:true,file_id:id,primary,subject});
 }
 
 // -------------------- CURRICULUM / PROGRESS --------------------
@@ -2706,7 +3122,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
       response_shape:generationInfo?.shape||repairInfo?.shape||"sin_forma_detectable",
       parsed_keys:parsed&&typeof parsed==="object"?Object.keys(parsed).slice(0,20):[],
       source_chars:extracted.length,
-      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V29.0.4 muestra modelo, forma de respuesta y claves JSON recibidas."
+      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V30.0.0 muestra modelo, forma de respuesta y claves JSON recibidas."
     },502);
   }
 
@@ -2895,18 +3311,25 @@ async function smartMaterialSources(env,user,query,limit=8){
   const rows=await env.DB.prepare(`
     SELECT id,title,body,tags_json,metadata_json,subject_id,topic_id,updated_at
     FROM notes
-    WHERE user_id=? ORDER BY datetime(updated_at) DESC LIMIT 650
+    WHERE user_id=? ORDER BY datetime(updated_at) DESC LIMIT 900
   `).bind(user.id).all();
-  return (rows.results||[])
+  const all=rows.results||[],primaryFileIds=new Set();
+  for(const r of all){
+    const tags=parseJsonLoose(r.tags_json)||[],meta=parseJsonLoose(r.metadata_json)||{};
+    if(tags.includes("library_file")&&meta.primary_source_v30)primaryFileIds.add(r.id);
+  }
+  return all
     .map(smartSourceFromNote).filter(Boolean)
-    .map(src=>({...src,score:smartScoreSource(src,query)}))
+    .map(src=>{
+      const isPrimary=!!src.meta?.primary_source_v30||primaryFileIds.has(src.meta?.source_file_id);
+      return {...src,primary:isPrimary,score:smartScoreSource(src,query)+(isPrimary?35:0)};
+    })
     .filter(x=>x.score>0)
     .sort((a,b)=>b.score-a.score)
     .slice(0,limit)
     .map(x=>({
-      id:x.id,title:x.title,type:x.type,label:x.label,scope:x.scope,score:x.score,
-      snippet:smartSnippet(x.text,query),
-      context:String(x.text||"").slice(0,6500)
+      id:x.id,title:x.title,type:x.type,label:x.label,scope:x.scope,score:x.score,primary:x.primary,
+      snippet:smartSnippet(x.text,query),context:String(x.text||"").slice(0,6500)
     }));
 }
 
@@ -3000,12 +3423,12 @@ async function smartAsk(request,env,user){
   if(!q)return json({error:"Escribe una pregunta."},400);
   const sources=await smartMaterialSources(env,user,q,7);
   if(!sources.length)return json({answer:"No encontré material guardado suficientemente relacionado con esta pregunta. Puedes usar Tutor IA para aprenderlo desde cero o agregar material a tu Biblioteca.",sources:[],model_label:"Sin IA"});
-  const context=sources.map((s,i)=>`[${i+1}] ${s.title}${s.scope?` · ${s.scope}`:""}\n${s.context}`).join("\n\n");
+  const context=sources.map((s,i)=>`[${i+1}] ${s.primary?"★ PRINCIPAL · ":""}${s.title}${s.scope?` · ${s.scope}`:""}\n${s.context}`).join("\n\n");
   const model=quality==="max"?PREMIUM_PRO_MODEL:PREMIUM_FLASH_MODEL;
   const response=await callCloudflareAI(env,{
     model,task:"smart_rag_answer",
     messages:[
-      {role:"system",content:"Eres MED AI DALTON. Responde principalmente con las fuentes personales del estudiante. Cita dentro de la respuesta usando [1], [2], etc. No afirmes que una idea está en una fuente si no aparece en el contexto. Si agregas conocimiento general para explicar, marca claramente 'Explicación complementaria'. Sé didáctico, riguroso y útil para estudiar."},
+      {role:"system",content:"Eres MED AI DALTON. Responde principalmente con las fuentes personales del estudiante. Cita dentro de la respuesta usando [1], [2], etc. Las fuentes marcadas como PRINCIPALES tienen prioridad cuando sean pertinentes. No afirmes que una idea está en una fuente si no aparece en el contexto. Si agregas conocimiento general para explicar, crea un apartado claramente titulado 'Explicación complementaria de IA'. Para medicina clínica, señala cuándo una afirmación requiere verificar una fuente clínica actual. Sé didáctico, riguroso y útil para estudiar."},
       {role:"user",content:`PREGUNTA:\n${q}\n\nFUENTES GUARDADAS:\n${context}`}
     ],
     max_tokens:model===PREMIUM_PRO_MODEL?2600:1800,
@@ -3458,7 +3881,7 @@ function normalizeBankQuestion(q,context={}){
     options,
     correctIndex:clamp(Number(q.correctIndex),0,3),
     explanation:cleanText(q.explanation,2400),
-    topic:cleanText(q.topic||context.topic,300),
+    topic:cleanText(q.topic||q.skill||context.topic,300),
     subject:cleanText(q.subject||context.subject,300),
     difficulty:clamp(inferred,1,5),
     source_type:cleanText(context.source_type||q.source_type,80)||"generated",
@@ -3689,13 +4112,13 @@ async function createExamPrepPlanApi(request,env,user){
       UPDATE academic_deadlines
       SET title=?,subject_id=?,due_at=?,importance=5,notes=?,updated_at=?
       WHERE id=? AND user_id=?
-    `).bind(title,subjectRow?.id||null,dueAt,"Creado/actualizado desde Antes del parcial · V29",now,deadline.id,user.id).run();
+    `).bind(title,subjectRow?.id||null,dueAt,"Creado/actualizado desde Antes del parcial · V30",now,deadline.id,user.id).run();
   }else{
     await env.DB.prepare(`
       INSERT INTO academic_deadlines
       (id,user_id,title,deadline_type,subject_id,due_at,importance,notes,completed,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,0,?,?)
-    `).bind(deadlineId,user.id,title,"exam",subjectRow?.id||null,dueAt,5,"Creado desde Antes del parcial · V29",now,now).run();
+    `).bind(deadlineId,user.id,title,"exam",subjectRow?.id||null,dueAt,5,"Creado desde Antes del parcial · V30",now,now).run();
   }
 
   return json({ok:true,id:planId,deadline_id:deadlineId,updated:!!planId,plan},201);
@@ -3719,21 +4142,45 @@ async function progressOverviewApi(env,user){
   const rows=await env.DB.prepare(`
     SELECT s.id AS subject_id,s.code,s.name AS subject_name,t.id AS topic_id,t.name AS topic_name,
            COALESCE(p.mastery,0) AS mastery,COALESCE(p.questions_answered,0) AS questions_answered,
-           COALESCE(p.questions_correct,0) AS questions_correct
+           COALESCE(p.questions_correct,0) AS questions_correct,p.last_studied_at
     FROM subjects s JOIN topics t ON t.subject_id=s.id AND t.active=1
     LEFT JOIN user_topic_progress p ON p.topic_id=t.id AND p.user_id=?
     WHERE s.active=1
     ORDER BY s.sort_order,s.name,t.sort_order,t.name
   `).bind(user.id).all();
+
   const subjects=new Map(),totals={dominated:0,learning:0,review:0,not_started:0};
+  const now=Date.now();
   for(const r of (rows.results||[])){
-    const answered=Number(r.questions_answered||0),mastery=Number(r.mastery||0);
-    const status=!answered?"not_started":mastery>=85?"dominated":mastery>=50?"learning":"review";
+    const answered=Number(r.questions_answered||0),correct=Number(r.questions_correct||0),mastery=Number(r.mastery||0);
+    const accuracy=answered?Math.round(correct/answered*100):0;
+    const last=r.last_studied_at?new Date(r.last_studied_at).getTime():0;
+    const daysSince=last?Math.max(0,Math.floor((now-last)/86400000)):null;
+    const stale=daysSince!==null&&daysSince>45;
+
+    let status="not_started";
+    if(answered>0){
+      if(answered>=12&&mastery>=85&&accuracy>=80&&!stale)status="dominated";
+      else if(answered>=4&&mastery>=50&&!stale)status="learning";
+      else status="review";
+    }else if(mastery>0){
+      status=mastery>=50?"learning":"review";
+    }
+
+    const evidence=answered>=20?"high":answered>=8?"medium":answered>0?"low":"none";
     totals[status]++;
     if(!subjects.has(r.subject_id))subjects.set(r.subject_id,{id:r.subject_id,code:r.code,name:r.subject_name,dominated:0,learning:0,review:0,not_started:0,topics:[]});
-    const s=subjects.get(r.subject_id);s[status]++;s.topics.push({id:r.topic_id,name:r.topic_name,mastery,questions_answered:answered,status});
+    const s=subjects.get(r.subject_id);s[status]++;
+    s.topics.push({
+      id:r.topic_id,name:r.topic_name,mastery,questions_answered:answered,questions_correct:correct,accuracy,
+      last_studied_at:r.last_studied_at||null,days_since_study:daysSince,status,evidence,
+      mastery_rule:status==="dominated"?"≥12 preguntas · dominio ≥85% · precisión ≥80% · repaso reciente":"Dominio requiere evidencia repetida"
+    });
   }
-  return json({totals,subjects:[...subjects.values()]});
+  return json({
+    totals,subjects:[...subjects.values()],
+    rules:{dominated:"≥12 preguntas, dominio ≥85%, precisión ≥80% y actividad en los últimos 45 días",learning:"evidencia parcial con dominio ≥50%",review:"errores, evidencia insuficiente o conocimiento que necesita refresco"}
+  });
 }
 
 // ---------- ZIP export without external dependencies ----------
@@ -3817,26 +4264,77 @@ async function stats(env, user) {
 }
 
 async function search(url, env, user) {
-  const q = cleanText(url.searchParams.get("q"), 100);
-  if (!q) return json({ results: [] });
-  const like = `%${q}%`;
-  const [topicsRows, lessonRows, noteRows] = await Promise.all([
+  const q=cleanText(url.searchParams.get("q"),160);
+  if(!q)return json({results:[]});
+  const like=`%${q}%`;
+  const [topicsRows,lessonRows,noteRows,flashRows,mistakeRows]=await Promise.all([
     env.DB.prepare(`
-      SELECT 'topic' AS type,t.id,t.name AS title,s.name AS subtitle
+      SELECT 'topic' AS type,t.id,t.name AS title,s.name AS subtitle,t.subject_id
       FROM topics t JOIN subjects s ON s.id=t.subject_id
-      WHERE t.active=1 AND (t.name LIKE ? OR t.description LIKE ?) LIMIT 20
+      WHERE t.active=1 AND (t.name LIKE ? OR t.description LIKE ?)
+      LIMIT 25
     `).bind(like,like).all(),
     env.DB.prepare(`
-      SELECT 'lesson' AS type,l.id,l.title,t.name AS subtitle
+      SELECT 'lesson' AS type,l.id,l.title,t.name AS subtitle,t.subject_id
       FROM lessons l JOIN topics t ON t.id=l.topic_id
-      WHERE l.active=1 AND (l.title LIKE ? OR l.summary LIKE ?) LIMIT 20
+      WHERE l.active=1 AND (l.title LIKE ? OR l.summary LIKE ?)
+      LIMIT 25
     `).bind(like,like).all(),
     env.DB.prepare(`
-      SELECT 'note' AS type,id,title,'Mis apuntes' AS subtitle
-      FROM notes WHERE user_id=? AND (title LIKE ? OR body LIKE ?) LIMIT 20
-    `).bind(user.id,like,like).all()
+      SELECT id,title,body,tags_json,metadata_json,subject_id,updated_at
+      FROM notes WHERE user_id=? AND (title LIKE ? OR body LIKE ?)
+      ORDER BY datetime(updated_at) DESC LIMIT 50
+    `).bind(user.id,like,like).all(),
+    env.DB.prepare(`
+      SELECT 'flashcard' AS type,id,front AS title,back AS subtitle,topic_id
+      FROM flashcards WHERE user_id=? AND (front LIKE ? OR back LIKE ?)
+      ORDER BY datetime(updated_at) DESC LIMIT 20
+    `).bind(user.id,like,like).all(),
+    env.DB.prepare(`
+      SELECT 'mistake' AS type,id,prompt AS title,correct_answer AS subtitle,topic_id
+      FROM mistakes WHERE user_id=? AND (prompt LIKE ? OR correct_answer LIKE ? OR explanation LIKE ?)
+      ORDER BY datetime(updated_at) DESC LIMIT 20
+    `).bind(user.id,like,like,like).all()
   ]);
-  return json({ results: [...(topicsRows.results||[]),...(lessonRows.results||[]),...(noteRows.results||[])] });
+
+  const results=[];
+  for(const r of (topicsRows.results||[]))results.push({...r,view:"study",label:"Tema"});
+  for(const r of (lessonRows.results||[]))results.push({...r,view:"study",label:"Lección"});
+  for(const r of (noteRows.results||[])){
+    const src=smartSourceFromNote(r);
+    if(src){
+      results.push({
+        type:src.type,id:src.id,title:src.title,
+        subtitle:[src.label,src.scope].filter(Boolean).join(" · "),
+        view:src.type==="course"?"study":src.type==="historical_keys"?"exam_prep":"smart",
+        label:src.label,primary:!!src.meta?.primary_source_v30,updated_at:r.updated_at
+      });
+    }else{
+      const tags=parseJsonLoose(r.tags_json)||[];
+      if(tags.includes("library_file")){
+        const meta=parseLibraryMeta(r);
+        results.push({
+          type:"library_file",id:r.id,title:r.title,
+          subtitle:`Biblioteca${meta.primary_source_v30?" · ★ FUENTE PRINCIPAL":""}`,
+          view:"library",label:"Archivo",primary:!!meta.primary_source_v30
+        });
+      }
+    }
+  }
+  for(const r of (flashRows.results||[]))results.push({...r,view:"flashcards",label:"Flashcard"});
+  for(const r of (mistakeRows.results||[]))results.push({...r,view:"mistakes",label:"Error"});
+
+  const norm=smartNormalize(q);
+  const ranked=results.map((r,i)=>{
+    const title=smartNormalize(r.title),sub=smartNormalize(r.subtitle);
+    let score=r.primary?30:0;
+    if(title===norm)score+=80;
+    else if(title.includes(norm))score+=45;
+    if(sub.includes(norm))score+=20;
+    score+=Math.max(0,15-i/4);
+    return {...r,score};
+  }).sort((a,b)=>b.score-a.score).slice(0,60);
+  return json({query:q,results:ranked});
 }
 
 async function recordExam(request, env, user) {
@@ -3847,7 +4345,7 @@ async function recordExam(request, env, user) {
   const questions = Array.isArray(body.questions) ? body.questions.slice(0, 100) : [];
   const answers = body.answers && typeof body.answers === "object" ? body.answers : {};
   const settings = body.settings && typeof body.settings === "object" ? body.settings : {};
-  const attemptSourceType = settings.adaptive_exam ? "adaptive_exam" : settings.historical_keys ? "historical_keys_exam" : "ai_exam";
+  const attemptSourceType = settings.diagnostic ? "diagnostic_v30" : settings.serious_exam ? "serious_exam_v30" : settings.adaptive_exam ? "adaptive_exam" : settings.historical_keys ? "historical_keys_exam" : "ai_exam";
   const attemptSourceRef = settings.historical_keys_pack_id ? String(settings.historical_keys_pack_id) : id;
 
   const statements = [

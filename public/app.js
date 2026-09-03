@@ -1,4 +1,4 @@
-const APP_VERSION="29.0.4";
+const APP_VERSION="30.0.0";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -20,6 +20,7 @@ const state = {
   historicalKeysPack:null,historicalKeysSource:null,historicalKeysDraft:[],historicalKeysQuiz:null,
   systemHealth:null,systemIntegrity:null,systemBackups:[],maintenanceMode:false,lastSyncReport:null,
   questionBank:[],adaptiveExam:null,examPrepPlan:null,mediaStudyPack:null,mediaPractice:null,progressOverview:null,
+  academicHome:null,semesterData:null,diagnostics:[],credentials:[],seriousExam:null,seriousTimer:null,academicExplainContext:null,
   smartSearchResults:[],smartQuality:localStorage.getItem("medai_smart_quality")||"economy"
 };
 
@@ -279,7 +280,7 @@ async function renderSystemCenter(){
   root.innerHTML=`
     <section class="system-center-hero">
       <div>
-        <div class="learning-home-chip"><span></span> STABILITY & RELIABILITY CENTER · V29 FINAL</div>
+        <div class="learning-home-chip"><span></span> STABILITY & RELIABILITY CENTER · V30</div>
         <h1>MED AI sabe cuándo algo no está bien.</h1>
         <p>Diagnóstico, copias de seguridad, sincronización y recuperación en un solo lugar. Estas comprobaciones están diseñadas para proteger tu estudio sin gastar créditos de IA.</p>
         <div class="system-center-actions"><button id="system-run-diagnostic" class="primary-btn">◉ REVISAR MED AI</button><button id="system-deep-test" class="secondary-btn">✓ PRUEBA PROFUNDA</button><button id="system-sync-now" class="secondary-btn">↻ SINCRONIZAR AHORA</button><button id="system-hard-update" class="secondary-btn">↑ REVISAR ACTUALIZACIÓN</button><button id="system-export-all" class="secondary-btn">⇩ EXPORTAR MI MED AI</button></div>
@@ -453,6 +454,7 @@ document.addEventListener("DOMContentLoaded", boot);
 
 async function boot(){
   applySavedTheme();
+  applyAcademicAccessibilityV30();
   setupSystemErrorCapture();
   bindAuth();
   bindShell();
@@ -517,6 +519,7 @@ function bindShell(){
   $("#quick-study").addEventListener("click",()=>navigate("study"));
   $("#user-chip").addEventListener("click",()=>navigate("profile"));
   $("#theme-toggle")?.addEventListener("click",toggleTheme);
+  $("#accessibility-btn")?.addEventListener("click",openAccessibilityPanelV30);
   $("#global-search").addEventListener("input",debounce(searchGlobal,250));
   document.addEventListener("click",e=>{
     if(!e.target.closest(".global-search")) $("#search-results").classList.add("hidden");
@@ -538,6 +541,10 @@ async function loadSubjects(){
 }
 
 async function navigate(view){
+  if(state.seriousExam && !state.seriousExam.submitted){
+    clearSeriousTimerV30();
+    state.seriousExam=null;
+  }
   state.currentView=view;
   const navView=["course","course_lesson"].includes(view)?"study":view;
   $$(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===navView));
@@ -551,7 +558,7 @@ async function navigate(view){
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
       laboratory:()=>renderAIStudio("laboratory"),pharmacology:()=>renderAIStudio("pharmacology"),
       osce:()=>renderAIStudio("osce"),library:renderLibrary,smart:renderSmartStudy,mistakes:renderMistakes,
-      plan:renderPlan,stats:renderStats,profile:renderProfile,system:renderSystemCenter,
+      plan:renderPlan,semester:renderSemesterV30,stats:renderStats,profile:renderProfile,system:renderSystemCenter,
       mathematics:()=>renderScienceStudio("MATH"),physics:()=>renderScienceStudio("PHYS"),
       astronomy:()=>renderScienceStudio("ASTRO"),languages:renderLanguageLabV17,
       course:renderCourse,course_lesson:renderCourseLesson
@@ -564,168 +571,162 @@ async function navigate(view){
 }
 
 async function renderDashboard(){
-  const d=await api("/api/dashboard");
-  const hours=(Number(d.metrics?.study_seconds||0)/3600).toFixed(1);
-  const name=d.profile?.full_name||state.user?.email?.split("@")[0]||"Doctor";
-  const resumeTitle=d.resume?.topic_name||d.resume?.subject_name||"Selecciona una materia para comenzar";
-  const resumeSub=d.resume?.lesson_title||"Tu sesión académica queda sincronizada entre todos tus dispositivos.";
-  const progress=Math.round(Number(d.resume?.progress_percent||0));
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu día académico…</strong><small>Prioridades, misión y progreso.</small></div>`;
+  const [d,a]=await Promise.all([api("/api/dashboard"),api("/api/academic/home")]);
+  state.academicHome=a;
+  const name=a.profile?.full_name||d.profile?.full_name||"Dalton",r=a.recommendation||{};
+  const deadline=a.next_deadline,mission=a.mission||{tasks:[],minutes:0};
+  const semester=a.semester;
   root.innerHTML=`
-    <section class="learning-home-hero">
-      <div class="learning-home-copy">
-        <div class="learning-home-chip"><span></span> MED AI DALTON · LEARNING PLATFORM V17</div>
-        <h1>Aprende practicando, no solo leyendo.</h1>
-        <p>Hola, <strong>${escapeHtml(firstName(name))}</strong>. Tu plataforma combina cursos progresivos, Tutor IA, práctica clínica, ciencias e idiomas interactivos en un mismo espacio.</p>
-        <div class="learning-home-actions">
-          <button id="home-course-btn" class="primary-btn">▶ CONTINUAR CURSO</button>
-          <button id="home-language-btn" class="home-color-btn language">🌍 IDIOMAS</button>
-          <button id="home-tutor-btn" class="home-color-btn tutor">✦ TUTOR IA</button>
+    <section class="v30-home-hero">
+      <div class="v30-home-main">
+        <div class="learning-home-chip"><span></span> MED AI DALTON · ACADEMIC EXPERIENCE V30</div>
+        <p class="v30-home-greeting">Hola, <strong>${escapeHtml(firstName(name))}</strong>. MED AI organizó tu siguiente sesión usando progreso, errores y fechas próximas.</p>
+        <div class="v30-now-label">QUÉ DEBO ESTUDIAR AHORA</div>
+        <h1>${escapeHtml(r.title||"Continúa tu formación")}</h1>
+        <p>${escapeHtml(r.detail||"Elige una materia para comenzar.")}</p>
+        <div class="v30-now-meta">
+          <span>◎ ${Number(r.minutes||25)} MIN</span>
+          <span>◆ ${escapeHtml(String(r.reason||"continuidad").toUpperCase())}</span>
+          ${r.subject_name?`<span>▤ ${escapeHtml(r.subject_name)}</span>`:""}
         </div>
-        <div class="learning-home-metrics">
-          <div><b>⚡</b><span><strong>${d.profile?.total_xp||0}</strong><small>XP acumulados</small></span></div>
-          <div><b>◎</b><span><strong>${progress}%</strong><small>sesión actual</small></span></div>
-          <div><b>✓</b><span><strong>${d.accuracy}%</strong><small>precisión</small></span></div>
+        <div class="v30-home-actions">
+          <button id="v30-start-now" class="primary-btn">▶ EMPEZAR AHORA</button>
+          <button id="v30-open-mission" class="secondary-btn">🎯 MISIÓN DE HOY</button>
+          <button id="v30-open-semester" class="secondary-btn">▦ MI SEMESTRE</button>
         </div>
       </div>
-      <div class="learning-home-art" aria-label="NOVA y LUMI, compañeros de aprendizaje">
-        <div class="learning-orbit-ring ring-one"></div>
-        <div class="learning-orbit-ring ring-two"></div>
-        <div class="v17-mascot nova-mascot">
-          <span class="mascot-ear left"></span><span class="mascot-ear right"></span>
-          <div class="mascot-head"><i class="mascot-eye left"></i><i class="mascot-eye right"></i><b class="mascot-mouth"></b></div>
-          <div class="mascot-body"><span>✦</span></div>
-          <i class="mascot-arm left"></i><i class="mascot-arm right"></i>
-        </div>
-        <div class="v17-mascot lumi-mascot small">
-          <span class="mascot-ear left"></span><span class="mascot-ear right"></span>
-          <div class="mascot-head"><i class="mascot-eye left"></i><i class="mascot-eye right"></i><b class="mascot-mouth"></b></div>
-          <div class="mascot-body"><span>●</span></div>
-        </div>
-        <div class="mascot-dialog"><strong>NOVA</strong><span>¿Qué habilidad subimos hoy?</span></div>
-      </div>
-    </section>
-
-    <section class="clinical-console">
-      <article class="clinical-resume">
-        <div class="panel-header">
-          <div><span class="panel-code">SESIÓN ACTIVA</span><strong>Continuar formación</strong></div>
-          <span class="panel-progress">${progress}% COMPLETADO</span>
-        </div>
-        <div class="clinical-resume-body">
-          <div class="session-number">01</div>
-          <div class="session-copy">
-            <span class="session-label">MATERIA / TEMA ACTUAL</span>
-            <h2>${escapeHtml(resumeTitle)}</h2>
-            <p>${escapeHtml(resumeSub)}</p>
-          </div>
-        </div>
-        <div class="progress institutional-progress"><i style="width:${progress}%"></i></div>
-        <div class="console-actions">
-          <button id="continue-btn" class="primary-btn console-primary">CONTINUAR ESTUDIO</button>
-          <button id="open-tutor-btn" class="secondary-btn">TUTOR IA</button>
-          <button id="open-exam-btn" class="secondary-btn">EXAMEN RÁPIDO</button>
-        </div>
-      </article>
-
-      <aside class="academic-summary">
-        <div class="panel-header"><div><span class="panel-code">RESUMEN ACADÉMICO</span><strong>Estado actual</strong></div></div>
-        <div class="summary-table">
-          <div class="summary-row"><span>Flashcards pendientes</span><strong>${d.dueFlashcards}</strong></div>
-          <div class="summary-row"><span>Precisión general</span><strong>${d.accuracy}%</strong></div>
-          <div class="summary-row"><span>Preguntas respondidas</span><strong>${d.questionsAnswered}</strong></div>
-          <div class="summary-row"><span>Tiempo acumulado</span><strong>${hours} h</strong></div>
-          <div class="summary-row"><span>Nivel médico</span><strong>${d.profile?.current_medical_level||1}</strong></div>
-          <div class="summary-row"><span>Experiencia</span><strong>${d.profile?.total_xp||0} XP</strong></div>
-        </div>
+      <aside class="v30-home-deadline ${deadline?"active":""}">
+        <span>PRÓXIMA FECHA</span>
+        <strong>${deadline?examPrepDaysLabel(deadline.due_at):"—"}</strong>
+        <h3>${escapeHtml(deadline?.title||"Sin parciales próximos")}</h3>
+        <small>${deadline?formatDate(deadline.due_at):"Puedes registrar tus fechas en Plan de estudio."}</small>
       </aside>
     </section>
 
-    <div class="institution-section-head">
-      <div><span>ACCESOS PRINCIPALES</span><h3>Entrenamiento médico</h3></div>
-      <small>Selecciona un módulo para comenzar</small>
-    </div>
-    <section class="clinical-modules">
-      <button class="clinical-module" data-view="tutor"><span class="module-no">01</span><div class="module-symbol">✦</div><div><strong>Tutor IA</strong><small>Estudio guiado y explicación adaptativa</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="patient"><span class="module-no">02</span><div class="module-symbol">♙</div><div><strong>Paciente virtual</strong><small>Entrevista clínica progresiva sin revelar el caso</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="case_solver"><span class="module-no">03</span><div class="module-symbol">▣</div><div><strong>Resolver caso clínico</strong><small>Pega un caso completo y recibe la solución razonada</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="exams"><span class="module-no">04</span><div class="module-symbol">✓</div><div><strong>Exámenes</strong><small>Evaluación adaptativa del conocimiento</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="flashcards"><span class="module-no">05</span><div class="module-symbol">▱</div><div><strong>Flashcards</strong><small>Repetición espaciada y memoria activa</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="grand_rounds"><span class="module-no">06</span><div class="module-symbol">◆</div><div><strong>Grand Rounds</strong><small>Casos complejos de Medicina Interna</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="emergency"><span class="module-no">07</span><div class="module-symbol">⚡</div><div><strong>Emergencias</strong><small>Priorización y decisiones clínicas</small></div><b>ABRIR</b></button>
+    <section class="v30-mission card" id="v30-mission-card">
+      <div class="smart-section-head"><div><span>MISIÓN DE HOY · ${Number(mission.minutes||0)} MIN</span><h2>Una ruta corta y concreta.</h2></div><small>Se recalcula con tus datos</small></div>
+      <div class="v30-mission-list">
+        ${(mission.tasks||[]).map((t,i)=>`<button class="v30-mission-task" data-view="${escapeAttr(t.view||"study")}" data-subject="${escapeAttr(t.subject_id||"")}"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(t.title)}</strong><small>${Number(t.minutes||0)} min</small></div><b>EMPEZAR →</b></button>`).join("")}
+      </div>
     </section>
 
-    <div class="institution-section-head">
-      <div><span>FORMACIÓN COMPLEMENTARIA</span><h3>Ciencias e idiomas</h3></div>
-      <small>Amplía tu formación más allá de medicina</small>
-    </div>
-    <section class="clinical-modules academic-expansion">
-      <button class="clinical-module" data-view="mathematics"><span class="module-no">M1</span><div class="module-symbol">∑</div><div><strong>Matemática</strong><small>Desde fundamentos hasta cálculo y estadística</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="physics"><span class="module-no">F1</span><div class="module-symbol">Φ</div><div><strong>Física</strong><small>Conceptos, problemas y razonamiento paso a paso</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="astronomy"><span class="module-no">A1</span><div class="module-symbol">✧</div><div><strong>Astronomía</strong><small>Sistema Solar, estrellas, galaxias y cosmología</small></div><b>ABRIR</b></button>
-      <button class="clinical-module" data-view="languages"><span class="module-no">L1</span><div class="module-symbol">文</div><div><strong>Idiomas</strong><small>Curso progresivo A1–C2 con conversación y corrección</small></div><b>ABRIR</b></button>
+    <section class="v30-home-metrics">
+      <article><span>🔥</span><div><strong>${Number(a.streak_days||0)}</strong><small>días de constancia</small></div></article>
+      <article><span>◷</span><div><strong>${Number(a.today_minutes||0)}</strong><small>min hoy</small></div></article>
+      <article><span>▥</span><div><strong>${Number(a.week_minutes||0)}</strong><small>min esta semana</small></div></article>
+      <article><span>↻</span><div><strong>${Number(a.due_mistakes||0)}</strong><small>errores por repasar</small></div></article>
+      <article><span>▱</span><div><strong>${Number(a.due_flashcards||0)}</strong><small>flashcards pendientes</small></div></article>
     </section>
 
-    <section class="institution-lower-grid">
+    <section class="v30-semester-strip card">
+      <div><span>SEMESTRE ACTUAL</span><strong>${escapeHtml(semester?.name||"Aún no configurado")}</strong><small>${semester?.subjects?.length?semester.subjects.map(x=>x.name).join(" · "):"Configura tus materias para que MED AI entienda tu contexto académico."}</small></div>
+      <button id="v30-config-semester" class="secondary-btn">${semester?"EDITAR SEMESTRE":"CONFIGURAR SEMESTRE"}</button>
+    </section>
+
+    <div class="institution-section-head"><div><span>ACCESOS ACADÉMICOS</span><h3>Aprender · practicar · preparar</h3></div><small>Tu flujo principal</small></div>
+    <section class="v30-academic-launcher">
+      <button data-view="study"><span>01</span><b>CURSOS</b><small>Mapa curricular y diagnóstico</small></button>
+      <button data-view="exam_prep"><span>02</span><b>ANTES DEL PARCIAL</b><small>Claves, plan y simulacro</small></button>
+      <button data-view="library"><span>03</span><b>BIBLIOTECA</b><small>PDF por páginas y fuentes</small></button>
+      <button data-view="smart"><span>04</span><b>REPASO INTELIGENTE</b><small>Errores y búsqueda en tus fuentes</small></button>
+      <button data-view="question_bank"><span>05</span><b>BANCO</b><small>Preguntas permanentes</small></button>
+      <button data-view="tutor"><span>06</span><b>TUTOR IA</b><small>Aprender de otra manera</small></button>
+    </section>
+
+    <section class="institution-lower-grid v30-home-lower">
       <div class="record-panel">
-        <div class="panel-header"><div><span class="panel-code">HISTORIAL ACADÉMICO</span><strong>Actividad reciente</strong></div></div>
-        ${listRecent(d.recentTopics)}
+        <div class="panel-header"><div><span class="panel-code">TEMAS DÉBILES</span><strong>Qué necesita refuerzo</strong></div></div>
+        ${(a.weak_topics||[]).length?`<div class="v30-weak-home">${a.weak_topics.slice(0,5).map(x=>`<button data-view="smart"><div><strong>${escapeHtml(x.topic_name)}</strong><small>${escapeHtml(x.subject_name||"")}</small></div><span>${Math.round(Number(x.mastery||0))}%</span></button>`).join("")}</div>`:`<div class="empty">Todavía no hay suficientes datos de dominio.</div>`}
       </div>
       <div class="record-panel">
-        <div class="panel-header"><div><span class="panel-code">PLANIFICACIÓN</span><strong>Próximas fechas</strong></div></div>
-        ${listDeadlinesCompact(d.deadlines)}
+        <div class="panel-header"><div><span class="panel-code">AGENDA</span><strong>Próximas fechas</strong></div></div>
+        ${listDeadlinesCompact(a.deadlines||[])}
       </div>
     </section>`;
-  $("#continue-btn").onclick=()=>{
-    if(d.resume?.mode==="course"&&d.resume?.subject_id){
-      state.currentSubject=state.subjects.find(s=>s.id===d.resume.subject_id)||null;
-      state.currentTopic=null;state.currentLesson=null;state.currentCourse=null;
-      navigate(state.currentSubject?"course":"study");
-      return;
+
+  const startRecommendation=()=>{
+    if(r.action==="exam_prep")return navigate("exam_prep");
+    if(r.action==="smart")return navigate("smart");
+    if(r.subject_id){
+      state.currentSubject=state.subjects.find(s=>s.id===r.subject_id)||null;
+      if(state.currentSubject)return navigate("course");
     }
-    navigate(d.resume?.mode||"study");
+    navigate("study");
   };
-  $("#open-tutor-btn").onclick=()=>navigate("tutor");
-  $("#open-exam-btn").onclick=()=>navigate("exams");
-  $("#home-course-btn")?.addEventListener("click",()=>$("#continue-btn")?.click());
-  $("#home-language-btn")?.addEventListener("click",()=>navigate("languages"));
-  $("#home-tutor-btn")?.addEventListener("click",()=>navigate("tutor"));
-  $$(".clinical-module").forEach(c=>c.onclick=()=>navigate(c.dataset.view));
+  $("#v30-start-now").onclick=startRecommendation;
+  $("#v30-open-mission").onclick=()=>$("#v30-mission-card")?.scrollIntoView({behavior:"smooth",block:"start"});
+  $("#v30-open-semester").onclick=()=>navigate("semester");
+  $("#v30-config-semester").onclick=()=>navigate("semester");
+  $$(".v30-mission-task").forEach(b=>b.onclick=()=>{
+    const subject=b.dataset.subject;
+    if(subject&&b.dataset.view==="study"){
+      state.currentSubject=state.subjects.find(s=>s.id===subject)||null;
+      if(state.currentSubject)return navigate("course");
+    }
+    navigate(b.dataset.view||"study");
+  });
+  $$(".v30-academic-launcher button,[data-view]",root).forEach(b=>{
+    if(b.id||b.classList.contains("v30-mission-task"))return;
+    b.onclick=()=>navigate(b.dataset.view);
+  });
 }
 
 async function renderStudy(){
-  const progressData=await api(`/api/course-summaries?language=${encodeURIComponent(state.courseLanguage)}`).catch(()=>({summaries:{}}));
-  const summaries=progressData.summaries||{};
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Construyendo tu mapa curricular…</strong><small>Cursos + dominio + diagnósticos.</small></div>`;
+  const [progressData,masteryData,diagData]=await Promise.all([
+    api(`/api/course-summaries?language=${encodeURIComponent(state.courseLanguage)}`).catch(()=>({summaries:{}})),
+    api("/api/progress/overview").catch(()=>({subjects:[]})),
+    api("/api/academic/diagnostic").catch(()=>({diagnostics:[]}))
+  ]);
+  const summaries=progressData.summaries||{},mastery=masteryData.subjects||[],diagnostics=diagData.diagnostics||[];
+  state.diagnostics=diagnostics;
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">CURSOS ESTRUCTURADOS</div><h2>Ruta académica con progreso fijo</h2><p>Todos los cursos, incluyendo Matemática, Física, Astronomía e Idiomas, guardan el avance tema por tema. Cada tema termina con examen y el siguiente se habilita al aprobar.</p></div></div>
-    <div class="course-intro card">
-      <div><strong>Curso fijo + Tutor libre</strong><span>CURSOS · siguen una secuencia académica y guardan tu avance. &nbsp;&nbsp; TUTOR IA · puedes estudiar cualquier tema, en cualquier orden, sin alterar el progreso del curso.</span></div>
-      <div class="course-intro-badge">PROGRESO EN D1</div>
+    <section class="v30-curriculum-hero">
+      <div><div class="learning-home-chip"><span></span> MAPA CURRICULAR · V30</div><h1>Aprende en orden, pero empieza desde donde realmente estás.</h1><p>Haz un diagnóstico por materia, avanza por la ruta oficial y usa el dominio por habilidades para decidir qué repasar.</p></div>
+      <aside><span>ESTADOS</span><div><b class="dominated">✓ Dominado</b><b class="learning">↗ Aprendiendo</b><b class="review">↻ Repaso</b><b class="not-started">○ No estudiado</b></div></aside>
+    </section>
+
+    <section class="card v30-diagnostic-launch">
+      <div><span>DIAGNÓSTICO INICIAL</span><h2>Antes de empezar una materia, descubre qué ya sabes.</h2><p>20 preguntas. No modifica el progreso oficial del curso; solo sirve para personalizar tus prioridades.</p></div>
+      <div class="v30-diagnostic-controls"><select id="diagnostic-subject">${subjectOptions()}</select><button id="start-diagnostic-v30" class="primary-btn">HACER DIAGNÓSTICO</button></div>
+    </section>
+
+    <div class="hybrid-progress-note fixed-progress-note v30-course-flow">
+      <div><b>01</b><span><strong>Diagnóstico</strong><small>Detecta conocimientos previos.</small></span></div>
+      <div><b>02</b><span><strong>Clase + práctica</strong><small>Aprende y recupera activamente.</small></span></div>
+      <div><b>03</b><span><strong>Examen</strong><small>Aprueba el tema para avanzar.</small></span></div>
+      <div><b>04</b><span><strong>Dominio</strong><small>Se consolida con evidencia repetida.</small></span></div>
     </div>
-    <div class="hybrid-progress-note fixed-progress-note">
-      <div><b>01</b><span><strong>Clase</strong><small>Texto completo y guardable en PDF.</small></span></div>
-      <div><b>02</b><span><strong>Práctica</strong><small>Ejercicios interactivos con corrección.</small></span></div>
-      <div><b>03</b><span><strong>Resumen</strong><small>Repasa lo esencial antes de evaluar.</small></span></div>
-      <div><b>04</b><span><strong>Examen</strong><small>10 preguntas · apruebas con 8.</small></span></div>
-    </div>
-    <h3 class="section-title">Selecciona un curso</h3>
-    <div class="grid three" id="subject-grid">${state.subjects.map(s=>courseSubjectCard(s,summaries[s.id])).join("")}</div>`;
-  $$(".subject-card").forEach(c=>c.onclick=()=>openSubject(c.dataset.id));
+
+    <div class="institution-section-head"><div><span>RUTA ACADÉMICA</span><h3>Mis cursos</h3></div><small>${state.subjects.length} materias disponibles</small></div>
+    <div class="v30-curriculum-grid">
+      ${state.subjects.map(s=>{
+        const ms=mastery.find(x=>x.id===s.id)||{},diag=diagnostics.find(x=>x.subject_id===s.id),sum=summaries[s.id]||{};
+        return courseSubjectCard(s,{...sum,mastery_summary:ms,diagnostic:diag});
+      }).join("")}
+    </div>`;
+
+  $("#start-diagnostic-v30").onclick=()=>startDiagnosticV30($("#diagnostic-subject").value);
+  $$(".course-subject-open").forEach(b=>b.onclick=()=>openSubject(b.dataset.id));
+  $$(".course-subject-diagnostic").forEach(b=>b.onclick=()=>startDiagnosticV30(b.dataset.id));
 }
 
 function courseSubjectCard(s,summary={}){
   const special={MATH:"MATEMÁTICA",PHYS:"FÍSICA",ASTRO:"ASTRONOMÍA",LANG:"IDIOMAS"}[s.code]||s.category||"MEDICINA";
   const progress=Math.max(0,Math.min(100,Number(summary.progress_percent||0)));
-  const done=Number(summary.completed||0);
-  const total=Number(summary.total||0);
+  const done=Number(summary.completed||0),total=Number(summary.total||0),ms=summary.mastery_summary||{},diag=summary.diagnostic||null;
+  const mTotal=Number(ms.dominated||0)+Number(ms.learning||0)+Number(ms.review||0)+Number(ms.not_started||0);
+  const masteryPct=mTotal?Math.round((Number(ms.dominated||0)+Number(ms.learning||0)*.6+Number(ms.review||0)*.25)/mTotal*100):0;
   const languageName=s.code==="LANG"?(LANGUAGE_OPTIONS.find(x=>x[0]===state.courseLanguage)?.[1]||"Inglés"):null;
-  return `<div class="card subject-card course-subject-card" data-id="${s.id}" data-code="${escapeAttr(s.code||"")}">
-    <div class="course-card-head"><div class="category">${escapeHtml(special)}</div><span class="course-card-percent">${progress}%</span></div>
-    <h3>${escapeHtml(s.name)}</h3>
-    <p>${escapeHtml(s.description||"Curso progresivo guiado por MED AI.")}</p>
-    <div class="course-card-progress"><i style="width:${progress}%"></i></div>
-    <div class="course-card-stats"><span>${done} / ${total||"—"} temas aprobados</span>${languageName?`<span>${escapeHtml(languageName)}</span>`:""}</div>
-    <div class="course-card-footer"><span>Ruta fija · examen por tema</span><b>ABRIR →</b></div>
-  </div>`;
+  const status=Number(ms.review||0)>0?"review":Number(ms.learning||0)>0?"learning":Number(ms.dominated||0)>0?"dominated":"not-started";
+  return `<article class="v30-course-card ${status}" data-code="${escapeAttr(s.code||"")}">
+    <header><span>${escapeHtml(special)}</span><b>${progress}% CURSO</b></header>
+    <h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Curso progresivo guiado por MED AI.")}</p>
+    <div class="v30-course-bars"><div><span>Ruta oficial</span><i><b style="width:${progress}%"></b></i><em>${done}/${total||"—"}</em></div><div><span>Dominio estimado</span><i><b style="width:${masteryPct}%"></b></i><em>${masteryPct}%</em></div></div>
+    <div class="v30-course-status"><span class="${status}">${status==="dominated"?"✓ DOMINADO":status==="learning"?"↗ APRENDIENDO":status==="review"?"↻ NECESITA REPASO":"○ NO ESTUDIADO"}</span>${diag?`<span class="diagnostic">DIAGNÓSTICO ${Math.round(Number(diag.percentage||0))}%</span>`:`<span class="diagnostic pending">SIN DIAGNÓSTICO</span>`}${languageName?`<span>${escapeHtml(languageName)}</span>`:""}</div>
+    <footer><button class="secondary-btn course-subject-diagnostic" data-id="${escapeAttr(s.id)}">${diag?"REPETIR DIAGNÓSTICO":"DIAGNÓSTICO"}</button><button class="primary-btn course-subject-open" data-id="${escapeAttr(s.id)}">ABRIR CURSO →</button></footer>
+  </article>`;
 }
 
 async function openSubject(id){
@@ -911,6 +912,46 @@ async function loadCourseMasterclass(){
   }
 }
 
+
+function academicExplainTextV30(pack){
+  if(!pack)return "";
+  const sections=(pack.sections||[]).map(s=>`${s.title||""}\n${s.content||s.explanation||""}\n${(s.key_points||[]).join(" · ")}`).join("\n\n");
+  return `${pack.title||""}\n${pack.overview||""}\n${sections}`.slice(0,16000);
+}
+function openExplainDifferentlyV30({subject,topic,pack}){
+  let o=$("#v30-explain-overlay");
+  if(!o){o=document.createElement("div");o.id="v30-explain-overlay";o.className="academic-accessibility-overlay";document.body.appendChild(o)}
+  o.innerHTML=`<section class="academic-accessibility-card v30-explain-card">
+    <header><div><span>NO LO ENTENDÍ</span><strong>Explícamelo de otra manera</strong></div><button id="explain-close" class="icon-btn">×</button></header>
+    <p>Elige cómo quieres volver a estudiar <b>${escapeHtml(topic||pack?.title||"este tema")}</b>. MED AI usará la clase actual como contexto.</p>
+    <div class="v30-explain-modes">
+      <button data-mode="simple"><span>◌</span><b>Más fácil</b><small>Lenguaje sencillo</small></button>
+      <button data-mode="steps"><span>01</span><b>Paso a paso</b><small>Sin saltos</small></button>
+      <button data-mode="analogy"><span>≈</span><b>Con analogía</b><small>Idea familiar → concepto</small></button>
+      <button data-mode="clinical"><span>✚</span><b>Ejemplo clínico</b><small>Aplicación educativa</small></button>
+      <button data-mode="visual"><span>◈</span><b>Con diagrama</b><small>Proceso visual textual</small></button>
+      <button data-mode="university"><span>◆</span><b>Nivel universitario</b><small>Más profundidad</small></button>
+      <button data-mode="socratic"><span>?</span><b>Pregúntame</b><small>Modo socrático</small></button>
+    </div>
+    <div class="field"><label>¿Qué parte te confundió? (opcional)</label><textarea id="explain-question" rows="3" placeholder="Ej. No entiendo por qué aumenta la resistencia..."></textarea></div>
+    <div id="explain-answer" class="v30-explain-answer"><div class="system-empty compact">Selecciona una forma de explicación.</div></div>
+  </section>`;
+  const close=()=>o.remove();$("#explain-close").onclick=close;o.onclick=e=>{if(e.target===o)close()};
+  $$(".v30-explain-modes button",o).forEach(btn=>btn.onclick=async()=>{
+    $$(".v30-explain-modes button",o).forEach(x=>x.disabled=true);
+    const box=$("#explain-answer");
+    box.innerHTML=`<div class="smart-search-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando otra explicación…</strong></div>`;
+    try{
+      const d=await api("/api/academic/explain",{method:"POST",body:{
+        mode:btn.dataset.mode,subject:subject||"",topic:topic||pack?.title||"",
+        material:academicExplainTextV30(pack),question:$("#explain-question").value.trim()
+      }});
+      box.innerHTML=`<article class="smart-answer"><div class="smart-answer-top"><span>✦ EXPLICACIÓN ADAPTADA</span><b>${escapeHtml(d.model||"MED AI")}</b></div>${renderRichResponse(d.answer||"")}</article>`;
+    }catch(err){box.innerHTML=`<div class="masterclass-error"><strong>No pude generar otra explicación.</strong><p>${escapeHtml(err.message)}</p></div>`}
+    finally{$$(".v30-explain-modes button",o).forEach(x=>x.disabled=false)}
+  });
+}
+
 function renderCourseMasterclassMaterial(){
   const p=state.courseLearningPack,item=state.currentLesson,s=state.currentSubject;
   if(!p)return;
@@ -936,6 +977,11 @@ function renderCourseMasterclassMaterial(){
 
       <div id="academy-learning-view" class="academy-learning-view"></div>
 
+      <section class="v30-didnt-understand">
+        <div><span>¿ALGO NO QUEDÓ CLARO?</span><strong>No lo memorices sin entenderlo.</strong><small>MED AI puede cambiar la explicación sin modificar tu progreso.</small></div>
+        <button id="course-explain-differently" class="secondary-btn">✦ EXPLÍCAMelo DE OTRA MANERA</button>
+      </section>
+
       <footer class="masterclass-next">
         <div><strong>¿Terminaste de estudiar y explorar los recursos?</strong><span>Ahora aplica lo aprendido con ejercicios antes del resumen y el examen.</span></div>
         <button id="go-course-practice" class="primary-btn">IR A PRÁCTICA →</button>
@@ -943,6 +989,7 @@ function renderCourseMasterclassMaterial(){
     </article>`;
 
   $("#course-pdf-main").onclick=printCourseMaterialPdf;
+  $("#course-explain-differently").onclick=()=>openExplainDifferentlyV30({subject:s.name,topic:item.topic_name,pack:p});
   $("#go-course-practice").onclick=async()=>{if(!Number(item.completed)&&Number(item.progress_percent||0)<40)await updateCourseLessonProgress(40,false,{stage:"practice_ready"});openCoursePhase("practice")};
 
   $$(".academy-learning-tab").forEach(btn=>btn.onclick=()=>{
@@ -1640,8 +1687,13 @@ function renderUniversityLesson(){
           ${sec.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${sec.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
           ${sec.example?`<div class="masterclass-example"><span>EJEMPLO / APLICACIÓN</span>${renderStudyParagraphs(sec.example)}</div>`:""}
           </div></section>`).join("")}
+        <section class="v30-didnt-understand university"><div><span>¿NO QUEDÓ CLARO?</span><strong>Prueba otra explicación.</strong></div><button id="uni-explain-differently" class="secondary-btn">✦ EXPLÍCAMelo DE OTRA MANERA</button></section>
       </div>
     </article>`;
+  $("#uni-explain-differently").onclick=()=>openExplainDifferentlyV30({
+    subject:safeJson(state.universitySourceRecord?.metadata_json,{}).study_focus||state.currentSubject?.name||"Material de Biblioteca",
+    topic:p.title||"Material seleccionado",pack:p
+  });
   $$(".university-reading-nav button").forEach(btn=>btn.onclick=()=>$("#uni-sec-"+btn.dataset.sec)?.scrollIntoView({behavior:"smooth",block:"start"}));
   $$(".uni-listen-sec").forEach(btn=>btn.onclick=()=>{
     const sec=p.sections?.[Number(btn.dataset.sec)];
@@ -2763,6 +2815,7 @@ async function renderAIStudio(mode){
   if(mode==="tutor"){state.tutorTranscript=[];state.tutorSessionTitle="";}
   root.innerHTML=`
     <div class="page-head"><div><div class="eyebrow">${escapeHtml(cfg.kicker)}</div><h2>${escapeHtml(cfg.title)}</h2><p>${escapeHtml(cfg.subtitle)}</p></div></div>
+    <div class="v30-ai-provenance-banner"><span>🧠 CONOCIMIENTO GENERAL DE IA</span><small>Este módulo no está limitado a tus PDF. Para respuestas fundamentadas en tus propias fuentes usa Repaso inteligente. En contenido clínico, verifica recomendaciones con fuentes actuales.</small></div>
     <div class="chat-layout">
       <div class="card chat-panel">
         <div id="messages" class="messages"></div>
@@ -3027,7 +3080,7 @@ async function renderQuestionBank(){
     root.innerHTML=`
       <section class="question-bank-hero">
         <div>
-          <div class="learning-home-chip"><span></span> BANCO PERMANENTE · V29</div>
+          <div class="learning-home-chip"><span></span> BANCO PERMANENTE · V30</div>
           <h1>Tus buenas preguntas no se desperdician.</h1>
           <p>MED AI guarda automáticamente preguntas útiles de exámenes, claves históricas y clases transcritas. Puedes volver a practicarlas sin pagar otra generación.</p>
           <div class="question-bank-actions">
@@ -3144,22 +3197,162 @@ async function finishAdaptiveExamV29(){
   $("#adaptive-errors").onclick=()=>navigate("smart").then(()=>startSmartReview());
 }
 
+
+/* ============================================================
+   V30 · SERIOUS EXAM + DIAGNOSTIC MODE
+   ============================================================ */
+function clearSeriousTimerV30(){
+  if(state.seriousTimer){clearInterval(state.seriousTimer);state.seriousTimer=null}
+}
+function seriousTimeLabelV30(sec){
+  const s=Math.max(0,Math.floor(Number(sec||0))),m=Math.floor(s/60),r=s%60;
+  return `${String(m).padStart(2,"0")}:${String(r).padStart(2,"0")}`;
+}
+async function startDiagnosticV30(subjectId){
+  const subject=state.subjects.find(s=>s.id===subjectId);
+  if(!subject)return toast("Selecciona una materia.",true);
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Creando diagnóstico de ${escapeHtml(subject.name)}…</strong><small>20 preguntas equilibradas. Puede tardar unos segundos.</small></div>`;
+  try{
+    const d=await api("/api/academic/diagnostic/start",{method:"POST",body:{
+      subject_id:subjectId,
+      language:subject.code==="LANG"?state.courseLanguage:null
+    }});
+    state.seriousExam={
+      mode:"diagnostic",subjectId,subject:subject.name,topic:"Diagnóstico general",
+      questions:d.questions||[],answers:{},marked:new Set(),index:0,
+      durationSec:30*60,remainingSec:30*60,started_at:new Date().toISOString(),
+      difficulty:4,submitted:false
+    };
+    startSeriousTimerV30();renderSeriousExamV30();
+  }catch(err){toast(err.message,true);navigate("study")}
+}
+async function startSeriousExamFromBuilderV30(){
+  const subjectId=$("#exam-subject").value,subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
+  const topic=$("#exam-topic").value.trim()||"general",count=Number($("#exam-count").value||10),difficulty=Number($("#exam-difficulty").value||5);
+  const minutes=Number($("#serious-exam-minutes")?.value||Math.max(15,count*1.5));
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando simulacro cerrado…</strong><small>${count} preguntas · ${minutes} min · sin pistas.</small></div>`;
+  try{
+    const d=await api("/api/ai/exam",{method:"POST",body:{subject,topic,count,difficulty}});
+    state.seriousExam={
+      mode:"exam",subjectId,subject,topic,questions:d.questions||[],answers:{},marked:new Set(),index:0,
+      durationSec:minutes*60,remainingSec:minutes*60,started_at:new Date().toISOString(),
+      difficulty,submitted:false
+    };
+    startSeriousTimerV30();renderSeriousExamV30();
+  }catch(err){toast(err.message,true);navigate("exams")}
+}
+function startSeriousTimerV30(){
+  clearSeriousTimerV30();
+  state.seriousTimer=setInterval(()=>{
+    const e=state.seriousExam;if(!e||e.submitted){clearSeriousTimerV30();return}
+    e.remainingSec=Math.max(0,Number(e.remainingSec||0)-1);
+    const el=$("#serious-exam-timer");if(el)el.textContent=seriousTimeLabelV30(e.remainingSec);
+    if(e.remainingSec<=0){clearSeriousTimerV30();finishSeriousExamV30(false,true)}
+  },1000);
+}
+function renderSeriousExamV30(){
+  const e=state.seriousExam;if(!e?.questions?.length)return navigate("exams");
+  const i=Math.max(0,Math.min(e.questions.length-1,Number(e.index||0))),q=e.questions[i],answered=Object.prototype.hasOwnProperty.call(e.answers,`q${i}`);
+  const answeredCount=Object.keys(e.answers).length,marked=e.marked instanceof Set?e.marked:new Set(e.marked||[]);e.marked=marked;
+  root.innerHTML=`<section class="v30-serious-exam">
+    <header class="v30-serious-head">
+      <div><span>${e.mode==="diagnostic"?"DIAGNÓSTICO":"MODO EXAMEN CERRADO"}</span><strong>${escapeHtml(e.subject)} · ${escapeHtml(e.topic)}</strong></div>
+      <div class="v30-serious-clock"><small>TIEMPO</small><b id="serious-exam-timer">${seriousTimeLabelV30(e.remainingSec)}</b></div>
+    </header>
+    <div class="v30-serious-progress"><i style="width:${(i+1)/e.questions.length*100}%"></i></div>
+    <div class="v30-serious-layout">
+      <main class="v30-serious-question">
+        <div class="v30-serious-meta"><span>PREGUNTA ${i+1} DE ${e.questions.length}</span>${q.skill?`<b>${escapeHtml(q.skill)}</b>`:""}<button id="serious-mark" class="${marked.has(i)?"active":""}">⚑ ${marked.has(i)?"MARCADA":"MARCAR"}</button></div>
+        <h1>${escapeHtml(q.stem)}</h1>
+        <div class="v30-serious-options">${q.options.map((op,j)=>`<label class="${Number(e.answers[`q${i}`])===j?"selected":""}"><input type="radio" name="serious-q" value="${j}" ${Number(e.answers[`q${i}`])===j?"checked":""}><span>${String.fromCharCode(65+j)}</span><strong>${escapeHtml(op)}</strong></label>`).join("")}</div>
+        <footer><button id="serious-prev" class="secondary-btn" ${i===0?"disabled":""}>← ANTERIOR</button><button id="serious-next" class="primary-btn">${i===e.questions.length-1?"REVISAR":"SIGUIENTE →"}</button></footer>
+      </main>
+      <aside class="v30-serious-palette">
+        <div><span>RESPONDIDAS</span><strong>${answeredCount}/${e.questions.length}</strong></div>
+        <div class="v30-serious-grid">${e.questions.map((_,n)=>`<button data-i="${n}" class="${n===i?"current":""} ${Object.prototype.hasOwnProperty.call(e.answers,`q${n}`)?"answered":""} ${marked.has(n)?"marked":""}">${n+1}</button>`).join("")}</div>
+        <div class="v30-serious-legend"><span><i class="answered"></i>Respondida</span><span><i class="marked"></i>Marcada</span></div>
+        <button id="serious-submit" class="danger-btn wide">ENTREGAR EXAMEN</button>
+        <small>${e.mode==="diagnostic"?"El diagnóstico no cambia el progreso oficial del curso.":"Durante el examen no hay Tutor IA, pistas ni explicaciones."}</small>
+      </aside>
+    </div>
+  </section>`;
+  $$('input[name="serious-q"]').forEach(r=>r.onchange=()=>{e.answers[`q${i}`]=Number(r.value);renderSeriousExamV30()});
+  $("#serious-mark").onclick=()=>{marked.has(i)?marked.delete(i):marked.add(i);renderSeriousExamV30()};
+  $("#serious-prev").onclick=()=>{e.index=Math.max(0,i-1);renderSeriousExamV30()};
+  $("#serious-next").onclick=()=>{if(i<e.questions.length-1){e.index=i+1;renderSeriousExamV30()}else openSeriousReviewV30()};
+  $$(".v30-serious-grid button").forEach(b=>b.onclick=()=>{e.index=Number(b.dataset.i);renderSeriousExamV30()});
+  $("#serious-submit").onclick=()=>finishSeriousExamV30(true,false);
+}
+function openSeriousReviewV30(){
+  const e=state.seriousExam,answered=Object.keys(e.answers).length,missing=e.questions.length-answered;
+  root.innerHTML=`<section class="v30-serious-review">
+    <div class="eyebrow">${e.mode==="diagnostic"?"DIAGNÓSTICO":"EXAMEN"} · REVISIÓN FINAL</div>
+    <h1>¿Listo para entregar?</h1><p>${missing?`Tienes ${missing} pregunta${missing===1?"":"s"} sin responder.`:"Has respondido todas las preguntas."} ${e.marked.size?`Marcaste ${e.marked.size} para revisar.`:""}</p>
+    <div class="v30-review-palette">${e.questions.map((_,i)=>`<button data-i="${i}" class="${Object.prototype.hasOwnProperty.call(e.answers,`q${i}`)?"answered":""} ${e.marked.has(i)?"marked":""}">${i+1}</button>`).join("")}</div>
+    <div class="v30-review-actions"><button id="serious-back-question" class="secondary-btn">VOLVER AL EXAMEN</button><button id="serious-final-submit" class="primary-btn">ENTREGAR AHORA</button></div>
+    <small>Tiempo restante: <b>${seriousTimeLabelV30(e.remainingSec)}</b></small>
+  </section>`;
+  $$(".v30-review-palette button").forEach(b=>b.onclick=()=>{e.index=Number(b.dataset.i);renderSeriousExamV30()});
+  $("#serious-back-question").onclick=renderSeriousExamV30;
+  $("#serious-final-submit").onclick=()=>finishSeriousExamV30(true,false);
+}
+async function finishSeriousExamV30(ask=true,timeout=false){
+  const e=state.seriousExam;if(!e||e.submitted)return;
+  if(ask&&!confirm("¿Entregar el examen y ver tu resultado?"))return;
+  e.submitted=true;clearSeriousTimerV30();
+  let score=0;const skills={};
+  e.questions.forEach((q,i)=>{
+    const ok=Number(e.answers[`q${i}`])===Number(q.correctIndex);if(ok)score++;
+    const skill=q.skill||"General";skills[skill]??={correct:0,total:0};skills[skill].total++;if(ok)skills[skill].correct++;
+  });
+  const total=e.questions.length,pct=Math.round(score/Math.max(1,total)*100);
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Guardando resultado…</strong></div>`;
+  try{
+    await api("/api/exams/record",{method:"POST",body:{
+      title:`${e.mode==="diagnostic"?"Diagnóstico":"Simulacro"} · ${e.subject}`,score,max_score:total,percentage:pct,started_at:e.started_at,
+      settings:{subject:e.subject,topic:e.topic,difficulty:e.difficulty,serious_exam:e.mode!=="diagnostic",diagnostic:e.mode==="diagnostic",timed_out:timeout},
+      questions:e.questions,answers:e.answers
+    }});
+    let diagnostic=null;
+    if(e.mode==="diagnostic"){
+      const saved=await api("/api/academic/diagnostic",{method:"POST",body:{subject_id:e.subjectId,subject_name:e.subject,questions:e.questions,answers:e.answers}});
+      diagnostic=saved.diagnostic;
+    }
+    const skillRows=Object.entries(skills).map(([name,x])=>({name,pct:Math.round(x.correct/x.total*100),...x})).sort((a,b)=>a.pct-b.pct);
+    root.innerHTML=`<section class="v30-serious-result">
+      <div class="answer-key-result-ring"><strong>${pct}%</strong><small>${score}/${total}</small></div>
+      <div class="eyebrow">${e.mode==="diagnostic"?"DIAGNÓSTICO COMPLETADO":"SIMULACRO COMPLETADO"}</div>
+      <h1>${pct>=85?"Dominio fuerte":pct>=70?"Buen avance":"Hay áreas para reforzar"}</h1>
+      <p>${timeout?"El tiempo terminó y MED AI entregó automáticamente.":""} ${e.mode==="diagnostic"?"Este resultado orienta tu ruta, pero no modifica el porcentaje oficial del curso.":"Tus errores quedaron disponibles para Repaso inteligente."}</p>
+      <div class="v30-result-skills">${skillRows.slice(0,12).map(x=>`<div><span>${escapeHtml(x.name)}</span><i><b style="width:${x.pct}%"></b></i><strong>${x.pct}%</strong></div>`).join("")}</div>
+      <div class="v30-result-actions"><button id="serious-result-review" class="secondary-btn">REPASAR ERRORES</button><button id="serious-result-home" class="primary-btn">${e.mode==="diagnostic"?"VOLVER A MIS CURSOS":"VOLVER A EXÁMENES"}</button></div>
+    </section>`;
+    $("#serious-result-review").onclick=()=>navigate("smart");
+    $("#serious-result-home").onclick=()=>navigate(e.mode==="diagnostic"?"study":"exams");
+  }catch(err){
+    toast(err.message,true);
+    e.submitted=false;renderSeriousExamV30();startSeriousTimerV30();
+  }
+}
+
 async function renderExams(){
+  clearSeriousTimerV30();
   root.innerHTML=`
-    <div class="page-head"><div><div class="eyebrow">EVALUACIÓN ADAPTATIVA</div><h2>Exámenes IA</h2><p>Genera preguntas nuevas, en un formato limpio y con retroalimentación clara.</p></div></div>
-    <div class="card" style="margin-bottom:16px"><div class="info-box">Si quieres más rapidez, usa 5 o 10 preguntas. Si quieres más profundidad, usa 15 o 20.</div></div>
+    <section class="v30-exam-hero"><div><div class="learning-home-chip"><span></span> CENTRO DE EVALUACIÓN · V30</div><h1>Practica o simula un parcial de verdad.</h1><p>El modo normal muestra retroalimentación al final. El modo cerrado añade temporizador, navegación, preguntas marcadas y una pantalla limpia sin pistas.</p></div><aside><span>MODO CERRADO</span><strong>⏱</strong><small>Ideal antes de un parcial real</small></aside></section>
     <div class="grid two">
       <div class="card">
         <div class="field"><label>Materia</label><select id="exam-subject">${subjectOptions()}</select></div>
-        <div class="field"><label>Tema específico</label><input id="exam-topic" placeholder="Ej. insuficiencia cardíaca, derivadas, cinemática, inglés A1..."></div>
+        <div class="field"><label>Tema específico</label><input id="exam-topic" placeholder="Ej. insuficiencia cardíaca, derivadas, cinemática..."></div>
         <div class="field"><label>Número de preguntas</label><select id="exam-count"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
         <div class="field"><label>Dificultad</label><select id="exam-difficulty">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option ${n===5?"selected":""}>${n}</option>`).join("")}</select></div>
-        <button id="generate-exam" class="primary-btn wide">Generar examen</button>
+        <div class="field"><label>Tiempo para modo cerrado</label><select id="serious-exam-minutes"><option value="15">15 min</option><option value="30" selected>30 min</option><option value="45">45 min</option><option value="60">60 min</option></select></div>
+        <div class="v30-exam-builder-actions"><button id="generate-exam" class="secondary-btn">PRÁCTICA NORMAL</button><button id="generate-serious-exam" class="primary-btn">⏱ MODO EXAMEN CERRADO</button></div>
       </div>
-      <div class="card"><h3>Cómo se evalúa</h3><p style="color:var(--muted);line-height:1.6">Selecciona una opción por pregunta. Al finalizar verás puntuación, respuesta correcta y explicación. El resultado queda registrado en tu perfil.</p></div>
+      <div class="card v30-exam-rules"><div class="panel-code">MODO EXAMEN CERRADO</div><h3>Como un simulacro real</h3><p>Temporizador visible, una pregunta a la vez, navegación por números, opción de marcar para revisar y entrega automática al terminar el tiempo.</p><div><span>✓</span> Sin Tutor IA</div><div><span>✓</span> Sin explicaciones durante el examen</div><div><span>✓</span> Análisis después de entregar</div></div>
     </div>
     <div id="exam-area" style="margin-top:16px"></div>`;
   $("#generate-exam").onclick=generateExam;
+  $("#generate-serious-exam").onclick=startSeriousExamFromBuilderV30;
 }
 async function generateExam(){
   const btn=$("#generate-exam");btn.disabled=true;$("#exam-area").innerHTML=`<div class="card empty">Generando examen... esto puede tardar unos segundos.</div>`;
@@ -3392,6 +3585,31 @@ function formatBytes(bytes){
 }
 function getLibraryMeta(item){return safeJson(item.metadata_json,{})}
 
+
+function openPrimarySourceV30(fileId){
+  const file=(state.libraryData?.files||[]).find(x=>x.id===fileId);if(!file)return;
+  const meta=getLibraryMeta(file),primary=!!meta.primary_source_v30;
+  let o=$("#v30-primary-source-overlay");
+  if(!o){o=document.createElement("div");o.id="v30-primary-source-overlay";o.className="academic-accessibility-overlay";document.body.appendChild(o)}
+  o.innerHTML=`<section class="academic-accessibility-card v30-primary-source-card">
+    <header><div><span>FUENTE ACADÉMICA PRINCIPAL</span><strong>${escapeHtml(file.title)}</strong></div><button id="primary-source-close" class="icon-btn">×</button></header>
+    <p>Una fuente principal recibe prioridad en las búsquedas y respuestas basadas en tus materiales. Para que MED AI pueda usar el contenido interno del archivo, primero utiliza <b>OCR + CITAS</b> o crea una sesión con <b>ESTUDIAR CON MED AI</b>. La prioridad no convierte el material en una fuente clínica actual.</p>
+    <div class="field"><label>Materia asociada</label><select id="primary-source-subject"><option value="">Sin materia específica</option>${state.subjects.map(s=>`<option value="${escapeAttr(s.id)}" ${meta.primary_subject_id===s.id?"selected":""}>${escapeHtml(s.name)}</option>`).join("")}</select></div>
+    <div class="v30-primary-source-status ${primary?"active":""}"><span>${primary?"★":"☆"}</span><div><strong>${primary?"Actualmente es fuente principal":"Aún no es fuente principal"}</strong><small>${primary?escapeHtml(meta.primary_subject_name||"Prioridad general"):"Puedes marcarla para que MED AI la priorice."}</small></div></div>
+    <footer>${primary?`<button id="primary-source-remove" class="secondary-btn">QUITAR PRIORIDAD</button>`:""}<button id="primary-source-save" class="primary-btn">${primary?"ACTUALIZAR MATERIA":"★ MARCAR COMO PRINCIPAL"}</button></footer>
+  </section>`;
+  const close=()=>o.remove();$("#primary-source-close").onclick=close;o.onclick=e=>{if(e.target===o)close()};
+  $("#primary-source-save").onclick=async()=>{
+    try{
+      await api("/api/library/source-priority",{method:"PUT",body:{file_id:fileId,primary:true,subject_id:$("#primary-source-subject").value||null}});
+      close();toast("Fuente principal guardada.");loadStudyLibrary(state.libraryFolderId);
+    }catch(err){toast(err.message,true)}
+  };
+  $("#primary-source-remove")?.addEventListener("click",async()=>{
+    try{await api("/api/library/source-priority",{method:"PUT",body:{file_id:fileId,primary:false}});close();toast("Prioridad eliminada.");loadStudyLibrary(state.libraryFolderId)}catch(err){toast(err.message,true)}
+  });
+}
+
 function renderStudyLibraryFiles(){
   const box=$("#study-library-content"),d=state.libraryData||{},folders=d.folders||[],files=d.files||[];
   const current=d.current_folder||null;
@@ -3450,6 +3668,7 @@ function renderStudyLibraryFiles(){
             ${info.cls==="pdf"?`<button class="library-past-exam" data-id="${escapeAttr(file.id)}"><span>▤</span> CLAVE PASADA</button>`:""}
             ${canIndex?`<button class="library-index-source" data-id="${escapeAttr(file.id)}"><span>⌖</span> OCR + CITAS</button>`:""}
             ${canTranscribe?`<button class="library-transcribe-media" data-id="${escapeAttr(file.id)}"><span>◉</span> TRANSCRIBIR CLASE</button>`:""}
+            <button class="library-primary-source ${meta.primary_source_v30?"active":""}" data-id="${escapeAttr(file.id)}"><span>${meta.primary_source_v30?"★":"☆"}</span> ${meta.primary_source_v30?"PRINCIPAL":"FUENTE PRINCIPAL"}</button>
             <button class="library-offline-file" data-id="${escapeAttr(file.id)}"><span>↓</span> OFFLINE</button>
             <button class="library-open-file" data-id="${escapeAttr(file.id)}">ABRIR</button>
             <button class="library-download-file" data-id="${escapeAttr(file.id)}" title="Descargar">↓</button>
@@ -3475,6 +3694,7 @@ function renderStudyLibraryFiles(){
   $$(".library-past-exam").forEach(b=>b.onclick=()=>openHistoricalKeysStudio({libraryFileId:b.dataset.id}));
   $$(".library-index-source").forEach(b=>b.onclick=()=>indexLibrarySourceV29(b.dataset.id));
   $$(".library-transcribe-media").forEach(b=>b.onclick=()=>transcribeLibraryMediaV29(b.dataset.id));
+  $$(".library-primary-source").forEach(b=>b.onclick=()=>openPrimarySourceV30(b.dataset.id));
   $$(".library-offline-file").forEach(b=>b.onclick=()=>toggleLibraryFileOffline(b.dataset.id));
   $$(".library-open-file").forEach(b=>b.onclick=()=>openStudyLibraryFile(b.dataset.id));
   $$(".library-download-file").forEach(b=>b.onclick=()=>downloadStudyLibraryFile(b.dataset.id));
@@ -3495,7 +3715,7 @@ function ensureV29StudyResultOverlay(){
   o=document.createElement("div");
   o.id="v29-study-result-overlay";o.className="library-study-overlay hidden";
   o.innerHTML=`<div class="library-study-shell v29-result-shell">
-    <header class="library-study-shell-head"><div><span>MED AI · V29 FINAL</span><strong id="v29-result-title">Resultado</strong></div><button id="v29-result-close" class="library-viewer-close">×</button></header>
+    <header class="library-study-shell-head"><div><span>MED AI · V30</span><strong id="v29-result-title">Resultado</strong></div><button id="v29-result-close" class="library-viewer-close">×</button></header>
     <main id="v29-result-body"></main>
   </div>`;
   document.body.appendChild(o);
@@ -4051,7 +4271,7 @@ async function renderOfflineStudyVault(){
   box.innerHTML=`
     <section class="offline-vault-hero">
       <div>
-        <div class="learning-home-chip"><span></span> OFFLINE STUDY VAULT · V29</div>
+        <div class="learning-home-chip"><span></span> OFFLINE STUDY VAULT · V30</div>
         <h2>Tu estudio continúa aunque se vaya el internet.</h2>
         <p>Las clases que ya abriste se conservan localmente. Los libros que marques como OFFLINE también quedan en este dispositivo.</p>
       </div>
@@ -4102,7 +4322,7 @@ async function openPreparedOfflineBundleV29(key){
   const bank=bundle.question_bank||[],cards=bundle.flashcards||[],packs=bundle.historical_packs||[];
   box.innerHTML=`<section class="v29-offline-bundle-page">
     <button id="v29-offline-back" class="ghost-btn">← ESTUDIO OFFLINE</button>
-    <header><div class="learning-home-chip"><span></span> MODO SOLO OFFLINE · V29</div><h2>${escapeHtml(bundle.subject?.name||"Materia")}</h2><p>Este contenido está almacenado en este dispositivo. No necesita una llamada nueva de IA.</p></header>
+    <header><div class="learning-home-chip"><span></span> MODO SOLO OFFLINE · V30</div><h2>${escapeHtml(bundle.subject?.name||"Materia")}</h2><p>Este contenido está almacenado en este dispositivo. No necesita una llamada nueva de IA.</p></header>
     <section class="v29-result-metrics"><div><strong>${cards.length}</strong><span>flashcards</span></div><div><strong>${packs.length}</strong><span>repasos históricos</span></div><div><strong>${bank.length}</strong><span>preguntas</span></div></section>
     <div class="v29-offline-bundle-grid">
       <article class="card"><div class="panel-code">PREGUNTAS</div>${bank.slice(0,20).map((q,i)=>`<div class="v29-offline-question"><span>${i+1}</span><div><strong>${escapeHtml(q.stem||"")}</strong><small>${escapeHtml(q.topic||"")}</small></div></div>`).join("")||`<div class="system-empty compact">Sin preguntas guardadas.</div>`}</article>
@@ -4400,7 +4620,7 @@ async function renderSmartStudy(){
     root.innerHTML=`
       <section class="smart-hero">
         <div>
-          <div class="learning-home-chip"><span></span> SMART STUDY ENGINE · V29</div>
+          <div class="learning-home-chip"><span></span> SMART STUDY ENGINE · V30</div>
           <h1>Estudia lo que más necesitas, no lo que ya dominas.</h1>
           <p>MED AI combina tus errores, progreso, clases guardadas, Biblioteca y parciales anteriores. Primero reutiliza tus datos; la IA se reserva para cuando realmente agrega valor.</p>
           <div class="smart-hero-actions">
@@ -4508,6 +4728,7 @@ async function smartRetrieve(useAI=false){
       state.smartSearchResults=d.sources||[];
       box.innerHTML=`<article class="smart-answer">
         <div class="smart-answer-top"><span>✦ RESPUESTA BASADA EN TUS MATERIALES</span><b>${escapeHtml(d.model_label||"Gemini")}</b></div>
+        <div class="v30-provenance"><span class="personal">📚 TUS FUENTES</span>${(d.sources||[]).some(x=>x.primary)?`<span class="primary">★ FUENTE PRINCIPAL</span>`:""}${String(d.answer||"").includes("Explicación complementaria")?`<span class="ai">🧠 COMPLEMENTO DE IA</span>`:""}<span class="verify">⚠ VERIFICA FUENTE CLÍNICA ACTUAL CUANDO APLIQUE</span></div>
         <div class="rich-response">${renderRichResponse(d.answer||"")}</div>
         ${renderSmartSources(d.sources||[])}
       </article>`;
@@ -4521,8 +4742,8 @@ async function smartRetrieve(useAI=false){
 
 function renderSmartSources(sources,full=false){
   if(!sources?.length)return `<div class="smart-source-note">No se utilizaron fuentes guardadas.</div>`;
-  return `<section class="smart-sources"><div class="panel-code">${full?"RESULTADOS · SIN IA":"FUENTES UTILIZADAS"}</div>${sources.map((s,i)=>`<article>
-    <span>${i+1}</span><div><strong>${escapeHtml(s.title||"Material")}</strong><small>${escapeHtml(s.label||s.type||"Fuente guardada")}${s.scope?` · ${escapeHtml(s.scope)}`:""}</small>${full?`<p>${escapeHtml(s.snippet||"")}</p>`:""}</div><b>${Math.round(Number(s.score||0))}</b>
+  return `<section class="smart-sources"><div class="panel-code">${full?"RESULTADOS · SIN IA":"FUENTES UTILIZADAS"}</div>${sources.map((s,i)=>`<article class="${s.primary?"primary-source":""}">
+    <span>${i+1}</span><div><strong>${s.primary?"★ ":""}${escapeHtml(s.title||"Material")}</strong><small>${escapeHtml(s.label||s.type||"Fuente guardada")}${s.scope?` · ${escapeHtml(s.scope)}`:""}${s.primary?" · FUENTE PRINCIPAL":""}</small>${full?`<p>${escapeHtml(s.snippet||"")}</p>`:""}</div><b>${Math.round(Number(s.score||0))}</b>
   </article>`).join("")}</section>`;
 }
 
@@ -4845,61 +5066,161 @@ async function renderMistakes(){
   <div class="list">${d.mistakes.length?d.mistakes.map(m=>`<div class="list-item"><div class="grow"><strong>${escapeHtml(m.prompt)}</strong><span>${escapeHtml(m.topic_name||m.error_category||"Error registrado")}</span>${m.explanation?`<p>${escapeHtml(m.explanation)}</p>`:""}</div><span class="badge">${Math.round(m.mastery_score||0)}%</span></div>`).join(""):`<div class="card empty">Aún no hay errores registrados.</div>`}</div>`;
 }
 
+
+async function renderSemesterV30(){
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Abriendo tu semestre…</strong><small>Materias, fechas y contexto académico.</small></div>`;
+  try{
+    const [sem,deadlines]=await Promise.all([api("/api/academic/semester"),api("/api/deadlines")]);
+    state.semesterData=sem.semesters||[];
+    const current=state.semesterData[0]||null;
+    const selected=new Set(current?.subject_ids||[]);
+    root.innerHTML=`
+      <section class="v30-semester-hero">
+        <div><div class="learning-home-chip"><span></span> SEMESTRE ACADÉMICO · V30</div><h1>${escapeHtml(current?.name||"Configura tu semestre")}</h1><p>MED AI usará estas materias y fechas para priorizar tus sesiones sin alterar el contenido oficial de tus cursos.</p></div>
+        <aside><span>MATERIAS ACTIVAS</span><strong>${selected.size}</strong><small>${current?.start_date&&current?.end_date?`${escapeHtml(current.start_date)} → ${escapeHtml(current.end_date)}`:"Periodo no definido"}</small></aside>
+      </section>
+
+      <section class="v30-semester-layout">
+        <article class="card">
+          <div class="smart-section-head"><div><span>CONFIGURACIÓN</span><h2>Mi semestre</h2></div><small>Se sincroniza en D1</small></div>
+          <input id="semester-id" type="hidden" value="${escapeAttr(current?.id||"")}">
+          <div class="field"><label>Nombre</label><input id="semester-name" value="${escapeAttr(current?.name||"Segundo semestre 2026")}" placeholder="Ej. Segundo semestre 2026"></div>
+          <div class="grid two">
+            <div class="field"><label>Inicio</label><input id="semester-start" type="date" value="${escapeAttr(current?.start_date||"")}"></div>
+            <div class="field"><label>Fin</label><input id="semester-end" type="date" value="${escapeAttr(current?.end_date||"")}"></div>
+          </div>
+          <div class="field"><label>Objetivo del semestre</label><textarea id="semester-goal" rows="3" placeholder="Ej. Aprobar todos los parciales con ≥85% y dominar las ciencias básicas.">${escapeHtml(current?.goal||"")}</textarea></div>
+          <div class="v30-semester-subjects">
+            <div class="panel-code">MATERIAS</div>
+            ${state.subjects.map(s=>`<label class="v30-semester-subject ${selected.has(s.id)?"selected":""}"><input type="checkbox" value="${escapeAttr(s.id)}" ${selected.has(s.id)?"checked":""}><span><strong>${escapeHtml(s.name)}</strong><small>${escapeHtml(s.category||s.code||"Curso")}</small></span></label>`).join("")}
+          </div>
+          <button id="save-semester-v30" class="primary-btn wide">GUARDAR SEMESTRE</button>
+        </article>
+
+        <article class="card">
+          <div class="smart-section-head"><div><span>CALENDARIO ACADÉMICO</span><h2>Fechas registradas</h2></div><button id="semester-add-date" class="ghost-btn">＋ AGREGAR FECHA</button></div>
+          <div class="v30-semester-deadlines">${(deadlines.deadlines||[]).length?(deadlines.deadlines||[]).slice(0,20).map(d=>`<div><b>${examPrepDaysLabel(d.due_at)}</b><span><strong>${escapeHtml(d.title)}</strong><small>${escapeHtml(d.subject_name||d.deadline_type||"Académico")} · ${formatDate(d.due_at)}</small></span><em>P${Number(d.importance||3)}</em></div>`).join(""):`<div class="system-empty">Aún no hay parciales, tareas o finales registrados.</div>`}</div>
+        </article>
+      </section>
+
+      ${state.semesterData.length>1?`<section class="card"><div class="smart-section-head"><div><span>HISTORIAL</span><h2>Semestres guardados</h2></div></div><div class="v30-semester-history">${state.semesterData.slice(1,8).map(s=>`<article><strong>${escapeHtml(s.name)}</strong><small>${escapeHtml(s.start_date||"")} ${s.end_date?`→ ${escapeHtml(s.end_date)}`:""} · ${(s.subjects||[]).length} materias</small></article>`).join("")}</div></section>`:""}`;
+
+    $$(".v30-semester-subject input").forEach(i=>i.onchange=()=>i.closest("label").classList.toggle("selected",i.checked));
+    $("#save-semester-v30").onclick=async()=>{
+      const btn=$("#save-semester-v30"),subject_ids=$$(".v30-semester-subject input:checked").map(x=>x.value);
+      if(!$("#semester-name").value.trim())return toast("Escribe el nombre del semestre.",true);
+      btn.disabled=true;btn.textContent="GUARDANDO…";
+      try{
+        await api("/api/academic/semester",{method:"POST",body:{
+          id:$("#semester-id").value||null,name:$("#semester-name").value.trim(),
+          start_date:$("#semester-start").value||null,end_date:$("#semester-end").value||null,
+          goal:$("#semester-goal").value.trim(),subject_ids,active:true
+        }});
+        toast("Semestre guardado.");renderSemesterV30();
+      }catch(err){toast(err.message,true)}
+      finally{btn.disabled=false;btn.textContent="GUARDAR SEMESTRE"}
+    };
+    $("#semester-add-date").onclick=()=>navigate("plan");
+  }catch(err){
+    root.innerHTML=`<div class="card masterclass-error"><strong>No pude abrir el semestre.</strong><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
 async function renderPlan(){
-  const [d]=await Promise.all([api("/api/deadlines")]);
-  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">PLANIFICADOR</div><h2>Plan de estudio</h2><p>Registra parciales, finales y objetivos en una vista más clara y organizada.</p></div></div>
+  const d=await api("/api/deadlines");
+  const typeLabel={exam:"Parcial / examen",final:"Examen final",assignment:"Tarea",laboratory:"Laboratorio",class:"Clase",goal:"Meta",other:"Otro"};
+  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">CALENDARIO ACADÉMICO · V30</div><h2>Plan de estudio</h2><p>Registra parciales, finales, laboratorios, tareas y metas. MED AI usa estas fechas para decidir qué priorizar.</p></div><button id="plan-open-semester" class="secondary-btn">▦ MI SEMESTRE</button></div>
   <div class="grid two">
     <div class="card"><h3>Nueva fecha importante</h3>
-      <div class="field"><label>Título</label><input id="deadline-title" placeholder="Parcial de fisiología"></div>
+      <div class="field"><label>Título</label><input id="deadline-title" placeholder="Ej. Parcial 2 de Química"></div>
+      <div class="grid two"><div class="field"><label>Tipo</label><select id="deadline-type"><option value="exam">Parcial / examen</option><option value="final">Examen final</option><option value="laboratory">Laboratorio</option><option value="assignment">Tarea</option><option value="class">Clase importante</option><option value="goal">Meta personal</option><option value="other">Otro</option></select></div><div class="field"><label>Importancia</label><select id="deadline-importance"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div></div>
       <div class="field"><label>Fecha y hora</label><input id="deadline-date" type="datetime-local"></div>
       <div class="field"><label>Materia</label><select id="deadline-subject">${subjectOptions(true)}</select></div>
-      <div class="field"><label>Importancia</label><select id="deadline-importance"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
-      <button id="save-deadline" class="primary-btn">Guardar</button>
+      <div class="field"><label>Notas</label><textarea id="deadline-notes" rows="3" placeholder="Ej. Temas 4–7, llevar calculadora..."></textarea></div>
+      <button id="save-deadline" class="primary-btn wide">GUARDAR EN CALENDARIO</button>
     </div>
-    <div class="card"><h3>Próximas fechas</h3><div class="list">${d.deadlines.length?d.deadlines.map(x=>`<div class="list-item"><div class="grow"><strong>${escapeHtml(x.title)}</strong><span>${escapeHtml(x.subject_name||x.deadline_type)} · ${formatDate(x.due_at)}</span></div><span class="badge">P${x.importance}</span></div>`).join(""):`<div class="empty">Sin fechas registradas.</div>`}</div></div>
+    <div class="card"><div class="smart-section-head"><div><span>AGENDA</span><h2>Próximas fechas</h2></div><b>${(d.deadlines||[]).filter(x=>!Number(x.completed)).length}</b></div>
+      <div class="v30-plan-deadlines">${(d.deadlines||[]).length?(d.deadlines||[]).slice(0,30).map(x=>`<article class="${Number(x.completed)?"done":""}"><b>${examPrepDaysLabel(x.due_at)}</b><div><span>${escapeHtml(typeLabel[x.deadline_type]||x.deadline_type||"Académico")}</span><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.subject_name||"Sin materia")} · ${formatDate(x.due_at)}${x.notes?` · ${escapeHtml(x.notes)}`:""}</small></div><em>P${Number(x.importance||3)}</em></article>`).join(""):`<div class="empty">Sin fechas registradas.</div>`}</div>
+    </div>
   </div>`;
+  $("#plan-open-semester").onclick=()=>navigate("semester");
   $("#save-deadline").onclick=async()=>{
     const local=$("#deadline-date").value;if(!local)return toast("Selecciona la fecha.",true);
-    try{await api("/api/deadlines",{method:"POST",body:{title:$("#deadline-title").value,due_at:new Date(local).toISOString(),subject_id:$("#deadline-subject").value||null,importance:Number($("#deadline-importance").value)}});toast("Fecha guardada.");renderPlan()}catch(err){toast(err.message,true)}
+    if(!$("#deadline-title").value.trim())return toast("Escribe el título.",true);
+    try{
+      await api("/api/deadlines",{method:"POST",body:{
+        title:$("#deadline-title").value.trim(),deadline_type:$("#deadline-type").value,
+        due_at:new Date(local).toISOString(),subject_id:$("#deadline-subject").value||null,
+        importance:Number($("#deadline-importance").value),notes:$("#deadline-notes").value.trim()
+      }});
+      toast("Fecha guardada.");renderPlan();
+    }catch(err){toast(err.message,true)}
   };
 }
 
 async function renderStats(){
-  const [d,p]=await Promise.all([api("/api/stats"),api("/api/progress/overview")]);
-  state.progressOverview=p;
+  const [d,p,c]=await Promise.all([api("/api/stats"),api("/api/progress/overview"),api("/api/academic/credentials")]);
+  state.progressOverview=p;state.credentials=c.credentials||[];
   const daily=[...(d.daily||[])].reverse(),max=Math.max(1,...daily.map(x=>Number(x.study_seconds||0))),t=p.totals||{};
-  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">MAPA DE DOMINIO · V29</div><h2>Progreso académico</h2><p>No solo cuánto estudiaste: qué dominas, qué estás aprendiendo y qué necesita repaso.</p></div></div>
+  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">DOMINIO Y EVIDENCIA · V30</div><h2>Progreso académico</h2><p>Un tema ya no se marca como dominado por una sola buena respuesta: necesita evidencia repetida, precisión y repaso reciente.</p></div></div>
   <section class="v29-mastery-metrics">
     <article class="dominated"><span>✓</span><div><strong>${Number(t.dominated||0)}</strong><small>DOMINADOS</small></div></article>
     <article class="learning"><span>↗</span><div><strong>${Number(t.learning||0)}</strong><small>EN APRENDIZAJE</small></div></article>
     <article class="review"><span>↻</span><div><strong>${Number(t.review||0)}</strong><small>NECESITAN REPASO</small></div></article>
     <article class="not-started"><span>○</span><div><strong>${Number(t.not_started||0)}</strong><small>NO ESTUDIADOS</small></div></article>
   </section>
-  <div class="grid stats4" style="margin-top:9px">
-    ${metric("Preguntas",d.totals?.questions||0,"Respondidas")}
-    ${metric("Casos",d.totals?.cases||0,"Completados")}
-    ${metric("Repasos",d.totals?.reviews||0,"Flashcards")}
-    ${metric("Sesiones",d.totals?.sessions||0,"De estudio")}
-  </div>
-  <section class="v29-progress-grid">
-    <article class="card"><div class="smart-section-head"><div><span>POR MATERIA</span><h2>Mapa académico</h2></div><small>${(p.subjects||[]).length} materias</small></div>
+
+  <section class="card v30-mastery-rules"><div><span>¿CUÁNDO SE CONSIDERA DOMINADO?</span><strong>${escapeHtml(p.rules?.dominated||"Evidencia repetida")}</strong><small>El dominio puede volver a “repaso” si pasa demasiado tiempo sin practicar.</small></div></section>
+
+  <section class="v30-progress-grid">
+    <article class="card"><div class="smart-section-head"><div><span>POR MATERIA</span><h2>Mapa de habilidades</h2></div><small>${(p.subjects||[]).length} materias</small></div>
       <div class="v29-subject-progress">${(p.subjects||[]).map(s=>{
-        const total=s.dominated+s.learning+s.review+s.not_started,done=total?Math.round((s.dominated+s.learning*.6)/total*100):0;
-        return `<button class="v29-subject-row" data-subject="${escapeAttr(s.id)}"><div><strong>${escapeHtml(s.name)}</strong><small>${s.dominated} dominados · ${s.review} repaso · ${s.not_started} no estudiados</small></div><span>${done}%</span><i><b style="width:${done}%"></b></i></button>`;
+        const total=s.dominated+s.learning+s.review+s.not_started,done=total?Math.round((s.dominated+s.learning*.6+s.review*.25)/total*100):0;
+        return `<button class="v29-subject-row" data-subject="${escapeAttr(s.id)}"><div><strong>${escapeHtml(s.name)}</strong><small>${s.dominated} dominados · ${s.learning} aprendiendo · ${s.review} repaso</small></div><span>${done}%</span><i><b style="width:${done}%"></b></i></button>`;
       }).join("")||`<div class="system-empty">Aún no hay materias.</div>`}</div>
     </article>
     <article class="card"><div class="smart-section-head"><div><span>30 DÍAS</span><h2>Tiempo de estudio</h2></div></div><div class="chart-bars">${daily.length?daily.map(x=>`<div class="bar" title="${x.metric_date}: ${Math.round(x.study_seconds/60)} min" style="height:${Math.max(3,Number(x.study_seconds)/max*100)}%"></div>`).join(""):`<div class="empty">Todavía no hay datos.</div>`}</div>${daily.length?`<div class="bar-labels"><span>${daily[0]?.metric_date||""}</span><span>${daily.at(-1)?.metric_date||""}</span></div>`:""}</article>
   </section>
-  <section class="card" id="v29-subject-detail"><div class="system-empty compact">Toca una materia para ver sus temas por estado.</div></section>`;
+
+  <section class="card v30-credentials">
+    <div class="smart-section-head"><div><span>MICROCREDENCIALES INTERNAS</span><h2>Logros de dominio</h2></div><small>No son títulos ni créditos oficiales</small></div>
+    <p class="v30-credential-note">MED AI entrega estos reconocimientos personales cuando existe evidencia suficiente de avance. Sirven para motivación y seguimiento académico.</p>
+    <div class="v30-credential-grid">${state.credentials.length?state.credentials.map(x=>`<button class="v30-credential ${x.earned?"earned":"progress"}" data-subject="${escapeAttr(x.subject_id)}"><span>${x.earned?"✦":"◌"}</span><div><strong>${escapeHtml(x.subject_name)}</strong><small>${escapeHtml(x.level)} · ${escapeHtml(x.evidence)}</small><i><b style="width:${Number(x.progress_percent||0)}%"></b></i></div><em>${Number(x.progress_percent||0)}%</em></button>`).join(""):`<div class="system-empty">Sigue estudiando y practicando. Aquí aparecerán tus logros de dominio.</div>`}</div>
+  </section>
+
+  <section class="card" id="v29-subject-detail"><div class="system-empty compact">Toca una materia para ver sus habilidades y la evidencia acumulada.</div></section>`;
+
   $$(".v29-subject-row").forEach(b=>b.onclick=()=>{
     const s=(p.subjects||[]).find(x=>x.id===b.dataset.subject);if(!s)return;
-    $("#v29-subject-detail").innerHTML=`<div class="smart-section-head"><div><span>DETALLE</span><h2>${escapeHtml(s.name)}</h2></div></div><div class="v29-topic-status-list">${s.topics.map(x=>`<article class="${escapeAttr(x.status)}"><span>${x.status==="dominated"?"✓":x.status==="learning"?"↗":x.status==="review"?"↻":"○"}</span><div><strong>${escapeHtml(x.name)}</strong><small>${Number(x.questions_answered||0)} preguntas respondidas</small></div><b>${Math.round(Number(x.mastery||0))}%</b></article>`).join("")}</div>`;
+    $("#v29-subject-detail").innerHTML=`<div class="smart-section-head"><div><span>HABILIDADES</span><h2>${escapeHtml(s.name)}</h2></div></div><div class="v29-topic-status-list">${s.topics.map(x=>`<article class="${escapeAttr(x.status)}"><span>${x.status==="dominated"?"✓":x.status==="learning"?"↗":x.status==="review"?"↻":"○"}</span><div><strong>${escapeHtml(x.name)}</strong><small>${Number(x.questions_answered||0)} preguntas · ${Number(x.accuracy||0)}% precisión · evidencia ${escapeHtml(x.evidence||"none")}${x.days_since_study!==null?` · hace ${Number(x.days_since_study)}d`:""}</small></div><b>${Math.round(Number(x.mastery||0))}%</b></article>`).join("")}</div>`;
   });
+  $$(".v30-credential").forEach(b=>b.onclick=()=>{
+    const cred=state.credentials.find(x=>x.subject_id===b.dataset.subject);if(cred)openCredentialV30(cred);
+  });
+}
+
+
+function openCredentialV30(cred){
+  let o=$("#v30-credential-overlay");
+  if(!o){o=document.createElement("div");o.id="v30-credential-overlay";o.className="academic-accessibility-overlay";document.body.appendChild(o)}
+  o.innerHTML=`<section class="v30-credential-sheet">
+    <button id="credential-close" class="icon-btn">×</button>
+    <div class="v30-credential-seal">${cred.earned?"✦":"◌"}</div>
+    <div class="eyebrow">MED AI DALTON · RECONOCIMIENTO INTERNO</div>
+    <h1>${escapeHtml(cred.subject_name)}</h1>
+    <h2>${escapeHtml(cred.level)}</h2>
+    <p>${escapeHtml(cred.evidence)}</p>
+    <div class="v30-credential-score"><strong>${Number(cred.progress_percent||0)}%</strong><span>evidencia académica acumulada</span></div>
+    <small>Este reconocimiento sirve únicamente para seguimiento y motivación dentro de MED AI DALTON. No constituye título, crédito universitario, certificación profesional ni acreditación oficial.</small>
+    <button id="credential-print" class="secondary-btn">IMPRIMIR / GUARDAR PDF</button>
+  </section>`;
+  const close=()=>o.remove();$("#credential-close").onclick=close;o.onclick=e=>{if(e.target===o)close()};
+  $("#credential-print").onclick=()=>window.print();
 }
 
 async function renderProfile(){
   const d=await api("/api/me"),u=d.user;
-  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">PERFIL MÉDICO</div><h2>Mi perfil</h2><p>Tu información académica y de estudio sincronizada en todos tus dispositivos.</p></div></div>
+  root.innerHTML=`<div class="page-head"><div><div class="eyebrow">PERFIL ACADÉMICO</div><h2>Mi perfil</h2><p>Tu información académica y preferencias de estudio.</p></div></div>
   <div class="grid two">
     <div class="card">
       ${profileField("Nombre","pf-name",u.full_name||"")}
@@ -4914,12 +5235,13 @@ async function renderProfile(){
       <div class="eyebrow">MODO PERSONAL</div><h3>Datos y protección</h3>
       <p style="color:var(--muted);line-height:1.6">MED AI usa tu perfil personal sincronizado. Los backups, exportaciones y diagnóstico están en Estado del sistema.</p>
       <div class="system-health-list" style="margin-top:12px"><div><span>Perfil</span><strong>SINCRONIZADO</strong></div><div><span>Backups</span><strong>R2 PRIVADO</strong></div><div><span>Exportación</span><strong>DISPONIBLE</strong></div></div>
-      <button id="profile-system" class="secondary-btn" style="margin-top:12px">⚙ ESTADO DEL SISTEMA</button>
+      <div class="v30-profile-actions"><button id="profile-accessibility" class="secondary-btn">Aa LECTURA Y ACCESIBILIDAD</button><button id="profile-system" class="secondary-btn">⚙ ESTADO DEL SISTEMA</button></div>
     </div>
   </div>`;
   $("#save-profile").onclick=async()=>{
     try{const r=await api("/api/profile",{method:"PUT",body:{full_name:$("#pf-name").value,university:$("#pf-university").value,academic_level:$("#pf-level").value,target_specialty:$("#pf-specialty").value,country:$("#pf-country").value,bio:$("#pf-bio").value}});state.user=r.user;toast("Perfil actualizado.")}catch(err){toast(err.message,true)}
   };
+  $("#profile-accessibility").onclick=openAccessibilityPanelV30;
   $("#profile-system").onclick=()=>navigate("system");
 }
 
@@ -4938,6 +5260,64 @@ function modeConfig(mode){
   }[mode]||{kicker:"MED AI",title:"Entrenamiento",subtitle:"",welcome:"Empecemos.",placeholder:"Escribe aquí..."};
 }
 
+
+
+/* ==========================================================
+   V30 · ACCESSIBILITY / READING EXPERIENCE
+   ========================================================== */
+function getAcademicAccessibilityV30(){
+  const fallback={fontScale:1,contrast:"normal",reduceMotion:false,readingWidth:"normal",focusMode:false};
+  try{return {...fallback,...JSON.parse(localStorage.getItem("medai_accessibility_v30")||"{}")}}catch{return fallback}
+}
+function saveAcademicAccessibilityV30(next){
+  localStorage.setItem("medai_accessibility_v30",JSON.stringify(next));
+  applyAcademicAccessibilityV30();
+}
+function applyAcademicAccessibilityV30(){
+  const a=getAcademicAccessibilityV30(),rootEl=document.documentElement;
+  const scale=Math.max(.9,Math.min(1.3,Number(a.fontScale||1)));
+  rootEl.style.setProperty("--academic-font-scale",String(scale));
+  if(document.body)document.body.style.zoom=String(scale);
+  rootEl.dataset.highContrast=a.contrast==="high"?"1":"0";
+  rootEl.dataset.reduceMotion=a.reduceMotion?"1":"0";
+  rootEl.dataset.readingWidth=a.readingWidth==="narrow"?"narrow":"normal";
+  rootEl.dataset.focusMode=a.focusMode?"1":"0";
+}
+function openAccessibilityPanelV30(){
+  let o=$("#academic-accessibility-overlay");
+  if(!o){
+    o=document.createElement("div");o.id="academic-accessibility-overlay";o.className="academic-accessibility-overlay";
+    document.body.appendChild(o);
+  }
+  const a=getAcademicAccessibilityV30();
+  o.innerHTML=`<section class="academic-accessibility-card">
+    <header><div><span>LECTURA Y ACCESIBILIDAD</span><strong>Haz MED AI cómodo para sesiones largas.</strong></div><button id="access-close" class="icon-btn">×</button></header>
+    <div class="academic-access-grid">
+      <label><span>Tamaño de texto</span><select id="access-font"><option value=".9">Compacto</option><option value="1">Normal</option><option value="1.1">Grande</option><option value="1.2">Muy grande</option><option value="1.3">Máximo</option></select></label>
+      <label><span>Contraste</span><select id="access-contrast"><option value="normal">Normal</option><option value="high">Alto contraste</option></select></label>
+      <label><span>Ancho de lectura</span><select id="access-width"><option value="normal">Normal</option><option value="narrow">Columna cómoda</option></select></label>
+      <label class="access-toggle"><input id="access-motion" type="checkbox"><span><strong>Reducir animaciones</strong><small>Útil para concentración o mareo visual.</small></span></label>
+      <label class="access-toggle"><input id="access-focus" type="checkbox"><span><strong>Modo concentración</strong><small>Oculta elementos secundarios durante lectura.</small></span></label>
+    </div>
+    <footer><button id="access-reset" class="secondary-btn">RESTABLECER</button><button id="access-save" class="primary-btn">GUARDAR</button></footer>
+  </section>`;
+  $("#access-font").value=String(a.fontScale||1);$("#access-contrast").value=a.contrast||"normal";$("#access-width").value=a.readingWidth||"normal";
+  $("#access-motion").checked=!!a.reduceMotion;$("#access-focus").checked=!!a.focusMode;
+  const close=()=>o.remove();
+  $("#access-close").onclick=close;
+  $("#access-reset").onclick=()=>{localStorage.removeItem("medai_accessibility_v30");applyAcademicAccessibilityV30();close();toast("Ajustes de lectura restablecidos.")};
+  $("#access-save").onclick=()=>{
+    saveAcademicAccessibilityV30({
+      fontScale:Number($("#access-font").value||1),
+      contrast:$("#access-contrast").value,
+      readingWidth:$("#access-width").value,
+      reduceMotion:$("#access-motion").checked,
+      focusMode:$("#access-focus").checked
+    });
+    close();toast("Preferencias de lectura guardadas.");
+  };
+  o.onclick=e=>{if(e.target===o)close()};
+}
 
 function applySavedTheme(){
   const saved=localStorage.getItem("medai_theme");
@@ -4968,8 +5348,17 @@ async function searchGlobal(){
   if(q.length<2){box.classList.add("hidden");return}
   try{
     const d=await api(`/api/search?q=${encodeURIComponent(q)}`);
-    box.innerHTML=d.results.length?d.results.map(r=>`<div class="search-item"><strong>${escapeHtml(r.title)}</strong><span>${escapeHtml(r.subtitle||r.type)}</span></div>`).join(""):`<div class="search-item"><span>Sin resultados.</span></div>`;
+    box.innerHTML=d.results.length?`<div class="v30-global-search-head"><strong>BUSCADOR DE MIS ESTUDIOS</strong><small>${d.results.length} resultados</small></div>${d.results.slice(0,18).map(r=>`<button class="search-item v30-global-result" data-view="${escapeAttr(r.view||"smart")}" data-subject="${escapeAttr(r.subject_id||"")}"><span class="v30-search-kind">${escapeHtml(r.label||r.type||"Fuente")}</span><div><strong>${r.primary?"★ ":""}${escapeHtml(r.title)}</strong><small>${escapeHtml(r.subtitle||r.type)}</small></div><b>→</b></button>`).join("")}`:`<div class="search-item"><span>Sin resultados en cursos, Biblioteca, apuntes, flashcards o errores.</span></div>`;
     box.classList.remove("hidden");
+    $$(".v30-global-result",box).forEach(b=>b.onclick=()=>{
+      const sid=b.dataset.subject;
+      if(sid){
+        const s=state.subjects.find(x=>x.id===sid);
+        if(s)state.currentSubject=s;
+      }
+      box.classList.add("hidden");
+      navigate(b.dataset.view||"smart");
+    });
   }catch{}
 }
 
@@ -4989,12 +5378,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v2904",Date.now().toString());
+  url.searchParams.set("v3000",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=29.0.4",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.0",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }

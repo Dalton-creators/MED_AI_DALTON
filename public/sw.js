@@ -1,19 +1,30 @@
-const CACHE = "med-ai-dalton-v29-0-4-page-selector";
+const CACHE = "med-ai-dalton-v30-academic-experience";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=29.0.4",
-  "/app.js?v=29.0.4",
+  "/styles.css?v=30.0.0",
+  "/app.js?v=30.0.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];
 
+// PDF.js powers the exact page selector. It is cached best-effort on install,
+// so once a connected installation has obtained it the PWA can reuse it
+// without depending on a fresh CDN request every time.
+const PDF_DEPS = [
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.54/pdf.min.mjs",
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.54/pdf.worker.min.mjs"
+];
+
 self.addEventListener("install", event => {
-  event.waitUntil(
-    caches.open(CACHE)
-      .then(cache => cache.addAll(CORE))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil((async()=>{
+    const cache=await caches.open(CACHE);
+    await cache.addAll(CORE);
+    await Promise.all(PDF_DEPS.map(async url=>{
+      try{await cache.add(url)}catch(err){console.warn("MEDAI_PDF_DEP_CACHE",url,err)}
+    }));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", event => {
