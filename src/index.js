@@ -397,7 +397,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="29.0.1";
+const SYSTEM_VERSION="29.0.2";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -2445,6 +2445,77 @@ async function listLibraryStudyPacks(url,env,user){
 }
 
 
+
+async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens=7000,temperature=0.10}){
+  ensureAI(env);
+  let lastErr=null,raw=null,parsed=null,usedModel=null,shape="";
+
+  try{
+    raw=await env.AI.run(
+      PREMIUM_FLASH_MODEL,
+      {
+        contents:[{role:"user",parts:[{text:prompt}]}],
+        systemInstruction:{parts:[{text:system}]},
+        generationConfig:{
+          temperature,
+          maxOutputTokens,
+          responseMimeType:"application/json"
+        }
+      },
+      gatewayOptions(task,{
+        model_requested:PREMIUM_FLASH_MODEL,
+        model_used:PREMIUM_FLASH_MODEL,
+        format:"gemini_native_json"
+      })
+    );
+    usedModel=PREMIUM_FLASH_MODEL;
+    parsed=parseAIJsonResponse(raw);
+    shape=Array.isArray(raw?.candidates)?"gemini_candidates":
+      Array.isArray(raw?.result?.candidates)?"wrapped_gemini_candidates":
+      Array.isArray(raw?.choices)?"choices":
+      typeof raw?.response==="string"?"response_string":
+      raw&&typeof raw==="object"?Object.keys(raw).slice(0,8).join(","):"empty";
+    if(parsed)return {parsed,raw,usedModel,shape};
+  }catch(err){
+    lastErr=err;
+    console.error("LIBRARY_GEMINI_NATIVE_JSON_ERROR",err?.stack||err);
+  }
+
+  for(const model of [WORKERS_TEXT_MODEL,WORKERS_FAST_MODEL]){
+    try{
+      raw=await env.AI.run(
+        model,
+        {
+          messages:[
+            {role:"system",content:system+"\nDevuelve únicamente JSON válido, sin Markdown ni texto antes o después."},
+            {role:"user",content:prompt}
+          ],
+          max_tokens:Math.min(maxOutputTokens,7000),
+          temperature,
+          chat_template_kwargs:{enable_thinking:false}
+        },
+        gatewayOptions(task,{
+          model_requested:PREMIUM_FLASH_MODEL,
+          model_used:model,
+          format:"workers_json_fallback"
+        })
+      );
+      usedModel=model;
+      parsed=parseAIJsonResponse(raw);
+      shape=Array.isArray(raw?.choices)?"choices":
+        typeof raw?.response==="string"?"response_string":
+        raw&&typeof raw==="object"?Object.keys(raw).slice(0,8).join(","):"empty";
+      if(parsed)return {parsed,raw,usedModel,shape};
+    }catch(err){
+      lastErr=err;
+      console.error("LIBRARY_WORKERS_JSON_FALLBACK_ERROR",model,err?.stack||err);
+    }
+  }
+
+  if(lastErr)throw lastErr;
+  return {parsed:null,raw,usedModel,shape};
+}
+
 function libraryPackRequiredCounts(parsed){
   const sections=Array.isArray(parsed?.sections)?parsed.sections.filter(x=>x&&x.title&&(x.content||x.explanation)).length:0;
   const practice=Array.isArray(parsed?.practice)?parsed.practice.filter(x=>x&&(x.question||x.stem)&&Array.isArray(x.options)&&x.options.length>=4).length:0;
@@ -2506,20 +2577,22 @@ REGLAS:
 ${compactSource}
 ===== FIN =====`;
 
-  const response=await callCloudflareAI(env,{
-    model:PREMIUM_FLASH_MODEL,
-    fallback:true,
+  const generated=await callLibraryStructuredJson(env,{
     task:"library_study_pack_repair",
-    messages:[
-      {role:"system",content:"Reparas salidas JSON académicas incompletas. Devuelve únicamente JSON válido y cumple exactamente las cantidades solicitadas."},
-      {role:"user",content:prompt}
-    ],
-    max_tokens:5200,
-    temperature:0.08,
-    response_format:{type:"json_object"}
+    system:"Reparas salidas JSON académicas incompletas. Devuelve únicamente JSON válido y cumple exactamente las cantidades solicitadas.",
+    prompt,
+    maxOutputTokens:6200,
+    temperature:0.06
   });
-  const repair=parseJsonLoose(extractCloudflareText(response));
-  return {merged:mergeLibraryPackRepair(parsed,repair),before,after:libraryPackRequiredCounts(mergeLibraryPackRepair(parsed,repair))};
+  const repair=generated.parsed;
+  const merged=mergeLibraryPackRepair(parsed,repair);
+  return {
+    merged,
+    before,
+    after:libraryPackRequiredCounts(merged),
+    model:generated.usedModel,
+    shape:generated.shape
+  };
 }
 
 async function createLibraryStudyPackApi(request,env,user){
@@ -2561,21 +2634,16 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
 - Enseña exactamente el fragmento seleccionado y úsalo como fuente principal.
 - No inventes contenido de páginas o diapositivas no incluidas.`;
 
-  let parsed=null,lastErr=null;
+  let parsed=null,lastErr=null,generationInfo=null;
   try{
-    const response=await callCloudflareAI(env,{
-      model:PREMIUM_FLASH_MODEL,
-      fallback:true,
+    generationInfo=await callLibraryStructuredJson(env,{
       task:"library_study_pack",
-      messages:[
-        {role:"system",content:"Eres MED AI DALTON, profesor universitario y diseñador instruccional. Devuelve únicamente JSON válido."},
-        {role:"user",content:`${basePrompt}${extra}\n\n===== FRAGMENTO EXTRAÍDO LOCALMENTE =====\n${extracted}\n===== FIN DEL FRAGMENTO =====`}
-      ],
-      max_tokens:6800,
-      temperature:0.12,
-      response_format:{type:"json_object"}
+      system:"Eres MED AI DALTON, profesor universitario y diseñador instruccional. Devuelve únicamente JSON válido.",
+      prompt:`${basePrompt}${extra}\n\n===== FRAGMENTO EXTRAÍDO LOCALMENTE =====\n${extracted}\n===== FIN DEL FRAGMENTO =====`,
+      maxOutputTokens:7600,
+      temperature:0.08
     });
-    parsed=parseJsonLoose(extractCloudflareText(response));
+    parsed=generationInfo.parsed;
   }catch(err){lastErr=err}
 
   let pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
@@ -2602,11 +2670,15 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
       component:"Biblioteca · sesión de estudio",
       stage:"validation",
       generated_counts:counts,
-      suggestion:"Prueba un fragmento de 2 a 12 páginas con contenido continuo."
+      ai_model:generationInfo?.usedModel||repairInfo?.model||null,
+      response_shape:generationInfo?.shape||repairInfo?.shape||"sin_forma_detectable",
+      parsed_keys:parsed&&typeof parsed==="object"?Object.keys(parsed).slice(0,20):[],
+      source_chars:extracted.length,
+      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V29.0.2 muestra modelo, forma de respuesta y claves JSON recibidas."
     },502);
   }
 
-  pack.version=29.01;
+  pack.version=29.02;
   pack.library_study_pack=true;
   pack.source_reference={
     type:"library",
@@ -2622,7 +2694,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
   const metadata={
     university_source:true,
     library_study_pack:true,
-    version:29.01,
+    version:29.02,
     source_type:"library",
     source_file_id:fileId,
     source_name:file.title,
@@ -2640,7 +2712,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     id,user.id,null,null,
     `LIB · ${file.title} · ${studyScope}`,
     JSON.stringify(pack),
-    JSON.stringify(["university_source","study_pack","library_study_pack","v29_0_1"]),
+    JSON.stringify(["university_source","study_pack","library_study_pack","v29_0_2"]),
     JSON.stringify(metadata),
     now,now
   ).run();
@@ -3833,7 +3905,7 @@ function gatewayOptions(task="general",extra={}){
       collectLog:true,
       metadata:{
         app:"MED AI DALTON",
-        version:"29",
+        version:"29.0.2",
         task,
         ...extra
       }
@@ -4525,41 +4597,69 @@ function ensureAI(env) {
 
 function extractCloudflareText(data) {
   if(!data) return "";
+  if(typeof data==="string")return data.trim();
 
-  if(typeof data.response === "string") {
-    return data.response.trim();
+  if(typeof data.response==="string")return data.response.trim();
+  if(typeof data.result?.response==="string")return data.result.response.trim();
+  if(typeof data.output_text==="string")return data.output_text.trim();
+  if(typeof data.result?.output_text==="string")return data.result.output_text.trim();
+
+  const choices=[
+    ...(Array.isArray(data.choices)?data.choices:[]),
+    ...(Array.isArray(data.result?.choices)?data.result.choices:[])
+  ];
+  if(choices.length){
+    const out=choices.flatMap(choice=>{
+      const content=choice?.message?.content;
+      if(typeof content==="string")return [content];
+      if(Array.isArray(content))return content.map(x=>typeof x==="string"?x:(x?.text||x?.content||""));
+      return [];
+    }).filter(Boolean).join("\n").trim();
+    if(out)return out;
   }
 
-  if(typeof data.result?.response === "string") {
-    return data.result.response.trim();
-  }
-
-  const choice = data.choices?.[0];
-  if(typeof choice?.message?.content === "string") {
-    return choice.message.content.trim();
-  }
-
-  if(Array.isArray(choice?.message?.content)) {
-    return choice.message.content
-      .map(x => typeof x === "string" ? x : (x?.text || ""))
-      .join("\n")
-      .trim();
-  }
-
-  if(typeof data.output_text === "string") {
-    return data.output_text.trim();
-  }
-
-  if(Array.isArray(data.candidates)) {
-    return data.candidates
+  const candidates=[
+    ...(Array.isArray(data.candidates)?data.candidates:[]),
+    ...(Array.isArray(data.result?.candidates)?data.result.candidates:[])
+  ];
+  if(candidates.length){
+    const out=candidates
       .flatMap(c=>Array.isArray(c?.content?.parts)?c.content.parts:[])
       .map(p=>typeof p?.text==="string"?p.text:"")
       .filter(Boolean)
       .join("\n")
       .trim();
+    if(out)return out;
   }
 
+  if(data.result&&data.result!==data){
+    const nested=extractCloudflareText(data.result);
+    if(nested)return nested;
+  }
+  if(data.data&&data.data!==data){
+    const nested=extractCloudflareText(data.data);
+    if(nested)return nested;
+  }
   return "";
+}
+
+function structuredJsonCandidate(data){
+  if(!data||typeof data!=="object")return null;
+  if(Array.isArray(data.sections)||Array.isArray(data.practice)||Array.isArray(data.exam))return data;
+  for(const key of ["result","data","response","output"]){
+    const child=data[key];
+    if(child&&typeof child==="object"){
+      const found=structuredJsonCandidate(child);
+      if(found)return found;
+    }
+  }
+  return null;
+}
+
+function parseAIJsonResponse(data){
+  const direct=structuredJsonCandidate(data);
+  if(direct)return direct;
+  return parseJsonLoose(extractCloudflareText(data));
 }
 
 function medicalInstructions(mode){
