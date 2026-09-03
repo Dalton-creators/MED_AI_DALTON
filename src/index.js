@@ -29,19 +29,6 @@ export default {
       }
 
       // Public routes
-      if (url.pathname === "/api/health" && request.method === "GET") {
-        const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM subjects").first();
-        return json({ ok: true, app: "MED AI DALTON", subjects: Number(row?.n || 0) });
-      }
-
-      if (url.pathname === "/api/auth/register" && request.method === "POST") {
-        return register(request, env);
-      }
-
-      if (url.pathname === "/api/auth/login" && request.method === "POST") {
-        return login(request, env);
-      }
-
       // Personal single-user mode:
       // no login screen; every device uses the same personal MED AI profile in D1.
       const user = await ensurePersonalUser(env);
@@ -75,10 +62,6 @@ export default {
         return systemOfflineCourseApi(url, env, user);
       }
 
-      if (url.pathname === "/api/auth/logout" && request.method === "POST") {
-        return logout(request, env, user);
-      }
-
       if (url.pathname === "/api/auth/change-password" && request.method === "POST") {
         return changePassword(request, env, user);
       }
@@ -97,10 +80,6 @@ export default {
 
       if (url.pathname === "/api/subjects" && request.method === "GET") {
         return subjects(env);
-      }
-
-      if (url.pathname === "/api/topics" && request.method === "GET") {
-        return topics(url, env);
       }
 
       if (url.pathname === "/api/course" && request.method === "GET") {
@@ -173,10 +152,6 @@ export default {
 
       if (url.pathname === "/api/resume" && request.method === "PUT") {
         return putResume(request, env, user);
-      }
-
-      if (url.pathname === "/api/topic-progress" && request.method === "PUT") {
-        return putTopicProgress(request, env, user);
       }
 
       if (url.pathname === "/api/flashcards" && request.method === "GET") {
@@ -281,18 +256,6 @@ export default {
 
       if (url.pathname === "/api/smart/historical-keys" && request.method === "GET") {
         return getHistoricalKeysApi(url, env, user);
-      }
-
-      if (url.pathname === "/api/smart/past-exam" && request.method === "POST") {
-        return analyzePastExamApi(request, env, user);
-      }
-
-      if (url.pathname === "/api/smart/past-exam" && request.method === "GET") {
-        return getPastExamApi(url, env, user);
-      }
-
-      if (url.pathname === "/api/smart/past-exam/key" && request.method === "POST") {
-        return linkPastExamAnswerKeyApi(request, env, user);
       }
 
       if (url.pathname === "/api/smart/past-exam/mistakes" && request.method === "GET") {
@@ -405,7 +368,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="26.0.0";
+const SYSTEM_VERSION="26.2.0";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -2315,7 +2278,6 @@ async function deleteStudyLibraryItemApi(url,env,user){
 }
 
 
-
 function markdownConversionText(result){
   if(typeof result==="string")return result;
   if(typeof result?.data==="string")return result.data;
@@ -3044,133 +3006,6 @@ async function getLibraryExtractedText(env,user,fileId){
   return {text,row,meta,cached:false};
 }
 
-function sanitizePastExamPack(parsed,subject,year,fileTitle){
-  const topics=Array.isArray(parsed?.topics)?parsed.topics.slice(0,16).map(t=>({
-    name:cleanText(t.name,260),
-    frequency_score:clamp(Number(t.frequency_score||t.frequency||1),1,10),
-    weight:clamp(Number(t.weight||t.estimated_weight||10),1,100),
-    concepts:Array.isArray(t.concepts)?t.concepts.slice(0,8).map(x=>cleanText(x,500)).filter(Boolean):[],
-    evidence:cleanText(t.evidence,1000)
-  })).filter(t=>t.name):[];
-  const practice=Array.isArray(parsed?.practice_questions)?parsed.practice_questions.slice(0,15).map(q=>({
-    stem:cleanText(q.stem||q.question,1400),
-    options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,800)):[],
-    correctIndex:clamp(Number(q.correctIndex),0,3),
-    explanation:cleanText(q.explanation,1800),
-    topic:cleanText(q.topic,260)
-  })).filter(q=>q.stem&&q.options.length===4):[];
-  if(!topics.length)return null;
-  return {
-    version:25,past_exam_pack:true,
-    title:cleanText(parsed?.title,320)||`${subject} · Parcial ${year||""}`.trim(),
-    subject,year:year||null,source_file:fileTitle,
-    overview:cleanText(parsed?.overview,2400),
-    question_count_estimate:clamp(Number(parsed?.question_count_estimate||parsed?.question_count||0),0,300),
-    topics,
-    question_types:Array.isArray(parsed?.question_types)?parsed.question_types.slice(0,10).map(x=>typeof x==="string"?{type:cleanText(x,300),description:""}:{type:cleanText(x.type,300),description:cleanText(x.description,1000)}).filter(x=>x.type):[],
-    difficulty_profile:{
-      overall:cleanText(parsed?.difficulty_profile?.overall||parsed?.difficulty,120)||"Mixta",
-      detail:cleanText(parsed?.difficulty_profile?.detail,1200)
-    },
-    repeated_patterns:Array.isArray(parsed?.repeated_patterns)?parsed.repeated_patterns.slice(0,12).map(x=>cleanText(x,800)).filter(Boolean):[],
-    study_priorities:Array.isArray(parsed?.study_priorities)?parsed.study_priorities.slice(0,12).map(x=>typeof x==="string"?cleanText(x,900):{title:cleanText(x.title,300),detail:cleanText(x.detail,900)}):[],
-    study_plan:Array.isArray(parsed?.study_plan)?parsed.study_plan.slice(0,8).map(x=>({
-      title:cleanText(x.title,300),focus:cleanText(x.focus||x.detail,1200),minutes:clamp(Number(x.minutes||25),10,120)
-    })).filter(x=>x.title||x.focus):[],
-    practice_questions:practice,
-    source_digest:cleanText(parsed?.source_digest,12000)
-  };
-}
-
-async function analyzePastExamApi(request,env,user){
-  ensureAI(env);
-  const body=await readJson(request),fileId=cleanText(body.file_id,220),subject=cleanText(body.subject,300),year=clamp(Number(body.year||0),0,2100),note=cleanText(body.note,1600);
-  if(!fileId||!subject)return json({error:"Falta el PDF o la materia."},400);
-
-  // Reuse previous analysis by default -> no extra credits.
-  const existing=await env.DB.prepare(`
-    SELECT id,title,body,metadata_json FROM notes
-    WHERE user_id=? AND tags_json LIKE '%past_exam_pack%' ORDER BY datetime(updated_at) DESC LIMIT 100
-  `).bind(user.id).all();
-  for(const row of (existing.results||[])){
-    const m=parseJsonLoose(row.metadata_json)||{};
-    if(m.source_file_id===fileId&&smartNormalize(m.subject)===smartNormalize(subject)&&Number(m.year||0)===Number(year||0)){
-      return json({ok:true,id:row.id,cached:true});
-    }
-  }
-
-  const source=await getLibraryExtractedText(env,user,fileId);
-  const text=source.text.slice(0,120000);
-  const prompt=`Eres un analista académico de MED AI DALTON.
-
-Analiza un EXAMEN/PARCIAL DE AÑOS ANTERIORES proporcionado por el estudiante.
-Materia: ${subject}
-Año: ${year||"no indicado"}
-${note?`Contexto del estudiante: ${note}`:""}
-
-OBJETIVO:
-Ayudar a estudiar mejor, NO predecir con certeza el futuro examen.
-Detecta temas, frecuencia aproximada, estilo de preguntas, habilidades exigidas y prioridades de estudio.
-Crea preguntas NUEVAS de práctica inspiradas en los temas y nivel, sin afirmar que aparecerán en el examen futuro.
-
-Devuelve SOLO JSON:
-{
- "title":"...",
- "overview":"...",
- "question_count_estimate":25,
- "topics":[{"name":"tema","frequency_score":1,"weight":20,"concepts":["..."],"evidence":"qué observaste"}],
- "question_types":[{"type":"selección múltiple / cálculo / caso / definición...","description":"..."}],
- "difficulty_profile":{"overall":"Básica/Intermedia/Alta/Mixta","detail":"..."},
- "repeated_patterns":["..."],
- "study_priorities":["..."],
- "study_plan":[{"title":"Sesión 1","focus":"qué estudiar y por qué","minutes":30}],
- "practice_questions":[{"stem":"pregunta nueva","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","topic":"..."}],
- "source_digest":"resumen compacto de lo que este parcial evalúa"
-}
-
-REQUISITOS:
-- 5 a 16 temas si el contenido lo permite.
-- weights deben ayudar a priorizar y sumar aproximadamente 100.
-- 4 a 10 tipos/patrones de preguntas.
-- plan de 4 a 8 sesiones.
-- EXACTAMENTE 15 practice_questions si hay suficiente contenido.
-- No copies respuestas dudosas del examen como hechos. Si el PDF contiene marcas o respuestas del estudiante, no asumas que son correctas.
-- En Medicina y ciencias, verifica coherencia conceptual; si una pregunta vieja parece desactualizada, señálalo en overview.
-- No afirmes que por repetirse un tema necesariamente volverá a aparecer.
-
-===== TEXTO EXTRAÍDO DEL PARCIAL =====
-${text}
-===== FIN =====`;
-
-  let parsed=null,lastErr=null;
-  try{
-    const response=await callCloudflareAI(env,{
-      model:PREMIUM_FLASH_MODEL,task:"past_exam_analysis",
-      messages:[
-        {role:"system",content:"Analiza exámenes académicos con rigor y devuelve exclusivamente JSON válido."},
-        {role:"user",content:prompt}
-      ],
-      max_tokens:5600,temperature:0.16,response_format:{type:"json_object"}
-    });
-    parsed=parseJsonLoose(extractCloudflareText(response));
-  }catch(err){lastErr=err}
-  const pack=sanitizePastExamPack(parsed,subject,year,source.row.title);
-  if(!pack){
-    if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);
-    return json({error:"No pude estructurar un análisis completo de este parcial. Prueba con un PDF más legible."},502);
-  }
-
-  const id=crypto.randomUUID(),now=new Date().toISOString();
-  const meta={past_exam_pack:true,version:25,source_file_id:fileId,source_name:source.row.title,subject,year,study_title:pack.title,extracted_cached:source.cached};
-  await env.DB.prepare(`
-    INSERT INTO notes
-    (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
-  `).bind(id,user.id,null,null,`PARCIAL · ${subject} · ${year||""}`,JSON.stringify(pack),JSON.stringify(["past_exam_pack","smart_study","v25"]),JSON.stringify(meta),now,now).run();
-  return json({ok:true,id,cached:false,model:PREMIUM_FLASH_MODEL},201);
-}
-
-
 function bytesToBase64Standard(bytes){
   let binary="";
   const chunk=0x8000;
@@ -3179,46 +3014,6 @@ function bytesToBase64Standard(bytes){
     binary+=String.fromCharCode(...part);
   }
   return btoa(binary);
-}
-
-async function getAnswerKeyContent(env,user,fileId){
-  const row=await env.DB.prepare(`
-    SELECT id,title,metadata_json FROM notes
-    WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
-  `).bind(fileId,user.id).first();
-  if(!row)throw new Error("No encontré el archivo de la clave en tu Biblioteca.");
-  const meta=parseLibraryMeta(row),mime=String(meta.mime_type||"").toLowerCase(),name=meta.original_name||row.title||"clave";
-  if(!meta.r2_key)throw new Error("La clave no tiene referencia R2.");
-
-  if(mime==="application/pdf"||/\.pdf$/i.test(name)){
-    const extracted=await getLibraryExtractedText(env,user,fileId);
-    return {text:extracted.text,name:row.title||name,type:"pdf",cached:extracted.cached};
-  }
-  const obj=await env.LIBRARY.get(meta.r2_key);
-  if(!obj)throw new Error("El archivo de la clave no está disponible en R2.");
-  if(mime.startsWith("text/")||/\.(txt|md)$/i.test(name)){
-    return {text:(await obj.text()).slice(0,50000),name:row.title||name,type:"text",cached:false};
-  }
-  if(mime.startsWith("image/")||/\.(png|jpe?g|webp)$/i.test(name)){
-    const buffer=await obj.arrayBuffer();
-    if(buffer.byteLength>7_000_000)throw new Error("La fotografía de la clave es demasiado grande. Usa una imagen menor de 7 MB o conviértela a PDF.");
-    const dataUrl=`data:${mime||"image/jpeg"};base64,${bytesToBase64Standard(new Uint8Array(buffer))}`;
-    const visionModel=env.CLOUDFLARE_VISION_MODEL||DEFAULT_VISION_MODEL;
-    const resp=await env.AI.run(visionModel,{
-      messages:[
-        {role:"system",content:"Eres un transcriptor académico. Extrae fielmente una clave de respuestas. No inventes respuestas faltantes."},
-        {role:"user",content:[
-          {type:"image_url",image_url:{url:dataUrl}},
-          {type:"text",text:"Transcribe esta clave de respuestas completa. Conserva números de pregunta, letras/opciones, tablas, anuladas y cualquier nota visible. Devuelve texto claro, no hagas todavía análisis académico."}
-        ]}
-      ],
-      max_tokens:2800,temperature:0.05,chat_template_kwargs:{enable_thinking:false}
-    },gatewayOptions("answer_key_vision",{model_used:visionModel}));
-    const text=extractCloudflareText(resp);
-    if(text.length<3)throw new Error("No pude leer la fotografía de la clave.");
-    return {text,name:row.title||name,type:"image",cached:false};
-  }
-  throw new Error("Para la clave usa PDF, fotografía, TXT/Markdown o pega las respuestas como texto.");
 }
 
 function sanitizeKeyedQuestions(parsed){
@@ -3244,173 +3039,6 @@ function sanitizeKeyedQuestions(parsed){
       source_note:cleanText(q.source_note,1000)
     };
   }).filter(q=>q.stem&&q.options.length>=2);
-}
-
-async function linkPastExamAnswerKeyApi(request,env,user){
-  ensureAI(env);requireLibraryR2(env);
-  const body=await readJson(request);
-  const packId=cleanText(body.pack_id,220),keyFileId=cleanText(body.key_file_id,220),keyText=cleanText(body.key_text,60000),keyName=cleanText(body.key_name,320),note=cleanText(body.note,1600);
-  if(!packId)return json({error:"Falta el análisis del parcial."},400);
-  if(!keyFileId&&!keyText)return json({error:"Sube una clave o pega sus respuestas."},400);
-
-  const row=await env.DB.prepare(`
-    SELECT id,title,body,metadata_json,tags_json FROM notes
-    WHERE id=? AND user_id=? AND tags_json LIKE '%past_exam_pack%' LIMIT 1
-  `).bind(packId,user.id).first();
-  if(!row)return json({error:"No encontré ese parcial analizado."},404);
-  const pack=parseJsonLoose(row.body)||{},meta=parseJsonLoose(row.metadata_json)||{};
-  const examFileId=cleanText(meta.source_file_id,220);
-  if(!examFileId)return json({error:"Este análisis no conserva el PDF de origen."},400);
-
-  let keyContent,keySource;
-  if(keyFileId){
-    keyContent=await getAnswerKeyContent(env,user,keyFileId);
-    keySource={file_id:keyFileId,name:keyContent.name,type:keyContent.type};
-  }else{
-    keyContent={text:keyText,name:keyName||"Clave pegada como texto",type:"text"};
-    keySource={file_id:null,name:keyContent.name,type:"text"};
-  }
-  const signature=keyFileId?`file:${keyFileId}`:`text:${await sha256(keyText)}`;
-  if(pack.key_linked&&pack.key_signature===signature&&Array.isArray(pack.keyed_questions)&&pack.keyed_questions.length){
-    return json({ok:true,id:packId,cached:true,count:pack.keyed_questions.length});
-  }
-
-  const exam=await getLibraryExtractedText(env,user,examFileId);
-  const examText=String(exam.text||"").slice(0,135000);
-  const answerText=String(keyContent.text||"").slice(0,60000);
-  const prompt=`Eres MED AI DALTON. Debes relacionar un PARCIAL REAL con su CLAVE DE RESPUESTAS.
-
-MATERIA: ${pack.subject||meta.subject||"no indicada"}
-AÑO: ${pack.year||meta.year||"no indicado"}
-${note?`NOTA DEL ESTUDIANTE: ${note}`:""}
-
-REGLAS CRÍTICAS:
-1. Extrae las preguntas REALES del parcial y sus opciones. No inventes preguntas que no estén en el parcial.
-2. Relaciona cada número con la respuesta indicada en la CLAVE.
-3. "correctIndex" es índice base 0: A=0, B=1, C=2, D=3, E=4.
-4. La respuesta de la clave es la referencia oficial para calificar. NO la cambies silenciosamente.
-5. Si la clave parece ambigua, ilegible, no coincide con las opciones, la pregunta parece anulada o el contenido parece científicamente desactualizado, conserva la respuesta según la clave cuando sea posible y escribe una advertencia en "warning".
-6. Escribe una explicación educativa breve y conceptualmente correcta. Si la clave parece discutible, explica la discrepancia en warning.
-7. No inventes correspondencias cuando no puedas establecerlas: omite esas preguntas o marca warning con confidence baja.
-8. Mantén texto suficiente para que el estudiante pueda resolver el parcial sin ver el PDF original.
-9. Si hay más preguntas de las que caben, prioriza conservar la mayor cantidad posible de forma fiel.
-
-DEVUELVE SOLO JSON:
-{
- "key_overview":"resumen de la calidad/cobertura de la clave",
- "matched_count":25,
- "unmatched_notes":["..."],
- "keyed_questions":[
-   {
-     "number":"1",
-     "stem":"texto de la pregunta",
-     "options":["opción A","opción B","opción C","opción D"],
-     "correctIndex":1,
-     "key_answer":"B",
-     "explanation":"por qué la opción indicada es correcta / explicación para estudiar",
-     "topic":"tema",
-     "confidence":0.95,
-     "warning":"",
-     "source_note":""
-   }
- ]
-}
-
-===== PARCIAL =====
-${examText}
-===== FIN PARCIAL =====
-
-===== CLAVE =====
-${answerText}
-===== FIN CLAVE =====`;
-
-  let parsed=null,lastErr=null;
-  try{
-    const response=await callCloudflareAI(env,{
-      model:PREMIUM_FLASH_MODEL,task:"past_exam_answer_key",
-      messages:[
-        {role:"system",content:"Relaciona preguntas reales con una clave de respuestas con máxima fidelidad. Devuelve únicamente JSON válido."},
-        {role:"user",content:prompt}
-      ],
-      max_tokens:7600,temperature:0.08,response_format:{type:"json_object"}
-    });
-    parsed=parseJsonLoose(extractCloudflareText(response));
-  }catch(err){lastErr=err}
-
-  const keyed=sanitizeKeyedQuestions(parsed);
-  if(keyed.length<2){
-    if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);
-    return json({error:"No pude relacionar suficientes preguntas con la clave. Revisa que el PDF y la clave sean legibles y correspondan al mismo parcial."},422);
-  }
-
-  pack.version=25.1;
-  pack.key_linked=true;
-  pack.key_signature=signature;
-  pack.key_source=keySource;
-  pack.key_overview=cleanText(parsed?.key_overview,2600);
-  pack.key_unmatched_notes=Array.isArray(parsed?.unmatched_notes)?parsed.unmatched_notes.slice(0,30).map(x=>cleanText(x,900)).filter(Boolean):[];
-  pack.keyed_questions=keyed;
-  pack.key_linked_at=new Date().toISOString();
-
-  const now=new Date().toISOString();
-  const nextMeta={...meta,version:25.1,answer_key_linked:true,answer_key_file_id:keyFileId||null,answer_key_name:keySource.name,keyed_question_count:keyed.length};
-  const tags=parseJsonLoose(row.tags_json)||[];
-  for(const t of ["answer_key","v25_1"])if(!tags.includes(t))tags.push(t);
-  await env.DB.prepare(`
-    UPDATE notes SET body=?,metadata_json=?,tags_json=?,sync_version=sync_version+1,updated_at=?
-    WHERE id=? AND user_id=?
-  `).bind(JSON.stringify(pack),JSON.stringify(nextMeta),JSON.stringify(tags),now,packId,user.id).run();
-
-  return json({
-    ok:true,id:packId,cached:false,count:keyed.length,
-    warnings:keyed.filter(q=>q.warning||q.confidence<0.7).length,
-    model:PREMIUM_FLASH_MODEL
-  });
-}
-
-async function pastExamKeyMistakesApi(url,env,user){
-  const packId=cleanText(url.searchParams.get("id"),220);
-  if(!packId)return json({questions:[]});
-  const rows=await env.DB.prepare(`
-    SELECT m.id,m.prompt,m.correct_answer,m.explanation,m.mastery_score,m.resolved,
-           qa.question_snapshot_json
-    FROM mistakes m
-    LEFT JOIN question_attempts qa ON qa.id=m.question_attempt_id
-    WHERE m.user_id=? AND m.source_type='past_exam_key' AND m.source_ref=? AND m.resolved=0
-    ORDER BY datetime(m.updated_at) DESC LIMIT 100
-  `).bind(user.id,packId).all();
-  const seen=new Set(),questions=[];
-  for(const r of (rows.results||[])){
-    const snap=parseJsonLoose(r.question_snapshot_json)||{};
-    const key=smartNormalize(snap.stem||r.prompt);
-    if(!key||seen.has(key))continue;seen.add(key);
-    if(!Array.isArray(snap.options)||snap.options.length<2)continue;
-    questions.push({
-      number:String(questions.length+1),
-      stem:cleanText(snap.stem||r.prompt,3500),
-      options:snap.options.slice(0,6).map(x=>cleanText(x,1400)),
-      correctIndex:clamp(Number(snap.correctIndex),0,Math.max(0,snap.options.length-1)),
-      key_answer:String.fromCharCode(65+clamp(Number(snap.correctIndex),0,5)),
-      explanation:cleanText(snap.explanation||r.explanation,2600),
-      topic:"Repaso de error",
-      confidence:1,
-      warning:""
-    });
-  }
-  return json({questions});
-}
-
-async function getPastExamApi(url,env,user){
-  const id=cleanText(url.searchParams.get("id"),220);
-  if(!id)return json({error:"Falta id."},400);
-  const row=await env.DB.prepare(`
-    SELECT id,title,body,metadata_json,created_at,updated_at FROM notes
-    WHERE id=? AND user_id=? AND tags_json LIKE '%past_exam_pack%' LIMIT 1
-  `).bind(id,user.id).first();
-  if(!row)return json({error:"No encontré ese análisis."},404);
-  const pack=parseJsonLoose(row.body);
-  if(!pack)return json({error:"El análisis guardado no se pudo leer."},500);
-  return json({source:{id:row.id,title:row.title,metadata_json:row.metadata_json,updated_at:row.updated_at},pack});
 }
 
 async function listMistakes(env, user) {
@@ -3562,7 +3190,7 @@ function gatewayOptions(task="general",extra={}){
       collectLog:true,
       metadata:{
         app:"MED AI DALTON",
-        version:"26",
+        version:"26.2",
         task,
         ...extra
       }

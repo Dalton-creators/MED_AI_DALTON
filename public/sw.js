@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v26-stability-reliability";
+const CACHE = "med-ai-dalton-v26-2-cleanup";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=26.0.0",
-  "/app.js?v=26.0.0",
+  "/styles.css?v=26.2.0",
+  "/app.js?v=26.2.0",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

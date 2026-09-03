@@ -1,4 +1,4 @@
-const APP_VERSION="26.0.0";
+const APP_VERSION="26.2.0";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -16,8 +16,7 @@ const state = {
   libraryStudyFile:null,libraryStudyPacks:[],libraryStudyPdf:null,
   libraryStudyDoc:null,libraryStudyRange:null,
   offlineDb:null,offlineReady:false,
-  smartDashboard:null,smartReview:null,smartPastExam:null,smartPastExamFile:null,
-  smartPastExamSource:null,smartKeyMode:null,
+  smartDashboard:null,smartReview:null,
   historicalKeysPack:null,historicalKeysSource:null,historicalKeysDraft:[],historicalKeysQuiz:null,
   systemHealth:null,systemIntegrity:null,systemBackups:[],maintenanceMode:false,lastSyncReport:null,
   smartSearchResults:[],smartQuality:localStorage.getItem("medai_smart_quality")||"economy"
@@ -92,9 +91,6 @@ async function offlinePutJson(key,value){
 }
 async function offlineGetJson(key){
   try{return (await offlineStoreGet("json",key))?.value??null}catch{return null}
-}
-async function offlineDeleteJson(key){
-  try{return offlineStoreDelete("json",key)}catch{}
 }
 async function offlineAllJson(){
   try{return await offlineStoreAll("json")}catch{return []}
@@ -512,16 +508,11 @@ function bindShell(){
   window.addEventListener("offline",()=>{state.maintenanceMode=true;updateNetworkBadge();updateMaintenanceBanner()});
 }
 
-function showAuth(){
-  $("#auth-screen").classList.remove("hidden");$("#app-shell").classList.add("hidden");
-}
 function showApp(){
   $("#auth-screen").classList.add("hidden");$("#app-shell").classList.remove("hidden");
   const name=state.user?.full_name||state.user?.email||"D";
   $("#user-chip").textContent=name.trim()[0]?.toUpperCase()||"D";
 }
-function setAuthMessage(t,isError){$("#auth-message").textContent=t;$("#auth-message").style.color=isError?"var(--danger)":"var(--muted)"}
-
 async function loadSubjects(){
   const data=await api("/api/subjects");state.subjects=data.subjects||[];
 }
@@ -534,7 +525,7 @@ async function navigate(view){
   try{
     const renderers={
       dashboard:renderDashboard,study:renderStudy,tutor:()=>renderAIStudio("tutor"),
-      exams:renderExams,flashcards:renderFlashcards,patient:renderPatientVirtual,
+      exams:renderExams,exam_prep:renderExamPrepCenter,flashcards:renderFlashcards,patient:renderPatientVirtual,
       case_solver:renderCaseSolver,
       grand_rounds:()=>renderAIStudio("grand_rounds"),emergency:()=>renderAIStudio("emergency"),
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
@@ -1483,15 +1474,6 @@ function readFileAsDataUrl(file){
     reader.readAsDataURL(file);
   });
 }
-function readFileAsText(file){
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onload=()=>resolve(String(reader.result||""));
-    reader.onerror=()=>reject(new Error("No pude leer el archivo."));
-    reader.readAsText(file);
-  });
-}
-
 async function importUniversitySource(type){
   if(!navigator.onLine)return toast("Necesitas internet únicamente para el análisis inicial del material.",true);
   const item=state.currentLesson,s=state.currentSubject;
@@ -1874,111 +1856,6 @@ const LANGUAGE_META={
 
 const LANGUAGE_CHALLENGES={"he-IL":[{"target":"שלום","es":"Hola","roman":"shalom"},{"target":"תודה","es":"Gracias","roman":"todá"},{"target":"בבקשה","es":"Por favor / de nada","roman":"bevakashá"},{"target":"מה שלומך?","es":"¿Cómo estás?","roman":"ma shlomjá / ma shlomej"},{"target":"קוראים לי דלטון","es":"Me llamo Dalton","roman":"korím li Dalton"},{"target":"אני לומד עברית","es":"Estoy aprendiendo hebreo","roman":"aní lomed ivrít"},{"target":"איפה בית החולים?","es":"¿Dónde está el hospital?","roman":"eifó beit hajolím"},{"target":"אני מבין קצת","es":"Entiendo un poco","roman":"aní mevín ktsat"},{"target":"אפשר לחזור בבקשה?","es":"¿Puede repetir, por favor?","roman":"efshár lajzor bevakashá"},{"target":"היום אני לומד","es":"Hoy estudio","roman":"hayóm aní lomed"}],"la":[{"target":"Salve!","es":"¡Hola!","roman":"sal-we"},{"target":"Gratias tibi ago.","es":"Te doy las gracias.","roman":"grá-ti-as tí-bi á-go"},{"target":"Quid agis?","es":"¿Cómo estás?","roman":"kwid á-gis"},{"target":"Nomen mihi Dalton est.","es":"Me llamo Dalton.","roman":"nó-men mí-hi Dalton est"},{"target":"Latine disco.","es":"Aprendo latín.","roman":"lá-ti-ne dís-ko"},{"target":"Aqua vita est.","es":"El agua es vida.","roman":"á-kwa wí-ta est"},{"target":"Medicus aegrotum curat.","es":"El médico cuida al enfermo.","roman":"mé-di-kus ae-gró-tum kú-rat"},{"target":"Corpus humanum mirabile est.","es":"El cuerpo humano es admirable.","roman":"kór-pus hu-má-num mi-rá-bi-le est"},{"target":"Scientia potentia est.","es":"El conocimiento es poder.","roman":"ski-én-ti-a po-tén-ti-a est"},{"target":"Per aspera ad astra.","es":"Por las dificultades hacia las estrellas.","roman":"per ás-pe-ra ad ás-tra"}],"en-US":[{"target":"Hello, how are you?","es":"Hola, ¿cómo estás?"},{"target":"My name is Dalton.","es":"Me llamo Dalton."},{"target":"I am learning English.","es":"Estoy aprendiendo inglés."},{"target":"Could you repeat that, please?","es":"¿Podrías repetir eso, por favor?"},{"target":"Where is the hospital?","es":"¿Dónde está el hospital?"},{"target":"I would like a glass of water.","es":"Quisiera un vaso de agua."},{"target":"What does this word mean?","es":"¿Qué significa esta palabra?"},{"target":"I understand, but I need more practice.","es":"Entiendo, pero necesito más práctica."},{"target":"The patient has chest pain.","es":"El paciente tiene dolor en el pecho."},{"target":"I study every day to improve.","es":"Estudio todos los días para mejorar."}],"ru-RU":[{"target":"Привет!","es":"¡Hola!","roman":"privet"},{"target":"Спасибо.","es":"Gracias.","roman":"spasíbo"},{"target":"Как дела?","es":"¿Cómo estás?","roman":"kak dilá"},{"target":"Меня зовут Далтон.","es":"Me llamo Dalton.","roman":"menyá zavút Dalton"},{"target":"Я изучаю русский язык.","es":"Estoy aprendiendo ruso.","roman":"ya izucháyu rússkiy yazýk"},{"target":"Повторите, пожалуйста.","es":"Repita, por favor.","roman":"pavtaríte pazhálusta"},{"target":"Где находится больница?","es":"¿Dónde está el hospital?","roman":"gde najóditsa balnítsa"},{"target":"Я немного понимаю.","es":"Entiendo un poco.","roman":"ya nimnóga panimáyu"},{"target":"Сегодня я учусь.","es":"Hoy estudio.","roman":"sivódnya ya uchús"},{"target":"Практика очень важна.","es":"La práctica es muy importante.","roman":"práktika óchen vazhná"}],"fr-FR":[{"target":"Bonjour, comment allez-vous ?","es":"Hola, ¿cómo está?"},{"target":"Je m'appelle Dalton.","es":"Me llamo Dalton."},{"target":"J'apprends le français.","es":"Estoy aprendiendo francés."},{"target":"Pouvez-vous répéter, s'il vous plaît ?","es":"¿Puede repetir, por favor?"},{"target":"Où est l'hôpital ?","es":"¿Dónde está el hospital?"},{"target":"Je voudrais un verre d'eau.","es":"Quisiera un vaso de agua."},{"target":"Qu'est-ce que ce mot veut dire ?","es":"¿Qué significa esta palabra?"},{"target":"Je comprends un peu.","es":"Entiendo un poco."},{"target":"Le patient a mal à la poitrine.","es":"El paciente tiene dolor en el pecho."},{"target":"Je pratique tous les jours.","es":"Practico todos los días."}]};
 
-async function renderLanguageLab(){
-  state.languageConversation=null;state.lastLanguageAnswer="";
-  state.languageGame={mode:null,current:null,score:0,attempts:0,selectedWords:[]};
-  const subject=getSubjectByCode("LANG");state.currentSubject=subject;
-  const saved=LANGUAGE_OPTIONS.some(x=>x[0]===state.courseLanguage)?state.courseLanguage:"en-US";
-  state.courseLanguage=saved;
-  root.innerHTML=`
-    <div class="page-head language-page-head"><div><div class="eyebrow">LANGUAGE LAB · APRENDIZAJE ACTIVO</div><h2>Idiomas que se practican de verdad</h2><p>Ruta progresiva, retos cortos, pronunciación, escucha, escritura y conversación con IA. Tu progreso del curso sigue guardándose tema por tema.</p></div></div>
-
-    <section class="language-next-hero card">
-      <div class="language-hero-copy">
-        <div class="language-kicker">ELIGE TU IDIOMA</div>
-        <div class="language-selector" id="language-selector">
-          ${LANGUAGE_OPTIONS.map(([code,name])=>{const m=LANGUAGE_META[code];return `<button class="language-choice ${code===saved?"active":""}" data-lang="${code}"><span class="language-mark ${m.accent}">${m.mark}</span><strong>${name}</strong></button>`}).join("")}
-        </div>
-        <h3 id="language-hero-title">${LANGUAGE_META[saved].hello} Vamos a aprender ${LANGUAGE_META[saved].name}.</h3>
-        <p id="language-hero-copy">Combina tu ruta académica con práctica diaria. Los retos mejoran tu dominio del tema actual, pero solo el examen final desbloquea el siguiente.</p>
-        <div class="language-hero-actions"><button id="lang-continue-course" class="primary-btn">CONTINUAR RUTA</button><button id="lang-start-mix" class="secondary-btn">⚡ RETO RÁPIDO</button></div>
-      </div>
-      <div class="language-buddy-zone">
-        <div class="language-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
-        <div class="nova-buddy large" aria-label="NOVA, guía de aprendizaje"><span class="nova-antenna"></span><div class="nova-face"><i></i><i></i><b></b></div><span class="nova-glow"></span></div>
-        <div class="nova-speech" id="nova-speech"><strong>NOVA</strong><span>Hoy vamos a hablar, escuchar y pensar en el idioma.</span></div>
-      </div>
-      <div class="language-stats-strip">
-        <div><span>🔥</span><strong id="lang-streak">—</strong><small>racha</small></div>
-        <div><span>⚡</span><strong id="lang-today-xp">—</strong><small>XP hoy</small></div>
-        <div><span>◆</span><strong id="lang-total-xp">—</strong><small>XP total</small></div>
-        <div><span>◎</span><strong id="lang-course-progress">—</strong><small>curso</small></div>
-      </div>
-    </section>
-
-    <section class="language-path card">
-      <div class="language-section-title"><div><span>RUTA DEL IDIOMA</span><h3 id="lang-route-title">Preparando tu siguiente tema…</h3></div><button id="lang-open-course" class="ghost-btn">VER CURSO COMPLETO →</button></div>
-      <div id="language-route" class="language-route"><div class="route-loading"><i></i><span>Cargando progreso…</span></div></div>
-    </section>
-
-    <section class="language-game-shell">
-      <aside class="language-modes card">
-        <div class="panel-code">ENTRENAMIENTO RÁPIDO</div>
-        <h3>Elige un reto</h3>
-        <button class="language-mode" data-challenge="listen"><span>🎧</span><div><strong>Escuchar</strong><small>Comprende lo que oyes</small></div><b>+10 XP</b></button>
-        <button class="language-mode" data-challenge="order"><span>🧩</span><div><strong>Ordenar</strong><small>Construye la frase</small></div><b>+10 XP</b></button>
-        <button class="language-mode" data-challenge="speak"><span>🎙</span><div><strong>Pronunciar</strong><small>Habla con el micrófono</small></div><b>+15 XP</b></button>
-        <button class="language-mode" data-challenge="translate"><span>✍</span><div><strong>Traducir</strong><small>Produce el idioma</small></div><b>+10 XP</b></button>
-        <div class="language-game-score"><span>SESIÓN</span><strong><b id="lang-session-score">0</b> XP</strong><small id="lang-session-attempts">0 retos realizados</small></div>
-      </aside>
-      <main class="language-challenge card" id="language-challenge">
-        <div class="challenge-welcome">
-          <div class="challenge-icon">✦</div>
-          <div class="eyebrow">PRÁCTICA GAMIFICADA</div>
-          <h3>Entrena una habilidad a la vez</h3>
-          <p>Escucha, ordena, habla o traduce. Al acertar ganas XP y tu práctica queda registrada.</p>
-          <button id="challenge-welcome-start" class="primary-btn">EMPEZAR RETO MIXTO</button>
-        </div>
-      </main>
-    </section>
-
-    <section class="language-ai-section">
-      <div class="language-section-title"><div><span>PROFESOR IA</span><h3>Clase interactiva y conversación</h3></div><small>Una actividad por turno · corrección activa · vocabulario reciclado</small></div>
-      <div class="language-course-grid">
-        <aside class="card language-controls">
-          <div class="panel-code">CONFIGURAR CLASE</div>
-          <div class="field"><label>Nivel actual</label><select id="lang-level"><option>Empezar desde cero</option><option selected>A1 — Principiante</option><option>A2 — Elemental</option><option>B1 — Intermedio</option><option>B2 — Intermedio alto</option><option>C1 — Avanzado</option><option>C2 — Dominio</option></select></div>
-          <div class="field"><label>Objetivo</label><select id="lang-focus"><option>Curso completo equilibrado</option><option>Conversación</option><option>Comprensión auditiva</option><option>Pronunciación</option><option>Gramática en contexto</option><option>Vocabulario útil</option><option>Lectura</option><option>Escritura</option><option>Viajes y situaciones reales</option><option>Académico / profesional</option><option>Idioma médico / científico</option></select></div>
-          <div class="field"><label>Inmersión</label><select id="lang-immersion"><option value="30">30% · explicación amplia en español</option><option value="60" selected>60% · equilibrio</option><option value="85">85% · inmersión alta</option><option value="100">100% · inmersión total</option></select></div>
-          <button id="lang-start" class="primary-btn wide">INICIAR CLASE DEL TEMA ACTUAL</button>
-          <button id="lang-placement" class="secondary-btn wide" style="margin-top:8px">PRUEBA DE NIVEL</button>
-          <button id="lang-new" class="secondary-btn wide" style="margin-top:8px">NUEVA SESIÓN</button>
-        </aside>
-        <div class="card chat-panel language-chat">
-          <div class="language-toolbar"><span id="language-session-label">Profesor de ${LANGUAGE_META[saved].name}</span><div><button id="lang-listen" class="secondary-btn">🔊 Escuchar respuesta</button></div></div>
-          <div id="language-messages" class="messages"><div class="message ai">Selecciona una actividad o inicia la clase del tema actual. Voy a enseñarte con práctica, corrección y repetición activa.</div></div>
-          <div class="composer"><button id="lang-mic" class="icon-btn" title="Hablar">🎙</button><textarea id="language-input" rows="2" placeholder="Escribe o habla en el idioma que estás aprendiendo..."></textarea><button id="language-send" class="primary-btn">Enviar</button></div>
-        </div>
-      </div>
-    </section>
-
-    <div class="learning-pillar-grid language-pillars premium-pillars">
-      <div class="learning-pillar"><span>01 · INPUT</span><strong>Comprender</strong><small>Escucha y lectura con dificultad progresiva.</small></div>
-      <div class="learning-pillar"><span>02 · OUTPUT</span><strong>Producir</strong><small>Hablar y escribir desde el inicio.</small></div>
-      <div class="learning-pillar"><span>03 · FEEDBACK</span><strong>Corregir</strong><small>Errores explicados y transformados en práctica.</small></div>
-      <div class="learning-pillar"><span>04 · RETRIEVAL</span><strong>Recordar</strong><small>Recuperación activa y repaso espaciado.</small></div>
-      <div class="learning-pillar"><span>05 · SPEAK</span><strong>Pronunciar</strong><small>Modelo de voz, micrófono y comparación.</small></div>
-      <div class="learning-pillar"><span>06 · REAL USE</span><strong>Usar</strong><small>Conversaciones y situaciones auténticas.</small></div>
-    </div>`;
-
-  $$(".language-choice").forEach(btn=>btn.onclick=()=>selectLanguage(btn.dataset.lang));
-  $$(".language-mode").forEach(btn=>btn.onclick=()=>startLanguageChallenge(btn.dataset.challenge));
-  $("#challenge-welcome-start").onclick=()=>startLanguageChallenge(["listen","order","speak","translate"][Math.floor(Math.random()*4)]);
-  $("#lang-start-mix").onclick=()=>startLanguageChallenge(["listen","order","speak","translate"][Math.floor(Math.random()*4)]);
-  $("#lang-continue-course").onclick=openSelectedLanguageCourse;
-  $("#lang-open-course").onclick=openSelectedLanguageCourse;
-  $("#lang-start").onclick=()=>startLanguageLesson(false);
-  $("#lang-placement").onclick=()=>startLanguageLesson(true);
-  $("#language-send").onclick=()=>sendLanguageMessage();
-  $("#language-input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendLanguageMessage()}});
-  $("#lang-new").onclick=()=>{state.languageConversation=null;state.lastLanguageAnswer="";$("#language-messages").innerHTML=`<div class="message ai">Nueva sesión lista. Vamos a trabajar una habilidad concreta.</div>`};
-  $("#lang-mic").onclick=()=>startSpeechRecognition($("#language-input"),state.courseLanguage);
-  $("#lang-listen").onclick=()=>{if(!state.lastLanguageAnswer)return toast("Todavía no hay una respuesta para escuchar.",true);speakLanguageText(state.lastLanguageAnswer,state.courseLanguage)};
-  $("#lang-level").onchange=updateLanguageLabel;
-  updateLanguageLabel();
-  await refreshLanguageOverview();
-}
-
 async function selectLanguage(code){
   if(!LANGUAGE_META[code])return;
   state.courseLanguage=code;localStorage.setItem("medai_course_language",code);state.languageConversation=null;state.lastLanguageAnswer="";state.languageGame={mode:null,current:null,score:0,attempts:0,selectedWords:[]};
@@ -2150,7 +2027,6 @@ function speakText(text,lang="en-US"){
   if(!("speechSynthesis" in window))return toast("La lectura en voz alta no está disponible en este navegador.",true);
   speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=lang;u.rate=.92;speechSynthesis.speak(u);
 }
-
 
 
 /* ============================================================
@@ -4068,6 +3944,113 @@ async function deleteStudyLibraryItem(id,type,name){
 
 
 /* ============================================================
+   V26.1 · ANTES DEL PARCIAL
+   ============================================================ */
+
+function examPrepDaysLabel(date){
+  if(!date)return "SIN FECHA";
+  const diff=Math.ceil((new Date(date)-new Date())/86400000);
+  if(!Number.isFinite(diff))return "SIN FECHA";
+  if(diff<0)return "VENCIDO";
+  if(diff===0)return "HOY";
+  if(diff===1)return "MAÑANA";
+  return `${diff} DÍAS`;
+}
+
+async function renderExamPrepCenter(){
+  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu centro para el parcial…</strong><small>Revisando claves históricas, errores y material guardado.</small></div>`;
+  try{
+    const [dash,keys]=await Promise.all([
+      api("/api/smart/dashboard"),
+      api("/api/smart/historical-keys?list=1")
+    ]);
+    const packs=keys.packs||dash.historical_keys||[];
+    const due=Number(dash.review_due||0);
+    const deadline=dash.next_deadline||null;
+    const latest=packs[0]||null;
+    const trends=dash.historical_key_trends||[];
+
+    root.innerHTML=`
+      <section class="exam-prep-hero">
+        <div>
+          <div class="learning-home-chip"><span></span> ANTES DEL PARCIAL · V26.1</div>
+          <h1>Todo lo que necesitas para prepararte antes del examen.</h1>
+          <p>Este espacio reúne únicamente tus claves de años anteriores, clases de repaso, práctica, errores y examen final. La frecuencia histórica ayuda a priorizar, pero no significa que una pregunta vaya a repetirse.</p>
+          <div class="exam-prep-actions">
+            <button id="exam-prep-upload" class="primary-btn">▤ SUBIR CLAVES DE AÑOS PASADOS</button>
+            <button id="exam-prep-errors" class="secondary-btn">↻ REPASAR MIS ERRORES ${due?`· ${due}`:""}</button>
+            <button id="exam-prep-plan" class="secondary-btn">□ ${deadline?"VER FECHA DEL PARCIAL":"AGREGAR FECHA DEL PARCIAL"}</button>
+          </div>
+        </div>
+        <aside class="exam-prep-countdown ${deadline?"active":""}">
+          <span>PRÓXIMO PARCIAL</span>
+          <strong>${examPrepDaysLabel(deadline?.due_at)}</strong>
+          <small>${escapeHtml(deadline?.title||"Agrega la fecha desde Plan de estudio")}</small>
+        </aside>
+      </section>
+
+      <section class="exam-prep-step-grid">
+        <article><b>01</b><span><strong>CLAVES</strong><small>Sube varios PDF históricos</small></span></article>
+        <article><b>02</b><span><strong>CLASE</strong><small>Aprende los temas detectados</small></span></article>
+        <article><b>03</b><span><strong>REPASO</strong><small>Fija conceptos y practica</small></span></article>
+        <article><b>04</b><span><strong>EXAMEN</strong><small>Comprueba si ya dominas el contenido</small></span></article>
+      </section>
+
+      ${latest?`
+      <section class="card exam-prep-current">
+        <div class="exam-prep-current-head">
+          <div><span>REPASO MÁS RECIENTE</span><h2>${escapeHtml(latest.study_title||latest.title||"Claves históricas")}</h2><p>${escapeHtml(latest.subject||"")} · ${Number(latest.source_count||0)} PDF históricos</p></div>
+          <button id="exam-prep-open-analysis" class="ghost-btn">VER ANÁLISIS →</button>
+        </div>
+        <div class="exam-prep-stage-buttons">
+          <button data-prep-tab="analysis"><span>01</span><div><strong>ANÁLISIS</strong><small>Temas y frecuencia histórica</small></div></button>
+          <button data-prep-tab="class"><span>02</span><div><strong>CLASE</strong><small>Explicación completa para aprender</small></div></button>
+          <button data-prep-tab="review"><span>03</span><div><strong>REPASO</strong><small>Puntos clave y práctica</small></div></button>
+          <button data-prep-tab="exam"><span>04</span><div><strong>EXAMEN FINAL</strong><small>Evalúate sin regenerar IA</small></div></button>
+        </div>
+      </section>`:`
+      <section class="card exam-prep-empty">
+        <div>▤</div><h2>Aún no has preparado tus claves históricas.</h2>
+        <p>Sube varios PDF de años anteriores de la misma materia. MED AI construirá el análisis, la clase, el repaso y un examen final nuevo.</p>
+        <button id="exam-prep-empty-upload" class="primary-btn">SUBIR MIS PRIMERAS CLAVES</button>
+      </section>`}
+
+      <section class="exam-prep-main-grid">
+        <article class="card">
+          <div class="smart-section-head"><div><span>PATRONES HISTÓRICOS</span><h2>Temas que más se han repetido</h2></div><small>Evidencia de tus PDF</small></div>
+          ${trends.length?`<div class="smart-trend-bars">${trends.slice(0,10).map(t=>`<div><span>${escapeHtml(t.topic)}</span><i><b style="width:${Math.min(100,Number(t.score||0))}%"></b></i><strong>${Number(t.count||0)}×</strong></div>`).join("")}</div>`:`<div class="system-empty">Aparecerán después de crear tu primer paquete.</div>`}
+        </article>
+        <article class="card">
+          <div class="smart-section-head"><div><span>LISTOS PARA REPASAR</span><h2>Mis paquetes</h2></div><b>${packs.length}</b></div>
+          <div class="exam-prep-pack-list">${packs.length?packs.slice(0,8).map(p=>`<button class="exam-prep-pack" data-id="${escapeAttr(p.id)}"><span>▤</span><div><strong>${escapeHtml(p.study_title||p.title)}</strong><small>${escapeHtml(p.subject||"")} · ${Number(p.source_count||0)} PDF</small></div><b>ESTUDIAR →</b></button>`).join(""):`<div class="system-empty compact">No hay paquetes todavía.</div>`}</div>
+        </article>
+      </section>
+
+      <section class="card exam-prep-guide">
+        <div class="panel-code">RUTA RECOMENDADA ANTES DE TU PARCIAL</div>
+        <div><span>1</span><p><strong>Sube las claves pasadas</strong> de la misma materia.</p></div>
+        <div><span>2</span><p><strong>Estudia la clase</strong> para comprender los conceptos, no solo memorizar respuestas.</p></div>
+        <div><span>3</span><p><strong>Haz el repaso y la práctica</strong> hasta identificar tus fallos.</p></div>
+        <div><span>4</span><p><strong>Haz el examen final</strong> y vuelve a Repaso de errores si quedas debajo de 80%.</p></div>
+      </section>`;
+
+    $("#exam-prep-upload").onclick=()=>openHistoricalKeysStudio();
+    $("#exam-prep-empty-upload")?.addEventListener("click",()=>openHistoricalKeysStudio());
+    $("#exam-prep-errors").onclick=startSmartReview;
+    $("#exam-prep-plan").onclick=()=>navigate("plan");
+    if(latest){
+      $("#exam-prep-open-analysis").onclick=()=>openHistoricalKeysPack(latest.id,false,"analysis");
+      $$(".exam-prep-stage-buttons button").forEach(b=>b.onclick=()=>openHistoricalKeysPack(latest.id,false,b.dataset.prepTab));
+    }
+    $$(".exam-prep-pack").forEach(b=>b.onclick=()=>openHistoricalKeysPack(b.dataset.id,false,"analysis"));
+  }catch(err){
+    logSystemError("exam_prep",err);
+    root.innerHTML=`<div class="card masterclass-error"><strong>No pude abrir Antes del parcial.</strong><p>${escapeHtml(err.message)}</p><button id="exam-prep-retry" class="primary-btn">REINTENTAR</button></div>`;
+    $("#exam-prep-retry").onclick=renderExamPrepCenter;
+  }
+}
+
+/* ============================================================
    V25 · SMART STUDY ENGINE
    Retrieval-first + spaced review + past exam intelligence
    ============================================================ */
@@ -4392,14 +4375,14 @@ async function createHistoricalKeysPack(){
   }
 }
 
-async function openHistoricalKeysPack(id,justCreated=false){
+async function openHistoricalKeysPack(id,justCreated=false,startTab="analysis"){
   const o=ensureHistoricalKeysOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
   const box=$("#historical-keys-body");
   box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando tu nuevo paquete…":"Abriendo paquete guardado…"}</strong><small>No se está regenerando con IA.</small></div>`;
   try{
     const d=await api(`/api/smart/historical-keys?id=${encodeURIComponent(id)}`);
     state.historicalKeysPack=d.pack;state.historicalKeysSource=d.source||null;
-    renderHistoricalKeysPack("analysis");
+    renderHistoricalKeysPack(startTab);
   }catch(err){
     box.innerHTML=`<div class="masterclass-error"><strong>No pude abrir este paquete.</strong><p>${escapeHtml(err.message)}</p></div>`;
   }
@@ -4522,406 +4505,12 @@ async function finishHistoricalKeysQuiz(){
   $("#historical-result-repeat").onclick=()=>startHistoricalKeysQuiz(st.kind);
 }
 
-/* -------- Past exams -------- */
-
-async function uploadPastExamDirect(file){
-  if(!navigator.onLine)return toast("Necesitas internet para subir el parcial por primera vez.",true);
-  if(!/\.pdf$/i.test(file.name)&&file.type!=="application/pdf")return toast("Selecciona un PDF.",true);
-  if(file.size>50*1024*1024)return toast("El PDF supera 50 MB.",true);
-  root.innerHTML=`<div class="smart-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Guardando parcial en tu Biblioteca…</strong><small>Subir el archivo a R2 no utiliza Gemini.</small></div>`;
-  try{
-    const form=new FormData();form.append("file",file,file.name);
-    const res=await fetch("/api/library/upload",{method:"POST",body:form,credentials:"same-origin"});
-    const d=await res.json().catch(()=>({}));
-    if(!res.ok)throw new Error(d.error||"No pude subir el PDF.");
-    state.smartPastExamFile={id:d.id,title:d.title||file.name,metadata_json:JSON.stringify({mime_type:"application/pdf",original_name:file.name,size_bytes:file.size})};
-    openPastExamAnalyzer(d.id,state.smartPastExamFile);
-  }catch(err){toast(err.message,true);renderSmartStudy()}
-}
-
-function ensurePastExamOverlay(){
-  let o=$("#past-exam-overlay");
-  if(o)return o;
-  o=document.createElement("div");o.id="past-exam-overlay";o.className="past-exam-overlay hidden";
-  o.innerHTML=`<div class="past-exam-shell"><header><div><span>MED AI · PAST EXAM INTELLIGENCE</span><strong id="past-exam-shell-title">Parcial anterior</strong></div><button id="past-exam-close" class="library-viewer-close">×</button></header><main id="past-exam-body"></main></div>`;
-  document.body.appendChild(o);
-  $("#past-exam-close").onclick=closePastExamOverlay;
-  o.onclick=e=>{if(e.target===o)closePastExamOverlay()};
-  return o;
-}
-function closePastExamOverlay(){$("#past-exam-overlay")?.classList.add("hidden");document.body.classList.remove("modal-open")}
 function findLibraryFileAny(id){
   return (state.libraryData?.files||[]).find(x=>x.id===id)||state.smartPastExamFile||{id,title:"Parcial anterior.pdf",metadata_json:"{}"};
 }
 
-function openPastExamAnalyzer(fileId,fileOverride=null){
-  const file=fileOverride||findLibraryFileAny(fileId);
-  state.smartPastExamFile=file;
-  const o=ensurePastExamOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
-  $("#past-exam-shell-title").textContent=file.title||"Parcial anterior";
-  const box=$("#past-exam-body");
-  box.innerHTML=`<section class="past-exam-import">
-    <div class="past-exam-hero">
-      <div class="past-exam-icon">✓</div><div><div class="eyebrow">ANALIZAR EXAMEN DE AÑOS PASADOS</div><h2>${escapeHtml(file.title||"Parcial")}</h2><p>MED AI identifica temas, patrones y dificultad; después guarda el análisis y las preguntas de práctica para que puedas repetirlas sin usar IA otra vez.</p></div>
-      <div class="university-credit-badge"><b>⚡</b><span><strong>UNA SOLA VEZ</strong><small>Gemini 2.5 Flash</small></span></div>
-    </div>
-    <div class="past-exam-form-grid">
-      <section class="card">
-        <div class="field"><label>Materia o curso</label><input id="past-exam-subject" placeholder="Ej. Fisiología, Química, Física..."></div>
-        <div class="field"><label>Año del parcial</label><input id="past-exam-year" type="number" min="1990" max="2100" value="${new Date().getFullYear()-1}"></div>
-        <div class="field"><label>Información opcional</label><textarea id="past-exam-note" rows="4" placeholder="Ej. Primer parcial, profesor X, cubría módulos 1–3..."></textarea></div>
-        <label class="form-check"><input id="past-exam-practice" type="checkbox" checked><span>Crear preguntas nuevas con estilo y temas similares para practicar</span></label>
-        <button id="past-exam-analyze" class="library-create-study-btn"><span>✦</span><div><strong>ANALIZAR Y GUARDAR</strong><small>El PDF ya está en R2; no se duplica</small></div></button>
-      </section>
-      <aside class="past-exam-creates">
-        <div class="panel-code">MED AI GUARDARÁ</div>
-        <div><b>01</b><span><strong>Temas más frecuentes</strong><small>Con peso estimado</small></span></div>
-        <div><b>02</b><span><strong>Tipos de pregunta</strong><small>Memoria, cálculo, aplicación, clínica…</small></span></div>
-        <div><b>03</b><span><strong>Patrones repetidos</strong><small>Qué habilidades exige el examen</small></span></div>
-        <div><b>04</b><span><strong>Plan de repaso</strong><small>Orden recomendado de estudio</small></span></div>
-        <div><b>05</b><span><strong>Banco de práctica</strong><small>15 preguntas reutilizables</small></span></div>
-      </aside>
-    </div>
-  </section>`;
-  $("#past-exam-analyze").onclick=()=>analyzePastExam(fileId);
-}
-
-async function analyzePastExam(fileId){
-  if(!navigator.onLine)return toast("El análisis inicial necesita internet.",true);
-  const btn=$("#past-exam-analyze"),subject=$("#past-exam-subject").value.trim(),year=$("#past-exam-year").value,note=$("#past-exam-note").value.trim();
-  if(!subject)return toast("Escribe la materia para organizar mejor el análisis.",true);
-  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>ANALIZANDO PARCIAL…</strong><small>Extracción → temas → patrones → práctica</small></div>`;
-  try{
-    const d=await api("/api/smart/past-exam",{method:"POST",body:{file_id:fileId,subject,year:Number(year),note,create_practice:$("#past-exam-practice").checked}});
-    await openPastExamPack(d.id,true);
-  }catch(err){btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>ANALIZAR Y GUARDAR</strong><small>El PDF ya está en R2; no se duplica</small></div>`;toast(err.message,true)}
-}
-
-async function openPastExamPack(id,justCreated=false){
-  const o=ensurePastExamOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
-  const box=$("#past-exam-body");
-  box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando análisis…":"Abriendo análisis guardado…"}</strong><small>No se está regenerando con IA.</small></div>`;
-  try{
-    const d=await api(`/api/smart/past-exam?id=${encodeURIComponent(id)}`);
-    state.smartPastExam=d.pack;
-    state.smartPastExamSource=d.source||null;
-    renderPastExamPack();
-  }catch(err){box.innerHTML=`<div class="masterclass-error"><strong>No pude abrir el análisis.</strong><p>${escapeHtml(err.message)}</p></div>`}
-}
-
-
-function renderPastExamPack(){
-  const p=state.smartPastExam,box=$("#past-exam-body");if(!p)return;
-  const topics=p.topics||[],qs=p.practice_questions||[],keyQs=p.keyed_questions||[];
-  const keyReady=!!p.key_linked&&keyQs.length>0;
-  const warnings=keyQs.filter(q=>q.warning||Number(q.confidence||1)<0.7).length;
-  box.innerHTML=`<section class="past-exam-pack answer-key-pack">
-    <header class="past-exam-pack-head">
-      <div><span>ANÁLISIS GUARDADO · ${escapeHtml(String(p.year||""))}</span><h2>${escapeHtml(p.title||"Parcial anterior")}</h2><p>${escapeHtml(p.overview||"")}</p></div>
-      <div class="past-exam-pack-actions">
-        <button id="past-exam-study-top" class="secondary-btn">⌕ ESTUDIAR TEMAS</button>
-        <button id="past-exam-practice-btn" class="secondary-btn">▶ SIMULADOR NUEVO ${qs.length}</button>
-        <button id="past-exam-key-btn" class="${keyReady?"answer-key-linked":"primary-btn"}">${keyReady?"🔑 CLAVE VINCULADA":"🔑 AGREGAR CLAVE"}</button>
-      </div>
-    </header>
-
-    ${keyReady?`
-    <section class="answer-key-status">
-      <div class="answer-key-status-icon">🔑</div>
-      <div><span>CLAVE DE RESPUESTAS VINCULADA</span><strong>${escapeHtml(p.key_source?.name||"Clave guardada")}</strong><small>${keyQs.length} preguntas relacionadas${warnings?` · ${warnings} con advertencia para revisar`:""} · volver a practicar no usa IA</small></div>
-      <button id="answer-key-change" class="ghost-btn">CAMBIAR CLAVE</button>
-    </section>
-    <section class="answer-key-mode-grid">
-      <button class="answer-key-mode exam" data-key-mode="exam"><b>01</b><span><strong>MODO EXAMEN</strong><small>Responde todo antes de ver la clave</small></span></button>
-      <button class="answer-key-mode learn" data-key-mode="learn"><b>02</b><span><strong>MODO APRENDER</strong><small>Corrección y explicación inmediata</small></span></button>
-      <button class="answer-key-mode errors" data-key-mode="errors"><b>03</b><span><strong>REPASO DE ERRORES</strong><small>Solo lo que has fallado en este parcial</small></span></button>
-      <button class="answer-key-mode topics" data-key-mode="topics"><b>04</b><span><strong>ESTUDIAR TEMAS</strong><small>Busca teoría en tus libros y clases</small></span></button>
-    </section>`:`
-    <section class="answer-key-empty">
-      <div>🔑</div><span><strong>¿Tienes la clave oficial de este parcial?</strong><small>Vincúlala una sola vez. MED AI relacionará las preguntas con sus respuestas y después podrás resolver este mismo parcial cuantas veces quieras sin volver a gastar IA.</small></span>
-      <button id="answer-key-add-main" class="primary-btn">AGREGAR CLAVE →</button>
-    </section>`}
-
-    <section class="past-exam-score-grid">
-      <div><span>▤</span><strong>${Number(p.question_count_estimate||0)||"—"}</strong><small>preguntas detectadas/aprox.</small></div>
-      <div><span>◎</span><strong>${topics.length}</strong><small>temas principales</small></div>
-      <div><span>◆</span><strong>${escapeHtml(p.difficulty_profile?.overall||"Mixta")}</strong><small>dificultad</small></div>
-      <div><span>${keyReady?"🔑":"✓"}</span><strong>${keyReady?keyQs.length:qs.length}</strong><small>${keyReady?"preguntas con clave":"preguntas nuevas guardadas"}</small></div>
-    </section>
-
-    ${keyReady?`<section class="card answer-key-preview">
-      <div class="smart-section-head"><div><span>PREGUNTAS DEL PARCIAL + CLAVE</span><h2>Correspondencia guardada</h2></div><small>Respuesta mostrada = respuesta según la clave</small></div>
-      <div class="answer-key-question-list">${keyQs.slice(0,12).map((q,i)=>`
-        <article class="${q.warning||Number(q.confidence||1)<0.7?"warn":""}">
-          <span>${escapeHtml(String(q.number||i+1))}</span>
-          <div><strong>${escapeHtml(q.stem||"Pregunta")}</strong><small>${escapeHtml(q.topic||"Tema no identificado")}${q.warning?` · ⚠ ${escapeHtml(q.warning)}`:""}</small></div>
-          <b>${escapeHtml(q.key_answer||String.fromCharCode(65+Number(q.correctIndex||0)))}</b>
-        </article>`).join("")}${keyQs.length>12?`<small class="answer-key-more">+ ${keyQs.length-12} preguntas más guardadas</small>`:""}</div>
-    </section>`:""}
-
-    <div class="past-exam-two">
-      <article class="card"><div class="panel-code">TEMAS QUE MÁS PESAN</div><div class="past-topic-list">${topics.map((t,i)=>`<button class="past-topic-search" data-topic="${escapeAttr(t.name)}"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(t.name)}</strong><small>${escapeHtml((t.concepts||[]).slice(0,3).join(" · "))}</small></div><b>${Math.round(Number(t.weight||0))}%</b><i><em style="width:${Math.max(3,Number(t.weight||0))}%"></em></i></button>`).join("")}</div></article>
-      <article class="card"><div class="panel-code">CÓMO PREGUNTABA ESTE PARCIAL</div>${(p.question_types||[]).map(x=>`<div class="past-question-type"><strong>${escapeHtml(x.type||x)}</strong><span>${escapeHtml(x.description||"")}</span></div>`).join("")}<div class="panel-code" style="margin-top:14px">PATRONES</div><ul class="past-patterns">${(p.repeated_patterns||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></article>
-    </div>
-    <section class="card past-priority-card"><div class="panel-code">RUTA DE REPASO RECOMENDADA</div><div class="past-study-plan">${(p.study_plan||[]).map((s,i)=>`<article><b>${i+1}</b><div><strong>${escapeHtml(s.title||`Sesión ${i+1}`)}</strong><p>${escapeHtml(s.focus||s.detail||"")}</p><small>${escapeHtml(s.minutes?`${s.minutes} min`:"")}</small></div></article>`).join("")}</div></section>
-    <section class="card"><div class="panel-code">PRIORIDADES DE ESTUDIO</div><div class="past-priorities">${(p.study_priorities||[]).map((x,i)=>`<div><span>${i+1}</span><p>${escapeHtml(typeof x==="string"?x:x.detail||x.title||"")}</p></div>`).join("")}</div></section>
-  </section>`;
-
-  $("#past-exam-practice-btn").onclick=startPastExamPractice;
-  $("#past-exam-key-btn").onclick=()=>renderAnswerKeyImporter(keyReady);
-  $("#answer-key-add-main")?.addEventListener("click",()=>renderAnswerKeyImporter(false));
-  $("#answer-key-change")?.addEventListener("click",()=>renderAnswerKeyImporter(true));
-  $$(".answer-key-mode").forEach(b=>b.onclick=()=>startAnswerKeyMode(b.dataset.keyMode));
-  $("#past-exam-study-top").onclick=()=>openPastExamTopicsInSmart(topics);
-  $$(".past-topic-search").forEach(b=>b.onclick=()=>openOnePastExamTopic(b.dataset.topic));
-}
-
-function openPastExamTopicsInSmart(topics=state.smartPastExam?.topics||[]){
-  const q=topics.slice(0,4).map(x=>x.name).join(" ");
-  closePastExamOverlay();
-  navigate("smart").then(()=>setTimeout(()=>{if($("#smart-query")){$("#smart-query").value=q;smartRetrieve(false)}},100));
-}
-function openOnePastExamTopic(topic){
-  closePastExamOverlay();
-  navigate("smart").then(()=>setTimeout(()=>{if($("#smart-query")){$("#smart-query").value=topic;smartRetrieve(false)}},100));
-}
-
-function renderAnswerKeyImporter(replacing=false){
-  const p=state.smartPastExam,box=$("#past-exam-body");
-  box.innerHTML=`<section class="answer-key-import-page">
-    <button id="answer-key-import-back" class="ghost-btn">← VOLVER AL ANÁLISIS</button>
-    <div class="answer-key-import-hero">
-      <div class="answer-key-big-icon">🔑</div>
-      <div><span>V25.1 · ANSWER KEY MODE</span><h2>${replacing?"Cambiar clave de respuestas":"Vincula la clave con este parcial"}</h2><p>La clave queda asociada permanentemente a <strong>${escapeHtml(p.title||"este parcial")}</strong>. Se analiza una sola vez y después los cuatro modos de estudio reutilizan el resultado guardado.</p></div>
-    </div>
-    <div class="answer-key-import-grid">
-      <section class="card">
-        <div class="answer-key-source-tabs">
-          <button class="active" data-key-source="file">PDF / FOTO</button>
-          <button data-key-source="text">PEGAR TEXTO</button>
-        </div>
-        <div id="answer-key-source-file" class="answer-key-source-panel">
-          <label class="library-dropzone answer-key-dropzone" for="answer-key-file">
-            <input id="answer-key-file" type="file" accept="application/pdf,.pdf,image/*,.txt,.md" hidden>
-            <div>↑</div><strong>SELECCIONAR CLAVE</strong><span id="answer-key-file-name">PDF, fotografía, TXT o Markdown</span>
-          </label>
-          <small>Para una foto clara de la hoja de respuestas, MED AI usa visión una sola vez para transcribirla.</small>
-        </div>
-        <div id="answer-key-source-text" class="answer-key-source-panel hidden">
-          <div class="field"><label>Pega la clave</label><textarea id="answer-key-text" rows="11" placeholder="Ejemplo:\n1. B\n2. C\n3. A\n4. D\n\nTambién puedes pegar una tabla o una clave con explicaciones."></textarea></div>
-        </div>
-        <div class="field"><label>Nota opcional</label><input id="answer-key-note" placeholder="Ej. Clave oficial publicada por el profesor"></div>
-        <div class="answer-key-truth-note"><span>⚠</span><p>MED AI conservará la <b>respuesta indicada por la clave</b>. Si detecta una pregunta ambigua, desactualizada o posiblemente mal transcrita, la marcará para revisión sin cambiar silenciosamente la respuesta.</p></div>
-        <button id="answer-key-process" class="library-create-study-btn"><span>🔑</span><div><strong>VINCULAR Y PREPARAR PARCIAL</strong><small>Procesamiento inicial · después queda guardado</small></div></button>
-      </section>
-      <aside class="answer-key-benefits">
-        <div class="panel-code">DESPUÉS TENDRÁS</div>
-        <div><b>01</b><span><strong>Modo examen</strong><small>Clave oculta hasta terminar</small></span></div>
-        <div><b>02</b><span><strong>Modo aprender</strong><small>Explicación después de cada respuesta</small></span></div>
-        <div><b>03</b><span><strong>Repaso de errores</strong><small>Solo preguntas falladas</small></span></div>
-        <div><b>04</b><span><strong>Estudiar temas</strong><small>Busca en tus libros y clases guardadas</small></span></div>
-        <div><b>∞</b><span><strong>Repeticiones ilimitadas</strong><small>Sin regenerar la clave con IA</small></span></div>
-      </aside>
-    </div>
-  </section>`;
-  $("#answer-key-import-back").onclick=renderPastExamPack;
-  let source="file";
-  $$(".answer-key-source-tabs button").forEach(b=>b.onclick=()=>{
-    source=b.dataset.keySource;
-    $$(".answer-key-source-tabs button").forEach(x=>x.classList.toggle("active",x===b));
-    $("#answer-key-source-file").classList.toggle("hidden",source!=="file");
-    $("#answer-key-source-text").classList.toggle("hidden",source!=="text");
-  });
-  $("#answer-key-file").onchange=e=>{$("#answer-key-file-name").textContent=e.target.files?.[0]?.name||"Ningún archivo seleccionado"};
-  $("#answer-key-process").onclick=()=>processAnswerKey(source);
-}
-
-async function processAnswerKey(source){
-  if(!navigator.onLine)return toast("Necesitas internet solamente para vincular la clave por primera vez.",true);
-  const packId=state.smartPastExamSource?.id;
-  if(!packId)return toast("No encontré el identificador de este análisis. Vuelve a abrirlo.",true);
-  const btn=$("#answer-key-process");
-  let keyFileId=null,keyText="",keyName="";
-  try{
-    if(source==="file"){
-      const file=$("#answer-key-file").files?.[0];
-      if(!file)throw new Error("Selecciona el archivo o fotografía de la clave.");
-      if(file.size>50*1024*1024)throw new Error("La clave supera 50 MB.");
-      btn.disabled=true;btn.innerHTML=`<span class="university-spin">↑</span><div><strong>GUARDANDO CLAVE EN R2…</strong><small>Esto no usa Gemini</small></div>`;
-      const form=new FormData();form.append("file",file,file.name);
-      const res=await fetch("/api/library/upload",{method:"POST",body:form,credentials:"same-origin"});
-      const uploaded=await res.json().catch(()=>({}));
-      if(!res.ok)throw new Error(uploaded.error||"No pude guardar la clave.");
-      keyFileId=uploaded.id;keyName=uploaded.title||file.name;
-    }else{
-      keyText=$("#answer-key-text").value.trim();
-      if(keyText.length<3)throw new Error("Pega la clave de respuestas.");
-      keyName="Clave pegada como texto";
-    }
-    btn.disabled=true;btn.innerHTML=`<span class="university-spin">🔑</span><div><strong>RELACIONANDO PARCIAL + CLAVE…</strong><small>Una sola vez · después queda guardado</small></div>`;
-    const d=await api("/api/smart/past-exam/key",{method:"POST",body:{
-      pack_id:packId,key_file_id:keyFileId,key_text:keyText,key_name:keyName,
-      note:$("#answer-key-note").value.trim()
-    }});
-    toast(d.cached?"Esta misma clave ya estaba vinculada. No se volvió a usar IA.":"Clave vinculada y preguntas preparadas.");
-    await openPastExamPack(packId,true);
-  }catch(err){
-    toast(err.message,true);
-    if(btn){btn.disabled=false;btn.innerHTML=`<span>🔑</span><div><strong>VINCULAR Y PREPARAR PARCIAL</strong><small>Procesamiento inicial · después queda guardado</small></div>`}
-  }
-}
-
-/* -------- Four modes using the REAL past exam + answer key -------- */
-
-async function startAnswerKeyMode(mode){
-  const p=state.smartPastExam,questions=(p?.keyed_questions||[]).slice();
-  if(mode==="topics"){openPastExamTopicsInSmart(p?.topics||[]);return}
-  if(!questions.length)return toast("Primero vincula una clave de respuestas.",true);
-  if(mode==="errors"){
-    const packId=state.smartPastExamSource?.id;
-    const localWrong=state.smartKeyMode?.lastWrongQuestions||[];
-    if(!navigator.onLine&&localWrong.length){beginAnswerKeySession("errors",localWrong);return}
-    try{
-      const d=await api(`/api/smart/past-exam/mistakes?id=${encodeURIComponent(packId)}`);
-      if((d.questions||[]).length){beginAnswerKeySession("errors",d.questions);return}
-      if(localWrong.length){beginAnswerKeySession("errors",localWrong);return}
-      return toast("No tienes errores pendientes de este parcial. ¡Muy bien!",false);
-    }catch(err){
-      if(localWrong.length){beginAnswerKeySession("errors",localWrong);return}
-      toast(err.message,true);
-    }
-    return;
-  }
-  beginAnswerKeySession(mode,questions);
-}
-
-function beginAnswerKeySession(mode,questions){
-  state.smartKeyMode={
-    mode,questions,index:0,answers:{},score:0,started_at:new Date().toISOString(),
-    revealed:{},finished:false
-  };
-  renderAnswerKeyQuestion();
-}
-
 function answerKeyModeName(mode){
   return ({exam:"MODO EXAMEN",learn:"MODO APRENDER",errors:"REPASO DE ERRORES"})[mode]||"CLAVE";
-}
-
-function renderAnswerKeyQuestion(){
-  const st=state.smartKeyMode,q=st?.questions?.[st.index],box=$("#past-exam-body");
-  if(!q){finishAnswerKeySession();return}
-  const selected=st.answers[`q${st.index}`];
-  const learn=st.mode!=="exam";
-  box.innerHTML=`<section class="answer-key-session">
-    <header class="answer-key-session-head">
-      <button id="answer-key-session-exit" class="ghost-btn">← SALIR</button>
-      <div><span>${answerKeyModeName(st.mode)} · ${escapeHtml(state.smartPastExam?.title||"")}</span><strong>${st.index+1} / ${st.questions.length}</strong></div>
-      <div class="answer-key-session-score">${st.mode==="exam"?"CLAVE OCULTA":`${st.score} ✓`}</div>
-    </header>
-    <div class="master-exam-progress"><i style="width:${st.index/st.questions.length*100}%"></i></div>
-    <article class="answer-key-question">
-      <div class="answer-key-question-meta"><span>PREGUNTA ${escapeHtml(String(q.number||st.index+1))}</span><b>${escapeHtml(q.topic||"Tema")}</b></div>
-      <h1>${escapeHtml(q.stem||"")}</h1>
-      <div class="answer-key-options">${(q.options||[]).map((op,i)=>`<button data-i="${i}" class="${selected===i?"selected":""}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div>
-      ${learn&&selected!==undefined?renderAnswerKeyFeedback(q,selected):""}
-      <div class="answer-key-question-actions">
-        ${st.index>0?`<button id="answer-key-prev" class="secondary-btn">← ANTERIOR</button>`:"<span></span>"}
-        ${selected===undefined?`<small>Selecciona una respuesta para continuar.</small>`:`<button id="answer-key-next" class="primary-btn">${st.index+1===st.questions.length?"TERMINAR":"SIGUIENTE →"}</button>`}
-      </div>
-    </article>
-  </section>`;
-  $("#answer-key-session-exit").onclick=renderPastExamPack;
-  $$(".answer-key-options button").forEach(b=>b.onclick=()=>selectAnswerKeyOption(Number(b.dataset.i)));
-  $("#answer-key-prev")?.addEventListener("click",()=>{st.index=Math.max(0,st.index-1);renderAnswerKeyQuestion()});
-  $("#answer-key-next")?.addEventListener("click",()=>{st.index++;renderAnswerKeyQuestion()});
-}
-
-function selectAnswerKeyOption(choice){
-  const st=state.smartKeyMode,q=st.questions[st.index],key=`q${st.index}`;
-  const previous=st.answers[key];
-  if(previous===undefined&&choice===Number(q.correctIndex))st.score++;
-  if(previous!==undefined&&previous===Number(q.correctIndex)&&choice!==Number(q.correctIndex))st.score--;
-  if(previous!==undefined&&previous!==Number(q.correctIndex)&&choice===Number(q.correctIndex))st.score++;
-  st.answers[key]=choice;
-  renderAnswerKeyQuestion();
-}
-
-function renderAnswerKeyFeedback(q,choice){
-  const correct=choice===Number(q.correctIndex);
-  const correctText=q.options?.[Number(q.correctIndex)]??q.key_answer??"";
-  return `<section class="answer-key-feedback ${correct?"correct":"wrong"}">
-    <div class="answer-key-feedback-title"><span>${correct?"✓":"×"}</span><div><strong>${correct?"Correcto":"Incorrecto"}</strong><small>Según la clave: ${escapeHtml(q.key_answer||String.fromCharCode(65+Number(q.correctIndex||0)))}${correctText?` · ${escapeHtml(correctText)}`:""}</small></div></div>
-    ${q.explanation?`<p>${escapeHtml(q.explanation)}</p>`:""}
-    ${q.warning?`<div class="answer-key-warning"><b>⚠ REVISAR</b><span>${escapeHtml(q.warning)}</span></div>`:""}
-  </section>`;
-}
-
-async function finishAnswerKeySession(){
-  const st=state.smartKeyMode,p=state.smartPastExam,packId=state.smartPastExamSource?.id;
-  st.finished=true;
-  let correct=0;
-  st.questions.forEach((q,i)=>{if(Number(st.answers[`q${i}`])===Number(q.correctIndex))correct++});
-  st.score=correct;
-  st.lastWrongQuestions=st.questions.filter((q,i)=>Number(st.answers[`q${i}`])!==Number(q.correctIndex));
-  const pct=Math.round(correct/Math.max(1,st.questions.length)*100);
-  try{
-    await api("/api/exams/record",{method:"POST",body:{
-      title:`${answerKeyModeName(st.mode)} · ${p.title||"Parcial anterior"}`,
-      settings:{smart_study:true,past_exam:true,past_exam_key:true,past_exam_pack_id:packId,mode:st.mode,subject:p.subject,year:p.year},
-      started_at:st.started_at,score:correct,max_score:st.questions.length,percentage:pct,
-      questions:st.questions,answers:st.answers
-    }});
-  }catch{}
-  renderAnswerKeyResult(pct);
-}
-
-function renderAnswerKeyResult(pct){
-  const st=state.smartKeyMode,p=state.smartPastExam,box=$("#past-exam-body");
-  const wrong=st.questions.map((q,i)=>({q,i,choice:st.answers[`q${i}`]})).filter(x=>Number(x.choice)!==Number(x.q.correctIndex));
-  box.innerHTML=`<section class="answer-key-result">
-    <div class="answer-key-result-ring"><strong>${pct}%</strong><small>${st.score}/${st.questions.length}</small></div>
-    <div class="eyebrow">${answerKeyModeName(st.mode)} · RESULTADO</div>
-    <h2>${pct>=80?"Buen dominio del parcial.":"Ya sabemos exactamente qué reforzar."}</h2>
-    <p>${wrong.length?`Fallaste ${wrong.length} pregunta${wrong.length===1?"":"s"}. Se guardarán en tu sistema de errores y Repaso inteligente podrá volver a preguntártelas.`:"No tuviste errores en esta sesión."}</p>
-    <div class="answer-key-result-actions"><button id="answer-key-result-back" class="secondary-btn">VER ANÁLISIS</button><button id="answer-key-result-repeat" class="primary-btn">REPETIR</button>${wrong.length?`<button id="answer-key-result-errors" class="secondary-btn">REPASAR ERRORES</button>`:""}</div>
-    ${wrong.length?`<section class="answer-key-wrong-list"><div class="panel-code">PREGUNTAS A REFORZAR</div>${wrong.slice(0,10).map(x=>`<article><span>${escapeHtml(String(x.q.number||x.i+1))}</span><div><strong>${escapeHtml(x.q.stem)}</strong><small>${escapeHtml(x.q.topic||"")}</small></div><b>${escapeHtml(x.q.key_answer||String.fromCharCode(65+Number(x.q.correctIndex||0)))}</b></article>`).join("")}</section>`:""}
-  </section>`;
-  $("#answer-key-result-back").onclick=renderPastExamPack;
-  $("#answer-key-result-repeat").onclick=()=>beginAnswerKeySession(st.mode,st.questions);
-  $("#answer-key-result-errors")?.addEventListener("click",()=>startAnswerKeyMode("errors"));
-}
-
-function startPastExamPractice(){
-  const qs=(state.smartPastExam?.practice_questions||[]).slice();
-  if(!qs.length)return toast("Este análisis no tiene preguntas de práctica.",true);
-  state.smartPastExam.practice_state={questions:qs,index:0,score:0,answers:{},started_at:new Date().toISOString()};
-  renderPastExamPracticeQuestion();
-}
-function renderPastExamPracticeQuestion(){
-  const st=state.smartPastExam.practice_state,q=st.questions[st.index],box=$("#past-exam-body");
-  if(!q){renderPastExamPracticeDone();return}
-  box.innerHTML=`<section class="master-exam-shell past-exam-practice-shell"><div class="master-exam-head"><div><div class="eyebrow">SIMULADOR · BASADO EN PARCIAL ANTERIOR</div><strong>${escapeHtml(state.smartPastExam.title||"")}</strong></div><span>${st.index+1} / ${st.questions.length}</span></div><div class="master-exam-progress"><i style="width:${st.index/st.questions.length*100}%"></i></div><article class="master-exam-question"><div class="master-exam-number">${String(st.index+1).padStart(2,"0")}</div><h2>${escapeHtml(q.stem||q.question||"")}</h2><div class="master-exam-options">${(q.options||[]).map((op,j)=>`<button class="master-exam-option" data-i="${j}"><span>${String.fromCharCode(65+j)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div><div id="past-practice-feedback" class="master-practice-feedback hidden"></div></article></section>`;
-  $$(".master-exam-option",box).forEach(b=>b.onclick=()=>answerPastExamPractice(Number(b.dataset.i)));
-}
-function answerPastExamPractice(choice){
-  const st=state.smartPastExam.practice_state,q=st.questions[st.index],correct=choice===Number(q.correctIndex);
-  st.answers[`q${st.index}`]=choice;
-  if(correct)st.score++;
-  $$(".master-exam-option").forEach((b,i)=>{b.disabled=true;if(i===Number(q.correctIndex))b.classList.add("correct");if(i===choice&&!correct)b.classList.add("wrong")});
-  const f=$("#past-practice-feedback");f.classList.remove("hidden");f.innerHTML=`<div><strong>${correct?"✓ Correcto":"↻ Revisa el concepto"}</strong><p>${escapeHtml(q.explanation||"")}</p></div><button id="past-next-q" class="primary-btn">${st.index+1===st.questions.length?"VER RESULTADO":"SIGUIENTE →"}</button>`;
-  $("#past-next-q").onclick=()=>{st.index++;renderPastExamPracticeQuestion()};
-}
-async function renderPastExamPracticeDone(){
-  const st=state.smartPastExam.practice_state,pct=Math.round(st.score/st.questions.length*100);
-  api("/api/exams/record",{method:"POST",body:{
-    title:`Simulador parcial anterior · ${state.smartPastExam.title||"Repaso"}`,
-    settings:{smart_study:true,past_exam:true,source_file:state.smartPastExam.source_file,subject:state.smartPastExam.subject,year:state.smartPastExam.year},
-    started_at:st.started_at,score:st.score,max_score:st.questions.length,percentage:pct,
-    questions:st.questions,answers:st.answers
-  }}).catch(()=>{});
-  $("#past-exam-body").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">${pct>=80?"✓":"↻"}</div><div class="eyebrow">SIMULADOR TERMINADO · SIN IA ADICIONAL</div><h2>${st.score} / ${st.questions.length} · ${pct}%</h2><p>${pct>=80?"Buen dominio de los patrones y temas de este parcial anterior.":"Conviene repasar los temas prioritarios antes de repetir el simulador."}</p><small>Los errores de este simulador se agregan a Repaso inteligente para que MED AI vuelva a preguntártelos en el momento adecuado.</small><div class="master-stage-actions"><button id="past-back-analysis" class="secondary-btn">VER ANÁLISIS</button><button id="past-repeat-practice" class="primary-btn">REPETIR</button></div></section>`;
-  $("#past-back-analysis").onclick=renderPastExamPack;
-  $("#past-repeat-practice").onclick=startPastExamPractice;
 }
 
 async function renderMistakes(){
@@ -5065,7 +4654,7 @@ async function hardRefreshApplication(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=26.0.0",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=26.2.0",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
@@ -5159,8 +4748,6 @@ function getDeviceId(){let id=localStorage.getItem("medai_device");if(!id){id=cr
 // -------------------- UI HELPERS --------------------
 
 function metric(label,value,sub,icon="◦"){return `<div class="card metric-card"><div class="metric-icon">${icon}</div><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${escapeHtml(String(value))}</div><div class="metric-sub">${escapeHtml(sub)}</div></div>`}
-function modeCard(title,p,view,icon){return `<div class="card mode-card" data-view="${view}"><div class="metric-icon">${icon}</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(p)}</p></div>`}
-function subjectCard(s){return `<div class="card subject-card" data-id="${s.id}"><div class="category">${escapeHtml(s.category||"Medicina")}</div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description||"Abrir materia y comenzar entrenamiento.")}</p><span class="badge" style="margin-top:10px">Abrir materia</span></div>`}
 function setMessageContent(el,role,text){
   const value=String(text??"");
   if(role==="ai"){
