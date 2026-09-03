@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.5";
+const APP_VERSION="30.0.6";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -1623,18 +1623,71 @@ function librarySimpleDiagrams(p){
   return arr.length?arr:[{title:"Diagrama del material",caption:"Relaciones principales",steps:(p?.concept_map?.branches||[]).slice(0,6).map(b=>({label:b.label,detail:(b.children||[]).join(" · ")}))}];
 }
 function renderLibrarySimpleSummary(){
-  const p=state.universitySourcePack,sm=p?.summary||{};
-  $("#university-study-content").innerHTML=`<article class="university-summary-view library-simple-summary"><div class="university-summary-hero"><div><span>RESUMEN</span><h3>${escapeHtml(p?.title||"")}</h3><p>${escapeHtml(sm.overview||p?.overview||"")}</p></div></div>${(sm.must_remember||[]).length?`<section class="library-simple-points"><span>PUNTOS ESENCIALES</span><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>`:""}${(p?.key_terms||[]).length?`<section class="university-keyterms"><span>CONCEPTOS DEL FRAGMENTO</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}</article>`;
+  const p=state.universitySourcePack,sm=p?.summary||{},sections=sm.sections||[];
+  $("#university-study-content").innerHTML=`
+    <article class="library-rich-summary">
+      <header class="library-rich-summary-hero">
+        <div><span>RESUMEN COMPLETO DEL FRAGMENTO</span><h2>${escapeHtml(p?.title||"")}</h2><p>${renderStudyParagraphs(sm.overview||p?.overview||"")}</p></div>
+        <aside><strong>${sections.length||((p?.source_lock?.headings||[]).length)}</strong><small>secciones cubiertas</small></aside>
+      </header>
+
+      ${p?.source_lock?.enabled?`<section class="library-rich-source-strip"><span>FUENTE</span><strong>${escapeHtml(p.source_reference?.study_scope||"Selección")}</strong><small>${escapeHtml(p.source_lock.domain||"General")} · solo contenido de las páginas seleccionadas</small></section>`:""}
+
+      ${sections.length?`<nav class="library-rich-summary-index"><span>ÍNDICE DEL RESUMEN</span>${sections.map((s,i)=>`<button data-summary-sec="${i}"><b>${String(i+1).padStart(2,"0")}</b><strong>${escapeHtml(s.title)}</strong>${s.page_refs?.length?`<small>pág. ${escapeHtml(s.page_refs.join(", "))}</small>`:""}</button>`).join("")}</nav>`:""}
+
+      <div class="library-rich-summary-sections">
+        ${sections.length?sections.map((s,i)=>`<section id="library-summary-sec-${i}" class="library-rich-summary-section">
+          <header><span>${String(i+1).padStart(2,"0")}</span><div><h3>${escapeHtml(s.title)}</h3>${s.page_refs?.length?`<small>PÁGINA${s.page_refs.length>1?"S":""} ${escapeHtml(s.page_refs.join(", "))}</small>`:""}</div></header>
+          <div class="library-rich-summary-prose">${renderStudyParagraphs(s.summary||"")}</div>
+          <div class="library-rich-section-grids">
+            ${s.key_points?.length?`<div class="library-rich-keypoints"><strong>LO MÁS IMPORTANTE</strong><ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
+            ${s.important_data?.length?`<div class="library-rich-data"><strong>DATOS QUE VALE LA PENA RECORDAR</strong><ul>${s.important_data.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
+          </div>
+        </section>`).join(""):`<section class="library-simple-points"><span>RESUMEN</span><p>${renderStudyParagraphs(sm.overview||p?.overview||"")}</p></section>`}
+      </div>
+
+      ${(sm.must_remember||[]).length?`<section class="library-rich-must"><div><span>REPASO FINAL</span><strong>Lo que no deberías olvidar</strong></div><ol>${sm.must_remember.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol></section>`:""}
+      ${sm.final_synthesis?`<section class="library-rich-synthesis"><span>SÍNTESIS</span>${renderStudyParagraphs(sm.final_synthesis)}</section>`:""}
+      ${(p?.key_terms||[]).length?`<section class="university-keyterms"><span>CONCEPTOS CLAVE DEL FRAGMENTO</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}
+    </article>`;
+
+  $$(".library-rich-summary-index button",$("#university-study-content")).forEach(btn=>btn.onclick=()=>$("#library-summary-sec-"+btn.dataset.summarySec)?.scrollIntoView({behavior:"smooth",block:"start"}));
 }
 function renderLibrarySimpleDiagrams(){
   const p=state.universitySourcePack,diagrams=librarySimpleDiagrams(p);
-  $("#university-study-content").innerHTML=`<div class="library-simple-diagrams">${diagrams.map(d=>renderCourseDiagram(d,[]).replace("para esta clase","para este material")).join("")}</div>`;
-  $$(".academy-diagram-step",$("#university-study-content")).forEach(step=>step.onclick=()=>{step.classList.toggle("selected");step.querySelector(".academy-diagram-detail")?.classList.toggle("open")});
+  $("#university-study-content").innerHTML=`
+    <section class="library-rich-diagram-hub">
+      <header><span>DIAGRAMAS DEL FRAGMENTO</span><h2>Visualiza relaciones, procesos y estructuras.</h2><p>Cada diagrama usa el formato que mejor corresponde al contenido real de tus páginas.</p></header>
+      <div class="library-rich-diagrams">
+        ${diagrams.map((d,di)=>`<article class="library-rich-diagram">
+          <header><div><span>DIAGRAMA ${di+1} · ${escapeHtml(String(d.type||"relación").toUpperCase())}</span><h3>${escapeHtml(d.title||`Diagrama ${di+1}`)}</h3><p>${escapeHtml(d.caption||"")}</p></div></header>
+          <div class="library-diagram-flow ${escapeAttr(d.type||"relation")}">
+            ${(d.steps||[]).map((s,i)=>`<div class="library-diagram-unit">
+              <div class="library-diagram-node"><span>${String(i+1).padStart(2,"0")}</span><strong>${escapeHtml(s.label||"")}</strong><small>${escapeHtml(s.detail||"")}</small></div>
+              ${i<d.steps.length-1?`<div class="library-diagram-arrow"><b>↓</b>${s.relation?`<small>${escapeHtml(s.relation)}</small>`:""}</div>`:""}
+            </div>`).join("")}
+          </div>
+        </article>`).join("")}
+      </div>
+    </section>`;
 }
 function renderLibrarySimpleMap(){
-  const p=state.universitySourcePack;
-  $("#university-study-content").innerHTML=renderCourseConceptMap(p?.concept_map,p||{});
-  $$(".academy-map-branch",$("#university-study-content")).forEach(branch=>branch.onclick=()=>{if(branch.classList.contains("expanded"))branch.classList.remove("expanded");else{$$(".academy-map-branch",$("#university-study-content")).forEach(x=>x.classList.remove("expanded"));branch.classList.add("expanded")}});
+  const p=state.universitySourcePack,map=p?.concept_map||{},branches=map.branches||[];
+  $("#university-study-content").innerHTML=`
+    <section class="library-rich-map">
+      <header><span>MAPA MENTAL ESTRUCTURADO</span><h2>${escapeHtml(map.center||p?.title||"Tema central")}</h2>${map.overview?`<p>${escapeHtml(map.overview)}</p>`:""}</header>
+      <div class="library-map-center"><span>TEMA CENTRAL</span><strong>${escapeHtml(map.center||p?.title||"")}</strong></div>
+      <div class="library-map-connector"></div>
+      <div class="library-map-branches">
+        ${branches.map((b,i)=>`<article class="library-map-branch">
+          <div class="library-map-branch-head"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(b.label||"Rama")}</strong>${b.summary?`<small>${escapeHtml(b.summary)}</small>`:""}</div></div>
+          <div class="library-map-children">${(b.children||[]).map((x,j)=>{
+            const child=typeof x==="string"?{label:x,detail:""}:x;
+            return `<div><b>${i+1}.${j+1}</b><span><strong>${escapeHtml(child.label||"")}</strong>${child.detail?`<small>${escapeHtml(child.detail)}</small>`:""}</span></div>`;
+          }).join("")}</div>
+        </article>`).join("")}
+      </div>
+    </section>`;
 }
 function renderLibrarySimpleStudyPack(tab="summary"){
   const p=state.universitySourcePack,src=state.universitySourceRecord;if(!p||!src)return;
@@ -1855,13 +1908,21 @@ function printUniversitySourcePdf(){
   const p=state.universitySourcePack,src=state.universitySourceRecord;
   if(!p||!src)return;
   const win=window.open("","_blank");if(!win)return toast("Permite ventanas emergentes para guardar el PDF.",true);try{win.opener=null}catch{}
-  const sm=p.summary||{};
-  const diagram=p.diagram||{};
-  const cmap=p.concept_map||{};
+
+  if(p.library_study_pack){
+    const sm=p.summary||{},map=p.concept_map||{},diagrams=librarySimpleDiagrams(p);
+    const summarySections=(sm.sections||[]).map((s,i)=>`<section class="sumsec"><h2>${i+1}. ${escapeHtml(s.title||"")}${s.page_refs?.length?` <small>pág. ${escapeHtml(s.page_refs.join(", "))}</small>`:""}</h2>${renderStudyParagraphs(s.summary||"")}${s.key_points?.length?`<h3>Lo más importante</h3><ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${s.important_data?.length?`<div class="box"><b>Datos para recordar</b><ul>${s.important_data.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}</section>`).join("");
+    const mapHtml=`<section><h2>Mapa mental</h2><div class="center">${escapeHtml(map.center||p.title||"")}</div><div class="branches">${(map.branches||[]).map(b=>`<div><h3>${escapeHtml(b.label||"")}</h3>${b.summary?`<p>${escapeHtml(b.summary)}</p>`:""}<ul>${(b.children||[]).map(x=>{const c=typeof x==="string"?{label:x,detail:""}:x;return `<li><b>${escapeHtml(c.label||"")}</b>${c.detail?` — ${escapeHtml(c.detail)}`:""}</li>`}).join("")}</ul></div>`).join("")}</div></section>`;
+    const diagramsHtml=diagrams.map((d,di)=>`<section class="visual"><h2>Diagrama ${di+1}: ${escapeHtml(d.title||"")}</h2><p><b>${escapeHtml(String(d.type||"relación"))}</b> · ${escapeHtml(d.caption||"")}</p><div class="flow">${(d.steps||[]).map((s,i)=>`<div><b>${i+1}. ${escapeHtml(s.label||"")}</b><span>${escapeHtml(s.detail||"")}</span>${s.relation?`<em>${escapeHtml(s.relation)}</em>`:""}</div>`).join("")}</div></section>`).join("");
+    const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||"Resumen")}</title><style>@page{margin:16mm}body{font-family:Arial,sans-serif;color:#17212b;line-height:1.55;font-size:10.5pt}header{border-bottom:2px solid #168c75;padding-bottom:10px}.brand{font-size:8pt;letter-spacing:.12em;color:#168c75;font-weight:bold}h1{font-size:23pt;margin:6px 0}h2{font-size:15pt;color:#173e47;margin-top:22px;border-bottom:1px solid #dce5e7;padding-bottom:4px}h2 small{font-size:8pt;color:#69767d}h3{font-size:10.5pt;color:#168c75}.box,.visual{background:#f5f8f8;border-left:3px solid #168c75;padding:9px 11px;margin:9px 0}.center{text-align:center;background:#173e47;color:white;padding:10px;font-weight:bold;margin:8px 0}.branches{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}.branches>div,.flow>div{border:1px solid #d5dfe2;background:#fff;padding:8px}.flow{display:grid;gap:6px}.flow span,.flow em{display:block;margin-top:4px;font-size:9pt}.flow em{color:#168c75;font-style:normal}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:22px;border-top:1px solid #ccd6da;padding-top:8px;color:#64737c;font-size:8pt}</style></head><body><header><div class="brand">MED AI DALTON · RESUMEN DE BIBLIOTECA</div><h1>${escapeHtml(p.title||"")}</h1><p>${escapeHtml(sm.overview||p.overview||"")}</p><small>${escapeHtml(p.source_reference?.study_scope||"")}</small></header>${summarySections}${sm.must_remember?.length?`<section class="box"><h2>Lo que no debes olvidar</h2><ol>${sm.must_remember.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol></section>`:""}${sm.final_synthesis?`<section><h2>Síntesis final</h2>${renderStudyParagraphs(sm.final_synthesis)}</section>`:""}${mapHtml}${diagramsHtml}<section class="terms"><h2>Conceptos clave</h2>${(p.key_terms||[]).map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section><footer>Generado únicamente a partir del fragmento seleccionado por el estudiante. Verifica detalles con el PDF original y las indicaciones de tu docente.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+    win.document.open();win.document.write(doc);win.document.close();return;
+  }
+
+  const sm=p.summary||{},diagram=p.diagram||{},cmap=p.concept_map||{};
   const sections=(p.sections||[]).map((s,i)=>`<section><h2>${i+1}. ${escapeHtml(s.title||"")}</h2>${renderStudyParagraphs(s.content||"")}${s.key_points?.length?`<h3>Puntos clave</h3><ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${s.example?`<div class="box"><b>Ejemplo</b>${renderStudyParagraphs(s.example)}</div>`:""}</section>`).join("");
   const diagramHtml=`<section class="visual"><h2>Diagrama</h2><h3>${escapeHtml(diagram.title||"")}</h3><div class="flow">${(diagram.steps||[]).map((x,i)=>`<div><b>${i+1}. ${escapeHtml(x.label||"")}</b><span>${escapeHtml(x.detail||"")}</span></div>`).join("")}</div></section>`;
-  const mapHtml=`<section class="visual"><h2>Mapa conceptual</h2><div class="center">${escapeHtml(cmap.center||p.title||"")}</div><div class="branches">${(cmap.branches||[]).map(b=>`<div><b>${escapeHtml(b.label||"")}</b><ul>${(b.children||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`).join("")}</div></section>`;
-  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||"Clase universitaria")}</title><style>@page{margin:17mm}body{font-family:Arial,sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:11px}.brand{font-size:8pt;letter-spacing:.13em;color:#168c75;font-weight:bold}h1{font-size:24pt;margin:6px 0}h2{font-size:16pt;color:#173e47;margin-top:22px}h3{font-size:11pt;color:#168c75}.box,.visual,.summary{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 12px;margin:10px 0}.flow,.branches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.flow>div,.branches>div{background:white;border:1px solid #d5dfe2;padding:8px}.flow b,.flow span{display:block}.flow span{font-size:9pt;margin-top:4px}.center{text-align:center;background:#173e47;color:white;padding:9px;font-weight:bold;margin-bottom:7px}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:24px;border-top:1px solid #ccd6da;padding-top:8px;color:#64737c;font-size:8pt}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL UNIVERSITARIO GUARDADO</div><h1>${escapeHtml(p.title||"")}</h1><p>${escapeHtml(p.overview||"")}</p></header><section class="summary"><h2>Resumen</h2><p>${escapeHtml(sm.overview||"")}</p><h3>Lo indispensable</h3><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${sections}${diagramHtml}${mapHtml}<section class="terms"><h2>Conceptos clave</h2>${(p.key_terms||[]).map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section><footer>Clase preparada a partir de material proporcionado por el estudiante. El archivo original no se incrusta en este PDF. Verifica detalles académicos con el material original y las indicaciones de tu docente.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  const mapHtml=`<section class="visual"><h2>Mapa conceptual</h2><div class="center">${escapeHtml(cmap.center||p.title||"")}</div><div class="branches">${(cmap.branches||[]).map(b=>`<div><b>${escapeHtml(b.label||"")}</b><ul>${(b.children||[]).map(x=>`<li>${escapeHtml(typeof x==="string"?x:(x.label||""))}</li>`).join("")}</ul></div>`).join("")}</div></section>`;
+  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||"Clase universitaria")}</title><style>@page{margin:17mm}body{font-family:Arial,sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:11px}.brand{font-size:8pt;letter-spacing:.13em;color:#168c75;font-weight:bold}h1{font-size:24pt;margin:6px 0}h2{font-size:16pt;color:#173e47;margin-top:22px}h3{font-size:11pt;color:#168c75}.box,.visual,.summary{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 12px;margin:10px 0}.flow,.branches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.flow>div,.branches>div{background:white;border:1px solid #d5dfe2;padding:8px}.flow b,.flow span{display:block}.flow span{font-size:9pt;margin-top:4px}.center{text-align:center;background:#173e47;color:white;padding:9px;font-weight:bold;margin-bottom:7px}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:24px;border-top:1px solid #ccd6da;padding-top:8px;color:#64737c;font-size:8pt}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL UNIVERSITARIO GUARDADO</div><h1>${escapeHtml(p.title||"")}</h1><p>${escapeHtml(p.overview||"")}</p></header><section class="summary"><h2>Resumen</h2><p>${escapeHtml(sm.overview||"")}</p><h3>Lo indispensable</h3><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${sections}${diagramHtml}${mapHtml}<section class="terms"><h2>Conceptos clave</h2>${(p.key_terms||[]).map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section><footer>Clase preparada a partir de material proporcionado por el estudiante. Verifica detalles académicos con el material original y las indicaciones de tu docente.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
   win.document.open();win.document.write(doc);win.document.close();
 }
 
@@ -4185,21 +4246,52 @@ async function extractAndCreateLibraryStudyPack(info){
 
 function renderLibraryStudyConfirm(ctx){
   const {info,start,end,text,focus,instruction,ocrPages=[],sourceTopics=[],sourceSummary=""}=ctx,file=state.libraryStudyFile,body=$("#library-study-body");
-  const exactPdf=info.type==="pdf"&&state.libraryStudyDoc?.exact_pages,scope=info.total>1?(exactPdf?`Páginas ${start}–${end}`:info.label==="bloques"?`Bloques ${start}–${end}`:`Diapositivas ${start}–${end}`):"Documento",approx=Math.max(1,Math.round(text.length/4));
+  const exactPdf=info.type==="pdf"&&state.libraryStudyDoc?.exact_pages;
+  const scope=info.total>1?(exactPdf?`Páginas ${start}–${end}`:info.label==="bloques"?`Bloques ${start}–${end}`:`Diapositivas ${start}–${end}`):"Documento";
+  const approx=Math.max(1,Math.round(text.length/4));
+  const headings=(ctx.sourceMap?.headings||[]).map(x=>x.title).filter(Boolean);
+
   body.innerHTML=`<section class="library-study-confirm">
     <button id="library-study-confirm-back" class="ghost-btn">← CAMBIAR SELECCIÓN</button>
-    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2 · FUENTE VERIFICADA</span><h2>Este es el contenido que MED AI encontró realmente.</h2><p>El resumen, mapa mental y diagramas quedarán limitados a esta selección, sin importar la materia.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens aproximados</small></div></div>
-    <section class="v30-source-preview"><div><span>CONTENIDO REAL DETECTADO EN TUS PÁGINAS</span><strong>Revisa que corresponda exactamente a lo que quieres estudiar.</strong><small>${ctx.sourceMap?.domain?`${escapeHtml(ctx.sourceMap.domain)} · ${escapeHtml(ctx.sourceMap.material_type||"Material académico")}`:"Detector académico general"}</small></div><div class="v30-source-preview-topics">${sourceTopics.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</div>${sourceSummary?`<p>${escapeHtml(sourceSummary)}</p>`:""}<small>Si algo importante no aparece aquí, vuelve y selecciona las páginas donde sí aparece. MED AI no añadirá temas del resto del PDF ni conocimientos vecinos que no aparezcan aquí.</small></section>
-    <div class="library-study-confirm-grid"><section class="card"><div class="panel-code">SESIÓN</div><h3>${escapeHtml(focus||file.title)}</h3>
-    <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div><div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>${exactPdf?`<div class="library-confirm-row"><span>Páginas enviadas</span><strong>${end-start+1} de ${state.libraryStudyDoc.pageCount}</strong></div>`:""}${ocrPages.length?`<div class="library-confirm-row"><span>OCR utilizado</span><strong>Pág. ${escapeHtml(ocrPages.join(", "))}</strong></div>`:""}<div class="library-confirm-row"><span>Control</span><strong>FUENTE BLOQUEADA · solo ${sourceTopics.length} tema${sourceTopics.length===1?"":"s"} detectado${sourceTopics.length===1?"":"s"}</strong></div><div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Mapa mental · Diagramas</strong></div>${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}<button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR RESUMEN VISUAL DE ESTE CONTENIDO</strong><small>Funciona con cualquier materia y solo usa estas páginas</small></div></button></section>
-    <aside class="library-study-generated-list"><div class="panel-code">GARANTÍAS DE ESTA SESIÓN</div><div><b>1</b><span><strong>Páginas exactas</strong><small>Solo tu rango</small></span></div><div><b>2</b><span><strong>Temario detectado</strong><small>Se verifica antes de generar</small></span></div><div><b>3</b><span><strong>Resumen enfocado</strong><small>No mezcla otros temas</small></span></div><div><b>4</b><span><strong>Validación final</strong><small>Se rechaza si se aleja de la fuente</small></span></div></aside></div></section>`;
-  $("#library-study-confirm-back").onclick=()=>renderLibraryStudyRangeForm(info);$("#library-study-create").onclick=()=>createLibraryStudyPack({...ctx,scope});
+    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2 · FUENTE VERIFICADA</span><h2>MED AI ya reconoció la estructura de estas páginas.</h2><p>El resumen cubrirá los subtítulos detectados y extraerá lo más importante de cada uno.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens aproximados</small></div></div>
+
+    <section class="v30-source-preview">
+      <div><span>CONTENIDO REAL DETECTADO</span><strong>${headings.length?"Subtítulos/encabezados encontrados":"Unidades de estudio encontradas"}</strong><small>${ctx.sourceMap?.domain?`${escapeHtml(ctx.sourceMap.domain)} · ${escapeHtml(ctx.sourceMap.material_type||"Material académico")}`:"Detector académico general"}</small></div>
+      <div class="v30-source-preview-topics">${(headings.length?headings:sourceTopics).map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</div>
+      ${sourceSummary?`<p>${escapeHtml(sourceSummary)}</p>`:""}
+      <small>El resumen, mapa mental y diagramas se limitarán a estas páginas; no se mezclará el resto del PDF.</small>
+    </section>
+
+    <div class="library-study-confirm-grid">
+      <section class="card">
+        <div class="panel-code">SE CREARÁ</div><h3>${escapeHtml(focus||file.title)}</h3>
+        <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div>
+        <div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>
+        ${exactPdf?`<div class="library-confirm-row"><span>Páginas enviadas</span><strong>${end-start+1} de ${state.libraryStudyDoc.pageCount}</strong></div>`:""}
+        <div class="library-confirm-row"><span>Resumen</span><strong>Completo · organizado por subtítulos · puntos importantes</strong></div>
+        <div class="library-confirm-row"><span>Mapa mental</span><strong>Jerárquico · ramas · subideas</strong></div>
+        <div class="library-confirm-row"><span>Diagramas</span><strong>1–3 · según el tipo real de contenido</strong></div>
+        ${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}
+        <button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR MATERIAL DE ESTUDIO COMPLETO</strong><small>Resumen + mapa mental + diagramas</small></div></button>
+      </section>
+      <aside class="library-study-generated-list">
+        <div class="panel-code">ENFOQUE V30.0.6</div>
+        <div><b>1</b><span><strong>Subtítulos reales</strong><small>Los cubre uno por uno</small></span></div>
+        <div><b>2</b><span><strong>Lo más importante</strong><small>Separa ideas y datos clave</small></span></div>
+        <div><b>3</b><span><strong>Mapa jerárquico</strong><small>Tema → ramas → subideas</small></span></div>
+        <div><b>4</b><span><strong>Diagramas útiles</strong><small>Proceso, comparación, ciclo, jerarquía…</small></span></div>
+      </aside>
+    </div>
+  </section>`;
+
+  $("#library-study-confirm-back").onclick=()=>renderLibraryStudyRangeForm(info);
+  $("#library-study-create").onclick=()=>createLibraryStudyPack({...ctx,scope});
 }
 
 async function createLibraryStudyPack(ctx){
   if(state.maintenanceMode&&navigator.onLine){state.maintenanceMode=false;updateMaintenanceBanner();}
   const btn=$("#library-study-create"),file=state.libraryStudyFile;
-  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ CREANDO TU RESUMEN + MAPA + DIAGRAMAS…</strong><small>Al terminar quedará guardada</small></div>`;
+  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ CREANDO UN RESUMEN COMPLETO + MAPA + DIAGRAMAS…</strong><small>Al terminar quedará guardada</small></div>`;
   try{
     const result=await api("/api/library/study-pack",{method:"POST",body:{
       file_id:file.id,
@@ -5360,12 +5452,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3005",Date.now().toString());
+  url.searchParams.set("v3006",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.5",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.6",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
