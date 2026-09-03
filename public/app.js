@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.6";
+const APP_VERSION="30.0.7";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -18,7 +18,7 @@ const state = {
   offlineDb:null,offlineReady:false,
   smartDashboard:null,smartReview:null,
   historicalKeysPack:null,historicalKeysSource:null,historicalKeysDraft:[],historicalKeysQuiz:null,
-  systemHealth:null,systemIntegrity:null,systemBackups:[],maintenanceMode:false,lastSyncReport:null,
+  systemHealth:null,systemSelfTest:null,systemIntegrity:null,systemBackups:[],maintenanceMode:false,lastSyncReport:null,
   questionBank:[],adaptiveExam:null,examPrepPlan:null,mediaStudyPack:null,mediaPractice:null,progressOverview:null,
   academicHome:null,semesterData:null,diagnostics:[],credentials:[],seriousExam:null,seriousTimer:null,academicExplainContext:null,
   smartSearchResults:[],smartQuality:localStorage.getItem("medai_smart_quality")||"economy"
@@ -291,7 +291,7 @@ async function renderSystemCenter(){
     <section class="system-health-grid">
       ${systemStatusCard("Base de datos D1",health?.db===true,health?.db_detail||(!navigator.onLine?"Sin conexión · datos locales activos":"Sin comprobar"),"DB")}
       ${systemStatusCard("Biblioteca R2",health?.r2===true,health?.r2_detail||(!navigator.onLine?"No requiere R2 para abrir copias offline":"Sin comprobar"),"R2")}
-      ${systemStatusCard("Binding de IA",health?.ai===true,health?.ai===true?"Configurado · no se hizo inferencia para probarlo":"Sin comprobar","AI")}
+      ${systemStatusCard("Binding de IA",health?.ai===true,state.systemSelfTest?.ai_live?.ok?"Inferencia real verificada":health?.ai===true?"Binding configurado · usa PRUEBA PROFUNDA para probar IA real":"Sin comprobar","AI")}
       ${systemStatusCard("Assets / PWA",health?.assets===true&&swReady,swReady?"Service Worker activo":"Service Worker todavía no controla esta pestaña","PWA")}
       ${systemStatusCard("Offline Vault",localDb,"IndexedDB disponible en este dispositivo","↓")}
       ${systemStatusCard("Sincronización",queue.length? "warning":true,queue.length?`${queue.length} cambio(s) pendiente(s)`:"Sin cambios pendientes","↻")}
@@ -400,12 +400,15 @@ async function runSystemIntegrity(){
   }catch(err){logSystemError("integrity_check",err);box.innerHTML=`<div class="masterclass-error"><strong>No pude comprobar R2.</strong><p>${escapeHtml(err.message)}</p></div>`}
 }
 async function runDeepSystemTestV29(){
-  if(!navigator.onLine)return toast("La prueba profunda necesita conexión para comprobar D1 y R2.",true);
-  openV29Result("Prueba profunda",`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Probando rutas críticas…</strong><small>No ejecuta Gemini ni consume una inferencia de IA.</small></div>`);
+  if(!navigator.onLine)return toast("La prueba profunda necesita conexión para comprobar D1, R2 e IA.",true);
+  openV29Result("Prueba profunda",`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Probando rutas críticas e IA real…</strong><small>Incluye una inferencia mínima con Gemini 2.5 Flash Lite.</small></div>`);
   try{
-    const d=await api("/api/system/self-test");
-    $("#v29-result-body").innerHTML=`<section class="v29-self-test"><div class="v29-success-mark">${d.ok?"✓":"!"}</div><div class="eyebrow">SELF TEST · ${Number(d.passed||0)}/${Number(d.total||0)}</div><h2>${d.ok?"Sistema listo":"Hay componentes para revisar"}</h2><div class="v29-test-list">${(d.checks||[]).map(x=>`<article class="${x.ok?"ok":"bad"}"><span>${x.ok?"✓":"×"}</span><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(x.detail||"")}</small></div></article>`).join("")}</div></section>`;
-  }catch(err){$("#v29-result-body").innerHTML=`<div class="masterclass-error"><strong>No pude completar la prueba.</strong><p>${escapeHtml(err.message)}</p></div>`}
+    const d=await api("/api/system/self-test?ai=1");
+    state.systemSelfTest=d;
+    $("#v29-result-body").innerHTML=`<section class="v29-self-test"><div class="v29-success-mark">${d.ok?"✓":"!"}</div><div class="eyebrow">SELF TEST · ${Number(d.passed||0)}/${Number(d.total||0)}</div><h2>${d.ok?"Sistema listo":"Hay componentes para revisar"}</h2><div class="v29-test-list">${(d.checks||[]).map(x=>`<article class="${x.ok?"ok":"bad"}"><span>${x.ok?"✓":"×"}</span><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(x.detail||"")}</small></div></article>`).join("")}</div>${d.ai_live?`<div class="v30-live-ai-test ${d.ai_live.ok?"ok":"bad"}"><strong>${d.ai_live.ok?"✓ IA REAL RESPONDIÓ":"× IA REAL NO RESPONDIÓ"}</strong><small>${escapeHtml(d.ai_live.model||"")}</small></div>`:""}</section>`;
+  }catch(err){
+    $("#v29-result-body").innerHTML=`<div class="masterclass-error"><strong>No pude completar la prueba.</strong><p>${escapeHtml(err.message)}</p></div>`;
+  }
 }
 
 function exportAllMedAI(){
@@ -442,6 +445,7 @@ async function copySystemDiagnostic(){
     status:{db:h.db,r2:h.r2,ai:h.ai,assets:h.assets,service_worker:!!navigator.serviceWorker?.controller,indexeddb:"indexedDB" in window},
     pending_sync:queue.length,
     integrity:state.systemIntegrity||null,
+    deep_test:state.systemSelfTest||null,
     recent_errors:errors
   };
   const text=JSON.stringify(payload,null,2);
@@ -4987,7 +4991,7 @@ function renderHistoricalKeysHome(saved=[]){
   box.innerHTML=`<section class="historical-keys-home">
     <div class="historical-keys-hero">
       <div class="historical-keys-icon">▤</div>
-      <div><span>CLAVES DE AÑOS PASADOS</span><h2>Convierte varios parciales viejos en un solo plan de estudio.</h2><p>Sube los PDF de claves/parciales históricos que tengas. MED AI buscará qué temas aparecieron, cuáles se repiten y qué conceptos conviene dominar. Después guarda una clase, un repaso y un examen final nuevo.</p></div>
+      <div><span>CLAVES DE AÑOS PASADOS</span><h2>Convierte tus parciales viejos en un repaso de alto rendimiento.</h2><p>MED AI identifica temas con evidencia real, verifica en cuántos PDF aparecen y prepara un resumen, puntos importantes, mapa mental, diagramas y ejercicios para practicar. No predice el próximo parcial.</p></div>
       <div class="historical-keys-cost"><b>⚡</b><span><strong>PREPARAR UNA VEZ</strong><small>Repasar después no regenera</small></span></div>
     </div>
 
@@ -5009,11 +5013,11 @@ function renderHistoricalKeysHome(saved=[]){
 
       <aside class="historical-keys-output">
         <div class="panel-code">MED AI PREPARARÁ</div>
-        <div><b>01</b><span><strong>Temas históricos</strong><small>Qué apareció y en cuántos archivos</small></span></div>
-        <div><b>02</b><span><strong>Clase maestra</strong><small>Explicación de los conceptos prioritarios</small></span></div>
-        <div><b>03</b><span><strong>Repaso de alto rendimiento</strong><small>Puntos clave, trampas y práctica</small></span></div>
-        <div><b>04</b><span><strong>Plan de estudio</strong><small>Orden recomendado</small></span></div>
-        <div><b>05</b><span><strong>Examen final nuevo</strong><small>20 preguntas · reutilizable</small></span></div>
+        <div><b>01</b><span><strong>Resumen</strong><small>Qué muestran realmente las claves</small></span></div>
+        <div><b>02</b><span><strong>Repetidos e importantes</strong><small>Frecuencia verificada por PDF</small></span></div>
+        <div><b>03</b><span><strong>Mapa mental</strong><small>Temas → conceptos relacionados</small></span></div>
+        <div><b>04</b><span><strong>Diagramas</strong><small>Relaciones y patrones útiles</small></span></div>
+        <div><b>05</b><span><strong>Práctica</strong><small>Hasta 12 ejercicios sobre temas con evidencia</small></span></div>
       </aside>
     </div>
 
@@ -5452,12 +5456,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3006",Date.now().toString());
+  url.searchParams.set("v3007",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.6",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.7",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }

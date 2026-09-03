@@ -2066,3 +2066,10 @@ html[data-focus-mode="1"] .topbar:hover .sync-badge{opacity:1}
   .library-rich-must{grid-template-columns:1fr}.library-rich-must ol{columns:1}
   .library-diagram-flow.comparación,.library-diagram-flow.comparison,.library-diagram-flow.jerarquía,.library-diagram-flow.jerarquia{grid-template-columns:1fr}
 }
+
+/* V30.0.7 · Professional audit */
+.v30-live-ai-test{margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface2)}
+.v30-live-ai-test strong,.v30-live-ai-test small{display:block}
+.v30-live-ai-test strong{font-size:9px}.v30-live-ai-test small{font-size:7px;color:var(--muted);margin-top:3px}
+.v30-live-ai-test.ok{border-color:rgba(82,223,179,.28)}.v30-live-ai-test.ok strong{color:var(--v17-green)}
+.v30-live-ai-test.bad{border-color:rgba(245,109,109,.3)}.v30-live-ai-test.bad strong{color:#f56d6d}
