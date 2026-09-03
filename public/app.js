@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.2";
+const APP_VERSION="30.0.4";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -1679,7 +1679,8 @@ function renderUniversityLesson(){
     <article class="university-lesson-view">
       <aside class="academy-reading-nav university-reading-nav"><span>CONTENIDO</span>${(p.sections||[]).map((s,i)=>`<button data-sec="${i}"><b>${String(i+1).padStart(2,"0")}</b><small>${escapeHtml(s.title||"Sección")}</small></button>`).join("")}</aside>
       <div class="university-lesson-sections">
-        <section class="university-objectives"><span>OBJETIVOS</span><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
+        ${p.source_lock?.enabled?`<section class="v30-source-lock-card"><div><span>FUENTE BLOQUEADA · ${escapeHtml(p.source_reference?.study_scope||"Selección")}</span><strong>Esta clase fue limitada al contenido realmente detectado en la selección:</strong></div><div class="v30-source-lock-topics">${(p.source_lock.topics||[]).map(t=>`<span>${escapeHtml(t.name)}${t.page_refs?.length?` · pág. ${escapeHtml(t.page_refs.join(", "))}`:""}</span>`).join("")}</div></section>`:""}
+      <section class="university-objectives"><span>OBJETIVOS</span><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
         ${(p.sections||[]).map((sec,i)=>`<section id="uni-sec-${i}" class="academy-study-section university-study-section">
           <div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div>
           <div class="masterclass-section-content"><div class="academy-section-heading"><h2>${escapeHtml(sec.title||"")}</h2><button class="secondary-btn uni-listen-sec" data-sec="${i}">🔊 ESCUCHAR</button></div>
@@ -4136,45 +4137,34 @@ async function extractAndCreateLibraryStudyPack(info){
       for(let n=start;n<=end;n++){
         btn.innerHTML=`<span class="university-spin">✦</span><div><strong>LEYENDO PÁGINA ${n} DE ${end}</strong><small>Solo el rango seleccionado</small></div>`;
         const extracted=await extractPdfPageTextV2904(doc,n);let pageText=String(extracted.text||"").trim();
-        if(pageText.length<60){
-          if(useOcr){btn.innerHTML=`<span class="university-spin">✦</span><div><strong>OCR · PÁGINA ${n}</strong><small>Convirtiendo esta página escaneada a texto…</small></div>`;pageText=await ocrPdfPageV2904(extracted.page,n);ocrPages.push(n)}
-          else sparse.push(n);
-        }
+        if(pageText.length<60){if(useOcr){btn.innerHTML=`<span class="university-spin">✦</span><div><strong>OCR · PÁGINA ${n}</strong><small>Convirtiendo esta página escaneada a texto…</small></div>`;pageText=await ocrPdfPageV2904(extracted.page,n);ocrPages.push(n)}else sparse.push(n)}
         if(pageText.length>=20)pieces.push(`===== PÁGINA ${n} =====\n${pageText}`);
       }
       if(sparse.length)throw new Error(`Las páginas ${sparse.join(", ")} parecen escaneadas. Activa “Usar OCR si alguna página es escaneada” y vuelve a continuar.`);
       text=pieces.join("\n\n").trim();
-    }else if(info.type==="pdf_blocks"){
-      text=state.libraryStudyDoc.units.slice(start-1,end).map((t,i)=>`===== BLOQUE ${start+i} DEL PDF =====\n${t}`).join("\n\n");
-    }else if(info.type==="pptx"){
-      text=state.libraryStudyDoc.units.slice(start-1,end).map((t,i)=>`===== DIAPOSITIVA ${start+i} =====\n${t}`).join("\n\n");
-    }else text=state.libraryStudyDoc?.text||"";
-    text=text.trim();
-    if(text.length<120)throw new Error("El fragmento seleccionado tiene muy poco texto.");
-    if(text.length>88000)throw new Error("El rango contiene demasiado texto. Reduce las páginas; 5–15 suele funcionar mejor.");
-    renderLibraryStudyConfirm({info,start,end,text,focus,instruction,ocrPages});
-  }catch(err){
-    toast(err.message,true);
-    const btn=$("#library-study-extract");if(btn){btn.disabled=false;btn.innerHTML=`<span>→</span><div><strong>CONTINUAR Y PREPARAR SESIÓN</strong><small>${info.type==="pdf"?"Leeremos solo las páginas seleccionadas":"Extraeremos solo el fragmento seleccionado"}</small></div>`}
-  }
+    }else if(info.type==="pdf_blocks")text=state.libraryStudyDoc.units.slice(start-1,end).map((t,i)=>`===== BLOQUE ${start+i} DEL PDF =====\n${t}`).join("\n\n");
+    else if(info.type==="pptx")text=state.libraryStudyDoc.units.slice(start-1,end).map((t,i)=>`===== DIAPOSITIVA ${start+i} =====\n${t}`).join("\n\n");
+    else text=state.libraryStudyDoc?.text||"";
+    text=text.trim();if(text.length<120)throw new Error("El fragmento seleccionado tiene muy poco texto.");if(text.length>88000)throw new Error("El rango contiene demasiado texto. Reduce las páginas; 5–15 suele funcionar mejor.");
+    const exactPdf=info.type==="pdf"&&state.libraryStudyDoc?.exact_pages,scope=info.total>1?(exactPdf?`Páginas ${start}–${end}`:info.label==="bloques"?`Bloques ${start}–${end}`:`Diapositivas ${start}–${end}`):"Documento";
+    btn.innerHTML=`<span class="university-spin">✦</span><div><strong>DETECTANDO EL CONTENIDO REAL…</strong><small>MED AI verificará qué aparece en ${escapeHtml(scope)}</small></div>`;
+    const map=await api("/api/library/source-map",{method:"POST",body:{file_id:state.libraryStudyFile.id,extracted_text:text,study_scope:scope}});
+    if(!map.source_topics?.length)throw new Error("No pude identificar temas claros en este rango.");
+    renderLibraryStudyConfirm({info,start,end,text,focus,instruction,ocrPages,sourceMap:map.source_map,sourceTopics:map.source_topics,sourceSummary:map.source_map?.source_summary||""});
+  }catch(err){toast(err.message,true);const btn=$("#library-study-extract");if(btn){btn.disabled=false;btn.innerHTML=`<span>→</span><div><strong>CONTINUAR Y PREPARAR SESIÓN</strong><small>${info.type==="pdf"?"Leeremos solo las páginas seleccionadas":"Extraeremos solo el fragmento seleccionado"}</small></div>`}}
 }
 
 function renderLibraryStudyConfirm(ctx){
-  const {info,start,end,text,focus,instruction,ocrPages=[]}=ctx,file=state.libraryStudyFile,body=$("#library-study-body");
-  const exactPdf=info.type==="pdf"&&state.libraryStudyDoc?.exact_pages;
-  const scope=info.total>1?(exactPdf?`Páginas ${start}–${end}`:info.label==="bloques"?`Bloques ${start}–${end}`:`Diapositivas ${start}–${end}`):"Documento";
-  const approx=Math.max(1,Math.round(text.length/4));
+  const {info,start,end,text,focus,instruction,ocrPages=[],sourceTopics=[],sourceSummary=""}=ctx,file=state.libraryStudyFile,body=$("#library-study-body");
+  const exactPdf=info.type==="pdf"&&state.libraryStudyDoc?.exact_pages,scope=info.total>1?(exactPdf?`Páginas ${start}–${end}`:info.label==="bloques"?`Bloques ${start}–${end}`:`Diapositivas ${start}–${end}`):"Documento",approx=Math.max(1,Math.round(text.length/4));
   body.innerHTML=`<section class="library-study-confirm">
     <button id="library-study-confirm-back" class="ghost-btn">← CAMBIAR SELECCIÓN</button>
-    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2</span><h2>Listo para crear tu clase guardada.</h2><p>${exactPdf?"MED AI usará únicamente las páginas que elegiste.":"La IA usará solamente el contenido seleccionado."}</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens aproximados</small></div></div>
+    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2 · FUENTE VERIFICADA</span><h2>Este es el contenido que MED AI encontró realmente.</h2><p>La clase, resumen, ejercicios y examen quedarán limitados a esta selección, sin importar la materia.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens aproximados</small></div></div>
+    <section class="v30-source-preview"><div><span>CONTENIDO REAL DETECTADO EN TUS PÁGINAS</span><strong>Revisa que corresponda exactamente a lo que quieres estudiar.</strong><small>${ctx.sourceMap?.domain?`${escapeHtml(ctx.sourceMap.domain)} · ${escapeHtml(ctx.sourceMap.material_type||"Material académico")}`:"Detector académico general"}</small></div><div class="v30-source-preview-topics">${sourceTopics.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</div>${sourceSummary?`<p>${escapeHtml(sourceSummary)}</p>`:""}<small>Si algo importante no aparece aquí, vuelve y selecciona las páginas donde sí aparece. MED AI no añadirá temas del resto del PDF ni conocimientos vecinos que no aparezcan aquí.</small></section>
     <div class="library-study-confirm-grid"><section class="card"><div class="panel-code">SESIÓN</div><h3>${escapeHtml(focus||file.title)}</h3>
-    <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div><div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>
-    ${exactPdf?`<div class="library-confirm-row"><span>Páginas enviadas</span><strong>${end-start+1} de ${state.libraryStudyDoc.pageCount}</strong></div>`:""}${ocrPages.length?`<div class="library-confirm-row"><span>OCR utilizado</span><strong>Pág. ${escapeHtml(ocrPages.join(", "))}</strong></div>`:""}
-    <div class="library-confirm-row"><span>Modelo</span><strong>Gemini 2.5 Flash · Flash Lite · respaldo automático</strong></div><div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Clase · Diagrama · Mapa · 8 ejercicios · Examen de 10 · Videos</strong></div>
-    ${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}<button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR Y GUARDAR ESTA SESIÓN</strong><small>La IA trabajará solo con este fragmento</small></div></button></section>
-    <aside class="library-study-generated-list"><div class="panel-code">DESPUÉS PODRÁS</div><div><b>◎</b><span><strong>Repasar el resumen</strong><small>Sin nueva inferencia</small></span></div><div><b>◈</b><span><strong>Abrir diagrama y mapa</strong><small>Ya quedan generados</small></span></div><div><b>✦</b><span><strong>Practicar 8 ejercicios</strong><small>Calificación local</small></span></div><div><b>✓</b><span><strong>Repetir examen de 10</strong><small>Las veces que quieras</small></span></div></aside></div></section>`;
-  $("#library-study-confirm-back").onclick=()=>renderLibraryStudyRangeForm(info);
-  $("#library-study-create").onclick=()=>createLibraryStudyPack({...ctx,scope});
+    <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div><div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>${exactPdf?`<div class="library-confirm-row"><span>Páginas enviadas</span><strong>${end-start+1} de ${state.libraryStudyDoc.pageCount}</strong></div>`:""}${ocrPages.length?`<div class="library-confirm-row"><span>OCR utilizado</span><strong>Pág. ${escapeHtml(ocrPages.join(", "))}</strong></div>`:""}<div class="library-confirm-row"><span>Control</span><strong>FUENTE BLOQUEADA · solo ${sourceTopics.length} tema${sourceTopics.length===1?"":"s"} detectado${sourceTopics.length===1?"":"s"}</strong></div><div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Clase · Diagrama · Mapa · 8 ejercicios · Examen de 10 · Videos</strong></div>${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}<button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR CLASE SOLO DE ESTE CONTENIDO</strong><small>Funciona con cualquier materia y solo usa estas páginas</small></div></button></section>
+    <aside class="library-study-generated-list"><div class="panel-code">GARANTÍAS DE ESTA SESIÓN</div><div><b>1</b><span><strong>Páginas exactas</strong><small>Solo tu rango</small></span></div><div><b>2</b><span><strong>Temario detectado</strong><small>Se verifica antes de generar</small></span></div><div><b>3</b><span><strong>Clase bloqueada</strong><small>No mezcla otros temas</small></span></div><div><b>4</b><span><strong>Validación final</strong><small>Se rechaza si se aleja de la fuente</small></span></div></aside></div></section>`;
+  $("#library-study-confirm-back").onclick=()=>renderLibraryStudyRangeForm(info);$("#library-study-create").onclick=()=>createLibraryStudyPack({...ctx,scope});
 }
 
 async function createLibraryStudyPack(ctx){
@@ -4193,14 +4183,16 @@ async function createLibraryStudyPack(ctx){
       page_start:ctx.info?.type==="pdf"&&state.libraryStudyDoc?.exact_pages?ctx.start:null,
       page_end:ctx.info?.type==="pdf"&&state.libraryStudyDoc?.exact_pages?ctx.end:null,
       pdf_page_count:ctx.info?.type==="pdf"&&state.libraryStudyDoc?.exact_pages?state.libraryStudyDoc.pageCount:null,
-      ocr_pages:Array.isArray(ctx.ocrPages)?ctx.ocrPages:[]
+      ocr_pages:Array.isArray(ctx.ocrPages)?ctx.ocrPages:[],
+      source_map:ctx.sourceMap||null
     }});
     const list=await api(`/api/library/study-packs?file_id=${encodeURIComponent(file.id)}`);
     state.libraryStudyPacks=list.packs||[];
     const seconds=result.generation_ms?Math.max(1,Math.round(Number(result.generation_ms)/1000)):null;
+    const topics=Array.isArray(result.source_topics)?result.source_topics:[];
     toast(result.reused
       ?"Esta misma sesión ya estaba guardada; la reutilicé sin gastar IA otra vez."
-      :`Sesión creada y guardada${seconds?` en ${seconds} s`:""}.`);
+      :`Sesión creada${seconds?` en ${seconds} s`:""}.${topics.length?` Temas: ${topics.slice(0,4).join(", ")}${topics.length>4?"…":""}`:""}`);
     await openLibrarySavedStudyPack(result.id,true);
   }catch(err){
     // A browser/network timeout can occasionally occur just as the Worker finishes.
@@ -5402,12 +5394,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3002",Date.now().toString());
+  url.searchParams.set("v3004",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.2",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.4",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }

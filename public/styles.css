@@ -1985,3 +1985,15 @@ html[data-focus-mode="1"] .topbar:hover .sync-badge{opacity:1}
 
 /* V30.0.2 · parallel Library generator */
 .library-create-study-btn:disabled{cursor:wait;filter:saturate(.82)}
+
+/* V30.0.3 · source-locked study */
+.v30-source-preview,.v30-source-lock-card{margin:10px 0;padding:12px;border:1px solid rgba(82,223,179,.25);border-radius:10px;background:rgba(82,223,179,.035)}
+.v30-source-preview>div:first-child span,.v30-source-preview>div:first-child strong,.v30-source-lock-card>div:first-child span,.v30-source-lock-card>div:first-child strong{display:block}
+.v30-source-preview>div:first-child span,.v30-source-lock-card>div:first-child span{font-family:var(--font-mono);font-size:6px;letter-spacing:.12em;color:var(--v17-green)}
+.v30-source-preview>div:first-child strong,.v30-source-lock-card>div:first-child strong{font-size:10px;margin-top:4px;color:var(--heading)}
+.v30-source-preview-topics,.v30-source-lock-topics{display:flex;gap:5px;flex-wrap:wrap;margin:9px 0}
+.v30-source-preview-topics span,.v30-source-lock-topics span{padding:5px 8px;border:1px solid var(--border);border-radius:999px;background:var(--surface2);font-family:var(--font-mono);font-size:6px;color:var(--text2)}
+.v30-source-preview p{font-size:8px;line-height:1.5;color:var(--text2);margin:8px 0}.v30-source-preview>small{font-size:7px;line-height:1.45;color:var(--muted)}
+
+/* V30.0.4 · Universal source-locked study */
+.v30-source-preview>div:first-child>small{display:block;margin-top:4px;font-family:var(--font-mono);font-size:6px;color:var(--v17-blue);letter-spacing:.06em}
