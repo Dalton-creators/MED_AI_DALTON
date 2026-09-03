@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v29-0-2-library-json-fix";
+const CACHE = "med-ai-dalton-v29-0-4-page-selector";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=29.0.2",
-  "/app.js?v=29.0.2",
+  "/styles.css?v=29.0.4",
+  "/app.js?v=29.0.4",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

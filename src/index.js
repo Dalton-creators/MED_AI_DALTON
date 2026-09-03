@@ -397,7 +397,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="29.0.2";
+const SYSTEM_VERSION="29.0.4";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -2446,27 +2446,44 @@ async function listLibraryStudyPacks(url,env,user){
 
 
 
+
+function promiseTimeout(promise,ms,label="operación"){
+  let timer;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>{
+      const err=new Error(`${label} superó ${Math.round(ms/1000)} segundos.`);
+      err.code="MEDAI_TIMEOUT";
+      reject(err);
+    },ms);
+  });
+  return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
+}
+
 async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens=7000,temperature=0.10}){
   ensureAI(env);
   let lastErr=null,raw=null,parsed=null,usedModel=null,shape="";
 
   try{
-    raw=await env.AI.run(
-      PREMIUM_FLASH_MODEL,
-      {
-        contents:[{role:"user",parts:[{text:prompt}]}],
-        systemInstruction:{parts:[{text:system}]},
-        generationConfig:{
-          temperature,
-          maxOutputTokens,
-          responseMimeType:"application/json"
-        }
-      },
-      gatewayOptions(task,{
-        model_requested:PREMIUM_FLASH_MODEL,
-        model_used:PREMIUM_FLASH_MODEL,
-        format:"gemini_native_json"
-      })
+    raw=await promiseTimeout(
+      env.AI.run(
+        PREMIUM_FLASH_MODEL,
+        {
+          contents:[{role:"user",parts:[{text:prompt}]}],
+          systemInstruction:{parts:[{text:system}]},
+          generationConfig:{
+            temperature,
+            maxOutputTokens,
+            responseMimeType:"application/json"
+          }
+        },
+        gatewayOptions(task,{
+          model_requested:PREMIUM_FLASH_MODEL,
+          model_used:PREMIUM_FLASH_MODEL,
+          format:"gemini_native_json"
+        })
+      ),
+      65000,
+      "Gemini 2.5 Flash"
     );
     usedModel=PREMIUM_FLASH_MODEL;
     parsed=parseAIJsonResponse(raw);
@@ -2483,22 +2500,26 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
 
   for(const model of [WORKERS_TEXT_MODEL,WORKERS_FAST_MODEL]){
     try{
-      raw=await env.AI.run(
-        model,
-        {
-          messages:[
-            {role:"system",content:system+"\nDevuelve únicamente JSON válido, sin Markdown ni texto antes o después."},
-            {role:"user",content:prompt}
-          ],
-          max_tokens:Math.min(maxOutputTokens,7000),
-          temperature,
-          chat_template_kwargs:{enable_thinking:false}
-        },
-        gatewayOptions(task,{
-          model_requested:PREMIUM_FLASH_MODEL,
-          model_used:model,
-          format:"workers_json_fallback"
-        })
+      raw=await promiseTimeout(
+        env.AI.run(
+          model,
+          {
+            messages:[
+              {role:"system",content:system+"\nDevuelve únicamente JSON válido, sin Markdown ni texto antes o después."},
+              {role:"user",content:prompt}
+            ],
+            max_tokens:Math.min(maxOutputTokens,5600),
+            temperature,
+            chat_template_kwargs:{enable_thinking:false}
+          },
+          gatewayOptions(task,{
+            model_requested:PREMIUM_FLASH_MODEL,
+            model_used:model,
+            format:"workers_json_fallback"
+          })
+        ),
+        40000,
+        model
       );
       usedModel=model;
       parsed=parseAIJsonResponse(raw);
@@ -2512,7 +2533,14 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
     }
   }
 
-  if(lastErr)throw lastErr;
+  if(lastErr){
+    if(lastErr?.code==="MEDAI_TIMEOUT"){
+      const err=new Error("Los modelos tardaron demasiado en crear esta sesión. MED AI detuvo la espera para evitar que la pantalla quede congelada.");
+      err.code="MEDAI_TIMEOUT";
+      throw err;
+    }
+    throw lastErr;
+  }
   return {parsed:null,raw,usedModel,shape};
 }
 
@@ -2581,7 +2609,7 @@ ${compactSource}
     task:"library_study_pack_repair",
     system:"Reparas salidas JSON académicas incompletas. Devuelve únicamente JSON válido y cumple exactamente las cantidades solicitadas.",
     prompt,
-    maxOutputTokens:6200,
+    maxOutputTokens:4800,
     temperature:0.06
   });
   const repair=generated.parsed;
@@ -2611,6 +2639,9 @@ async function createLibraryStudyPackApi(request,env,user){
   const studyFocus=cleanText(body.study_focus,500)||file.title;
   const studyScope=cleanText(body.study_scope,240)||"Fragmento seleccionado";
   const instruction=cleanText(body.instruction,2500);
+  const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0);
+  const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
+  const exactPageRange=pageStart>0&&pageEnd>=pageStart;
 
   const pseudoRow={
     subject_name:"Biblioteca personal",
@@ -2628,6 +2659,7 @@ async function createLibraryStudyPackApi(request,env,user){
   const extra=`\n\nCONTEXTO ESPECIAL DE ESTA SESIÓN:
 - Archivo de Biblioteca: ${file.title}
 - Fragmento seleccionado: ${studyScope}
+${exactPageRange?`- Rango PDF exacto: páginas ${pageStart} a ${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}. Respeta los marcadores ===== PÁGINA N ===== y no atribuyas información a páginas no incluidas.`:""}
 - Enfoque del estudiante: ${studyFocus}
 ${instruction?`- Indicación del estudiante: ${instruction}`:""}
 - Esta sesión es independiente del progreso oficial del curso.
@@ -2640,7 +2672,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
       task:"library_study_pack",
       system:"Eres MED AI DALTON, profesor universitario y diseñador instruccional. Devuelve únicamente JSON válido.",
       prompt:`${basePrompt}${extra}\n\n===== FRAGMENTO EXTRAÍDO LOCALMENTE =====\n${extracted}\n===== FIN DEL FRAGMENTO =====`,
-      maxOutputTokens:7600,
+      maxOutputTokens:5600,
       temperature:0.08
     });
     parsed=generationInfo.parsed;
@@ -2674,11 +2706,11 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
       response_shape:generationInfo?.shape||repairInfo?.shape||"sin_forma_detectable",
       parsed_keys:parsed&&typeof parsed==="object"?Object.keys(parsed).slice(0,20):[],
       source_chars:extracted.length,
-      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V29.0.2 muestra modelo, forma de respuesta y claves JSON recibidas."
+      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V29.0.4 muestra modelo, forma de respuesta y claves JSON recibidas."
     },502);
   }
 
-  pack.version=29.02;
+  pack.version=29.04;
   pack.library_study_pack=true;
   pack.source_reference={
     type:"library",
@@ -2686,6 +2718,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     name:file.title,
     mime_type:fileMeta.mime_type||"",
     study_scope:studyScope,
+    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,
     imported_at:new Date().toISOString()
   };
   pack.overview=pack.overview||`Sesión basada en ${studyScope} de ${file.title}.`;
@@ -2694,7 +2727,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
   const metadata={
     university_source:true,
     library_study_pack:true,
-    version:29.02,
+    version:29.04,
     source_type:"library",
     source_file_id:fileId,
     source_name:file.title,
@@ -2702,6 +2735,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     study_scope:studyScope,
     study_focus:studyFocus,
     study_title:pack.title||studyFocus,
+    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,exact_page_range:exactPageRange,
     imported_once:true
   };
   await env.DB.prepare(`
@@ -2712,7 +2746,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     id,user.id,null,null,
     `LIB · ${file.title} · ${studyScope}`,
     JSON.stringify(pack),
-    JSON.stringify(["university_source","study_pack","library_study_pack","v29_0_2"]),
+    JSON.stringify(["university_source","study_pack","library_study_pack","v29_0_4"]),
     JSON.stringify(metadata),
     now,now
   ).run();
@@ -4663,6 +4697,7 @@ function parseAIJsonResponse(data){
 }
 
 function medicalInstructions(mode){
+  if(mode==="document_ocr") return `Eres un motor de OCR académico fiel. Transcribe únicamente lo visible en la imagen. Conserva títulos, numeración, listas, opciones, símbolos y fórmulas legibles. No resumas, no expliques, no corrijas y no inventes texto. Devuelve solamente la transcripción.`;
   if(mode==="science") return `Responde en español y actúa como profesor universitario excelente de Matemática, Física o Astronomía según el área indicada por el estudiante.
 REGLAS: enseña conceptos antes de fórmulas; no saltes pasos algebraicos importantes; define símbolos y unidades; verifica dimensiones y resultados; distingue intuición, derivación y aplicación; en problemas guía paso a paso y deja que el estudiante intente cuando la modalidad sea práctica o socrática. Corrige errores explicando exactamente dónde ocurrió el razonamiento incorrecto. Si el tema es avanzado, declara supuestos y límites de validez. Evita inventar datos o hechos científicos. Adapta la profundidad al nivel indicado. FORMATO: usa ## para el título principal y ### para subtítulos cuando sea útil, listas o pasos numerados y párrafos cortos. No uses encabezados subrayados con signos = o -. Nunca respondas solo con el título.`;
   if(mode==="language") return `Actúa como profesor experto en adquisición de idiomas para un estudiante hispanohablante. El idioma objetivo, el nivel, el tema de la ruta y el porcentaje de inmersión vienen indicados en cada mensaje.
