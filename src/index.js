@@ -437,7 +437,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.0.4";
+const SYSTEM_VERSION="30.0.5";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -3060,6 +3060,49 @@ async function callLibraryPartJson(env,{
   throw err;
 }
 
+
+function sanitizeLibrarySimplePack(parsed,row,body){
+  const rawDiagrams=Array.isArray(parsed?.diagrams)?parsed.diagrams:(parsed?.diagram?[parsed.diagram]:[]);
+  const diagrams=rawDiagrams.slice(0,3).map((d,i)=>({
+    title:cleanText(d?.title,320)||`Diagrama ${i+1}`,
+    caption:cleanText(d?.caption,1000),
+    steps:Array.isArray(d?.steps)?d.steps.slice(0,8).map(s=>({label:cleanText(s?.label,320),detail:cleanText(s?.detail,1200)})).filter(s=>s.label):[]
+  })).filter(d=>d.steps.length>=2);
+  const branches=Array.isArray(parsed?.concept_map?.branches)?parsed.concept_map.branches.slice(0,8).map(b=>({
+    label:cleanText(b?.label,320),children:Array.isArray(b?.children)?b.children.slice(0,5).map(x=>cleanText(x,600)).filter(Boolean):[]
+  })).filter(b=>b.label):[];
+  const summary={
+    overview:cleanText(parsed?.summary?.overview||parsed?.overview,5000),
+    must_remember:Array.isArray(parsed?.summary?.must_remember)?parsed.summary.must_remember.slice(0,14).map(x=>cleanText(x,900)).filter(Boolean):[],
+    common_errors:Array.isArray(parsed?.summary?.common_errors)?parsed.summary.common_errors.slice(0,8).map(x=>cleanText(x,900)).filter(Boolean):[]
+  };
+  if(!summary.overview||!branches.length||!diagrams.length)return null;
+  return {
+    version:30.05,university_source:true,library_study_pack:true,library_simple_v30:true,
+    title:cleanText(parsed?.title,360)||body.source_name||row.topic_name,
+    overview:cleanText(parsed?.overview,2800)||summary.overview,
+    estimated_minutes:clamp(Number(parsed?.estimated_minutes||20),5,90),
+    source_digest:cleanText(parsed?.source_digest,18000),
+    key_terms:Array.isArray(parsed?.key_terms)?parsed.key_terms.slice(0,20).map(x=>cleanText(x,360)).filter(Boolean):[],
+    summary,
+    diagrams,
+    diagram:diagrams[0],
+    concept_map:{center:cleanText(parsed?.concept_map?.center,320)||row.topic_name,branches},
+    // Intentionally empty in Library Study Mode V30.0.5.
+    sections:[],objectives:[],exam_focus:[],practice:[],exam:[],video_searches:[],
+    source_reference:{type:cleanText(body.source_type,30),name:cleanText(body.source_name,300),mime_type:cleanText(body.mime_type,120),imported_at:new Date().toISOString()}
+  };
+}
+function validateLibrarySimplePackAgainstSource(pack,map,sourceText){
+  const names=sourceLockNames(map).map(normalizeSourceLockText).filter(Boolean);
+  const generated=[pack?.title,pack?.overview,pack?.summary?.overview,...(pack?.summary?.must_remember||[]),...(pack?.key_terms||[]),
+    ...(pack?.diagrams||[]).flatMap(d=>[d.title,d.caption,...(d.steps||[]).flatMap(s=>[s.label,s.detail])]),
+    pack?.concept_map?.center,...(pack?.concept_map?.branches||[]).flatMap(b=>[b.label,...(b.children||[])])].filter(Boolean).join(' ');
+  const norm=normalizeSourceLockText(generated),found=names.filter(n=>n&&norm.includes(n)).length,recall=names.length?found/names.length:1;
+  const coverage=sourceLockCoverage(sourceText,generated);
+  return {ok:recall>=(names.length<=2?1:0.6)&&coverage>=0.10,topic_recall:recall,lexical_coverage:coverage,missing_topics:names.filter(n=>!norm.includes(n)).slice(0,12)};
+}
+
 function libraryParallelCoreValid(p){
   const sections=Array.isArray(p?.sections)?p.sections.filter(x=>x?.title&&(x?.content||x?.explanation)).length:0;
   return sections>=3 && !!(p?.title||p?.overview);
@@ -3327,60 +3370,60 @@ async function librarySourceMapApi(request,env,user){
 
 async function createLibraryStudyPackApi(request,env,user){
   ensureAI(env);
-  const body=await readJson(request);
-  const fileId=cleanText(body.file_id,220),extracted=cleanText(body.extracted_text,90000);
+  const body=await readJson(request),fileId=cleanText(body.file_id,220),extracted=cleanText(body.extracted_text,90000);
   if(!fileId||extracted.length<120)return json({error:"Falta el archivo o el fragmento tiene muy poco contenido."},400);
   const file=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1`).bind(fileId,user.id).first();
   if(!file)return json({error:"No encontré el archivo original en tu Biblioteca."},404);
   const fileMeta=parseJsonLoose(file.metadata_json)||{},studyFocus=cleanText(body.study_focus,500)||file.title,studyScope=cleanText(body.study_scope,240)||"Fragmento seleccionado",instruction=cleanText(body.instruction,2500);
   const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0),ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[],exactPageRange=pageStart>0&&pageEnd>=pageStart;
-  const sourceSignature=await sha256([user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
-
+  const sourceSignature=await sha256(["library-simple-v30.0.5",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
   const existing=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 180`).bind(user.id).all();
-  for(const row of (existing.results||[])){const m=parseJsonLoose(row.metadata_json)||{};if(m.source_signature===sourceSignature&&m.source_lock_v30===true)return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,model:"saved",generation_ms:0,source_topics:m.source_topics||[]},200)}
+  for(const row of (existing.results||[])){const m=parseJsonLoose(row.metadata_json)||{};if(m.source_signature===sourceSignature&&m.library_simple_v30===true)return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,generation_ms:0,source_topics:m.source_topics||[]},200)}
 
-  const generationStartedAt=Date.now();
+  const started=Date.now();
   let sourceMap=sanitizeSourceMapAgainstText(body.source_map,extracted),sourceMapModel="preview";
   if(!sourceLockMapValid(sourceMap)){
     try{const built=await buildLibrarySourceMap(env,{material:extracted,studyScope,fileTitle:file.title});sourceMap=built.parsed;sourceMapModel=built.model||PREMIUM_FLASH_LITE_MODEL}
-    catch(err){return json({error:"No pude identificar con seguridad los temas reales de estas páginas. Prefiero detenerme antes que enseñarte contenido equivocado.",component:"Biblioteca · fidelidad de fuente",stage:"source_map",detail:String(err?.message||err)},502)}
+    catch(err){return json({error:"No pude identificar con seguridad el contenido real de estas páginas. Prefiero detenerme antes que resumir algo equivocado.",component:"Biblioteca · fidelidad de fuente",stage:"source_map",detail:String(err?.message||err)},502)}
   }
   const topicNames=sourceLockNames(sourceMap),topicBlock=topicNames.map((x,i)=>`${i+1}. ${x}`).join("\n");
-  const scopeInfo=[`Archivo: ${file.title}`,`Selección: ${studyScope}`,exactPageRange?`Páginas PDF exactas: ${pageStart}-${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}`:"",`Enfoque solicitado: ${studyFocus}`,instruction?`Indicación del estudiante: ${instruction}`:"",`TEMAS AUTORIZADOS DETECTADOS EN ESTAS PÁGINAS:\n${topicBlock}`,`RESUMEN DE FUENTE: ${sourceMap.source_summary||""}`,"REGLA ABSOLUTA: solo enseña los temas autorizados anteriores.","No uses el resto del PDF ni agregues conceptos, entidades, fórmulas, casos o temas por conocimiento general."].filter(Boolean).join("\n");
-  const material=`${scopeInfo}\n\n===== MATERIAL SELECCIONADO =====\n${extracted}\n===== FIN DEL MATERIAL =====`;
-  const pseudoRow={subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"},promptBody={source_type:fileMeta.mime_type==="application/pdf"?"pdf":"text",source_name:file.title,exam_focus:body.exam_focus!==false,deep_explanation:body.deep_explanation!==false};
+  const material=[`Archivo: ${file.title}`,`Selección: ${studyScope}`,exactPageRange?`Páginas exactas: ${pageStart}-${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}`:"",`Enfoque: ${studyFocus}`,instruction?`Indicación: ${instruction}`:"",`CONTENIDO AUTORIZADO:\n${topicBlock}`,"REGLA: usa solo estas páginas; no agregues capítulos ni temas externos.",`===== MATERIAL =====\n${extracted}\n===== FIN =====`].filter(Boolean).join("\n\n");
+  const prompt=`Prepara un MATERIAL DE REPASO MUY SIMPLE a partir de estas páginas. NO crees clase extensa, ejercicios, examen, videos ni plan de estudio.
 
-  const corePrompt=`Crea SOLO la CLASE sobre estas UNIDADES AUTORIZADAS DE ESTUDIO:\n${topicBlock}\n\nDevuelve JSON con title, overview, estimated_minutes, source_digest, objectives, EXACTAMENTE 4 sections, key_terms, exam_focus, diagram, concept_map, summary y video_searches.\nREGLAS UNIVERSALES:\n- Cero temas principales fuera de la lista.\n- Adapta la clase a la disciplina real del PDF: conceptos, entidades, procesos, fórmulas, reglas, autores, fármacos, enfermedades, etc.\n- No fuerces un formato médico si el PDF no es médico.\n- No fuerces cálculos si el material no los contiene.\n- No añadas información de otros capítulos.\n- El enfoque escrito por el estudiante es solo una preferencia: si no está respaldado por estas páginas, NO lo uses para inventar contenido.\n- Toda afirmación central debe estar apoyada por el fragmento seleccionado.\n- Puedes aclarar lenguaje difícil sin crear una unidad temática nueva.\n- No incluyas practice ni exam.\n\n${material}`;
-  const practicePrompt=`Crea EXACTAMENTE 8 preguntas de práctica SOLO sobre estas UNIDADES AUTORIZADAS:\n${topicBlock}\nDevuelve {"practice":[{"question":"...","context":"","options":["A","B","C","D"],"correctIndex":0,"explanation":"..."}]}.\nREGLAS:\n- Cuatro opciones y una correcta.\n- Cada pregunta debe poder resolverse usando el fragmento seleccionado.\n- No preguntes por conceptos, entidades o datos externos.\n- Si hay fórmulas/cálculos, usa solo relaciones presentes o directamente desarrolladas en las páginas.\n- No inventes dosis, fechas, valores, definiciones ni vocabulario.\n- Adapta las preguntas a la disciplina real del PDF.\n\n${material}`;
-  const examPrompt=`Crea EXACTAMENTE 10 preguntas de examen SOLO sobre estas UNIDADES AUTORIZADAS:\n${topicBlock}\nDevuelve {"exam":[{"stem":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"..."}]}.\nREGLAS:\n- Cuatro opciones y una correcta.\n- Cero contenido de otros capítulos o conocimientos vecinos no presentes.\n- No copies literalmente la práctica.\n- Adapta el tipo de pregunta a la disciplina real del PDF.\n- Toda respuesta correcta debe justificarse con las páginas seleccionadas.\n\n${material}`;
+Devuelve SOLO JSON:
+{
+ "title":"título fiel al fragmento",
+ "overview":"2-4 frases",
+ "estimated_minutes":20,
+ "source_digest":"síntesis compacta y fiel",
+ "key_terms":["conceptos centrales"],
+ "summary":{"overview":"resumen claro y suficiente para repasar","must_remember":["puntos esenciales"],"common_errors":["confusiones solo si se desprenden del material"]},
+ "concept_map":{"center":"tema central","branches":[{"label":"rama","children":["idea","idea"]}]},
+ "diagrams":[{"title":"diagrama 1","caption":"qué representa","steps":[{"label":"paso/elemento","detail":"relación o explicación"}]}]
+}
 
-  let [coreRes,practiceRes,examRes]=await Promise.allSettled([
-    callLibraryPartJson(env,{task:"library_core_source_locked",model:PREMIUM_FLASH_MODEL,system:"Estás bloqueado a la fuente: no puedes añadir temas principales fuera de la lista autorizada.",prompt:corePrompt,maxOutputTokens:3000,temperature:0.03,providerTimeout:35000,fallbackTimeout:18000}),
-    callLibraryPartJson(env,{task:"library_practice_source_locked",model:PREMIUM_FLASH_LITE_MODEL,system:"Práctica estrictamente basada en fuente y temas autorizados.",prompt:practicePrompt,maxOutputTokens:2300,temperature:0.03,providerTimeout:26000,fallbackTimeout:16000}),
-    callLibraryPartJson(env,{task:"library_exam_source_locked",model:PREMIUM_FLASH_LITE_MODEL,system:"Examen estrictamente basado en fuente y temas autorizados.",prompt:examPrompt,maxOutputTokens:2700,temperature:0.03,providerTimeout:28000,fallbackTimeout:16000})
-  ]);
-  let core=coreRes.status==="fulfilled"?coreRes.value:null,practice=practiceRes.status==="fulfilled"?practiceRes.value:null,exam=examRes.status==="fulfilled"?examRes.value:null;
-  const retries=[],kinds=[];
-  if(!core||!libraryParallelCoreValid(core.parsed)){kinds.push("core");retries.push(retryLibraryPartFast(env,{task:"library_core_source_locked",system:`Solo enseña:\n${topicBlock}`,prompt:corePrompt,maxOutputTokens:3000}))}
-  if(!practice||!libraryParallelPracticeValid(practice.parsed)){kinds.push("practice");retries.push(retryLibraryPartFast(env,{task:"library_practice_source_locked",system:`Exactamente 8 preguntas solo de:\n${topicBlock}`,prompt:practicePrompt,maxOutputTokens:2300}))}
-  if(!exam||!libraryParallelExamValid(exam.parsed)){kinds.push("exam");retries.push(retryLibraryPartFast(env,{task:"library_exam_source_locked",system:`Exactamente 10 preguntas solo de:\n${topicBlock}`,prompt:examPrompt,maxOutputTokens:2700}))}
-  if(retries.length){const rr=await Promise.all(retries);kinds.forEach((k,i)=>{if(!rr[i])return;if(k==="core")core=rr[i];if(k==="practice")practice=rr[i];if(k==="exam")exam=rr[i]})}
-  const failures=[];if(!core||!libraryParallelCoreValid(core.parsed))failures.push("clase/resumen/mapa");if(!practice||!libraryParallelPracticeValid(practice.parsed))failures.push("8 ejercicios");if(!exam||!libraryParallelExamValid(exam.parsed))failures.push("examen de 10");
-  if(failures.length)return json({error:`No pude completar: ${failures.join(", ")}.`,component:"Biblioteca · sesión de estudio",stage:"source_locked_parallel_generation",failed_parts:failures,source_topics:topicNames,generation_ms:Date.now()-generationStartedAt},502);
+REQUISITOS:
+- El RESUMEN es la parte textual principal.
+- El MAPA MENTAL debe conectar únicamente ideas de estas páginas.
+- Crea 1 a 3 DIAGRAMAS según el material; si hay procesos, usa secuencias; si hay comparaciones, usa relaciones conceptuales.
+- No añadas práctica, examen, clase larga, videos ni contenido del resto del PDF.
+- Sirve para cualquier disciplina.
+- Todo debe estar respaldado por el fragmento.
 
-  const parsed={...core.parsed,practice:(practice.parsed.practice||[]).slice(0,8),exam:(exam.parsed.exam||[]).slice(0,10)};
-  const sourceValidation=validatePackAgainstSourceMap(parsed,sourceMap,extracted),practiceValidation=validateQuestionSetAgainstSource(parsed.practice,sourceMap,extracted,"practice"),examValidation=validateQuestionSetAgainstSource(parsed.exam,sourceMap,extracted,"exam");
-  if(!sourceValidation.ok)return json({error:"La IA respondió, pero la clase se alejó de los temas de las páginas seleccionadas. MED AI la rechazó para no enseñarte contenido equivocado.",component:"Biblioteca · control de fidelidad",stage:"source_validation",source_topics:topicNames,missing_topics:sourceValidation.missing_topics,topic_recall:sourceValidation.topic_recall,lexical_coverage:sourceValidation.lexical_coverage},502);
-  if(!practiceValidation.ok||!examValidation.ok)return json({error:"La clase fue fiel a las páginas, pero algunas preguntas se alejaron del material seleccionado. MED AI rechazó la sesión para no evaluarte sobre contenido externo.",component:"Biblioteca · control de fidelidad de preguntas",stage:"question_source_validation",source_topics:topicNames,practice_validation:practiceValidation,exam_validation:examValidation,generation_ms:Date.now()-generationStartedAt},502);
-  const pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
-  if(!pack)return json({error:"La generación fue fiel a la fuente, pero la estructura final quedó incompleta.",component:"Biblioteca · validación final",generated_counts:libraryPackRequiredCounts(parsed)},502);
-
-  pack.version=30.04;pack.library_study_pack=true;pack.source_lock={enabled:true,version:"30.0.4",topics:sourceMap.topics,excluded:sourceMap.excluded||[],source_summary:sourceMap.source_summary||"",validation:sourceValidation};pack.source_reference={type:"library",source_file_id:fileId,name:file.title,mime_type:fileMeta.mime_type||"",study_scope:studyScope,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,imported_at:new Date().toISOString()};
-  const id=crypto.randomUUID(),now=new Date().toISOString(),models={source_map:sourceMapModel,core:core.model||null,practice:practice.model||null,exam:exam.model||null};
-  const metadata={university_source:true,library_study_pack:true,version:30.04,source_type:"library",source_file_id:fileId,source_name:file.title,source_detail:`${studyScope} · sesión guardada`,study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,exact_page_range:exactPageRange,source_signature:sourceSignature,source_lock_v30:true,source_topics:topicNames,generation_version:"30.0.4",generation_models:models,generation_ms:Date.now()-generationStartedAt,imported_once:true};
-  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,JSON.stringify(pack),JSON.stringify(["university_source","study_pack","library_study_pack","source_locked","general_source","v30_0_4"]),JSON.stringify(metadata),now,now).run();
-  try{await questionBankUpsertQuestions(env,user,[...(pack.practice||[]),...(pack.exam||[])],{source_type:"library_study",source_ref:id,subject:studyFocus,source_name:file.title,source_topics:topicNames})}catch(err){console.error("LIBRARY_BANK_SAVE_ERROR",err?.stack||err)}
-  return json({ok:true,id,title:pack.title,reused:false,source_topics:topicNames,source_summary:sourceMap.source_summary||"",generation_ms:Date.now()-generationStartedAt,models},201);
+${material}`;
+  let result;
+  try{result=await callLibraryPartJson(env,{task:"library_simple_summary_map_diagrams",model:PREMIUM_FLASH_LITE_MODEL,system:"Eres MED AI DALTON. Resume con fidelidad absoluta. Solo resumen, mapa mental y diagramas.",prompt,maxOutputTokens:3200,temperature:0.03,providerTimeout:30000,fallbackTimeout:17000})}
+  catch(err){return json({error:"No pude crear el resumen visual de estas páginas.",component:"Biblioteca · resumen visual",detail:String(err?.message||err)},502)}
+  const pseudoRow={subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"},promptBody={source_type:fileMeta.mime_type==="application/pdf"?"pdf":"text",source_name:file.title,mime_type:fileMeta.mime_type||""};
+  const pack=sanitizeLibrarySimplePack(result?.parsed,pseudoRow,promptBody);
+  if(!pack)return json({error:"La IA respondió, pero faltó el resumen, el mapa mental o los diagramas. Intenta nuevamente con un rango un poco más claro.",component:"Biblioteca · validación simple"},502);
+  const validation=validateLibrarySimplePackAgainstSource(pack,sourceMap,extracted);
+  if(!validation.ok)return json({error:"El resumen visual se alejó del contenido de las páginas seleccionadas. MED AI lo rechazó para no mezclar temas.",component:"Biblioteca · fidelidad",missing_topics:validation.missing_topics},502);
+  pack.source_lock={enabled:true,version:"30.0.5",domain:sourceMap.domain||"General",material_type:sourceMap.material_type||"Material académico",topics:sourceMap.topics||[],excluded:sourceMap.excluded||[],source_summary:sourceMap.source_summary||"",validation};
+  pack.source_reference={type:"library",source_file_id:fileId,name:file.title,mime_type:fileMeta.mime_type||"",study_scope:studyScope,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,imported_at:new Date().toISOString()};
+  const id=crypto.randomUUID(),now=new Date().toISOString(),metadata={university_source:true,library_study_pack:true,library_simple_v30:true,version:30.05,source_type:"library",source_file_id:fileId,source_name:file.title,study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,source_signature:sourceSignature,source_lock_v30:true,source_topics:topicNames,source_domain:sourceMap.domain||"General",generation_version:"30.0.5",generation_model:result.model||sourceMapModel,generation_ms:Date.now()-started,imported_once:true};
+  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,JSON.stringify(pack),JSON.stringify(["university_source","study_pack","library_study_pack","library_simple_v30","source_locked","v30_0_5"]),JSON.stringify(metadata),now,now).run();
+  return json({ok:true,id,title:pack.title,reused:false,source_topics:topicNames,generation_ms:Date.now()-started,model:result.model||PREMIUM_FLASH_LITE_MODEL},201);
 }
 
 async function listNotes(env, user) {
@@ -3691,189 +3734,65 @@ function sanitizeHistoricalQuiz(arr,limit){
   })).filter(q=>q.stem&&q.options.length===4);
 }
 function sanitizeHistoricalKeysPack(parsed,subject,sourceFiles){
-  const topics=(Array.isArray(parsed?.recurring_topics)?parsed.recurring_topics:[]).slice(0,18).map(t=>({
-    name:cleanText(t.name,300),
-    occurrence_count:clamp(Number(t.occurrence_count||1),1,sourceFiles.length),
-    historical_weight:clamp(Number(t.historical_weight||10),1,100),
-    source_files:Array.isArray(t.source_files)?t.source_files.slice(0,12).map(x=>cleanText(x,320)).filter(Boolean):[],
-    concepts:Array.isArray(t.concepts)?t.concepts.slice(0,10).map(x=>cleanText(x,500)).filter(Boolean):[],
-    why_priority:cleanText(t.why_priority,1300)
-  })).filter(t=>t.name);
-  const lessons=(Array.isArray(parsed?.lessons)?parsed.lessons:[]).slice(0,10).map(l=>({
-    title:cleanText(l.title,360),
-    explanation:cleanText(l.explanation,7000),
-    key_points:Array.isArray(l.key_points)?l.key_points.slice(0,10).map(x=>cleanText(x,900)).filter(Boolean):[],
-    exam_focus:cleanText(l.exam_focus,1800)
-  })).filter(l=>l.title&&l.explanation);
+  const topics=(Array.isArray(parsed?.recurring_topics)?parsed.recurring_topics:[]).slice(0,18).map(t=>({name:cleanText(t.name,300),occurrence_count:clamp(Number(t.occurrence_count||1),1,sourceFiles.length),historical_weight:clamp(Number(t.historical_weight||10),1,100),source_files:Array.isArray(t.source_files)?t.source_files.slice(0,12).map(x=>cleanText(x,320)).filter(Boolean):[],concepts:Array.isArray(t.concepts)?t.concepts.slice(0,10).map(x=>cleanText(x,500)).filter(Boolean):[],why_priority:cleanText(t.why_priority,1300)})).filter(t=>t.name);
   const practice=sanitizeHistoricalQuiz(parsed?.practice_questions,12);
-  const finalExam=sanitizeHistoricalQuiz(parsed?.final_exam,20);
-  if(topics.length<1||lessons.length<1||practice.length<6||finalExam.length<10)return null;
-  return {
-    version:25.2,historical_keys_pack:true,
-    title:cleanText(parsed?.title,380)||`${subject} · Repaso desde claves de años pasados`,
-    subject,source_count:sourceFiles.length,source_files:sourceFiles,
-    overview:cleanText(parsed?.overview,3000),
-    source_quality:cleanText(parsed?.source_quality,1600),
-    limitations:Array.isArray(parsed?.limitations)?parsed.limitations.slice(0,12).map(x=>cleanText(x,1000)).filter(Boolean):[],
-    recurring_topics:topics,
-    historical_patterns:Array.isArray(parsed?.historical_patterns)?parsed.historical_patterns.slice(0,15).map(x=>cleanText(x,1000)).filter(Boolean):[],
-    class_title:cleanText(parsed?.class_title,380)||`Clase maestra · ${subject}`,
-    class_overview:cleanText(parsed?.class_overview,2600),
-    lessons,
-    must_remember:Array.isArray(parsed?.must_remember)?parsed.must_remember.slice(0,20).map(x=>cleanText(x,1000)).filter(Boolean):[],
-    common_traps:Array.isArray(parsed?.common_traps)?parsed.common_traps.slice(0,16).map(x=>cleanText(x,1000)).filter(Boolean):[],
-    study_plan:Array.isArray(parsed?.study_plan)?parsed.study_plan.slice(0,8).map(x=>({
-      title:cleanText(x.title,320),focus:cleanText(x.focus||x.detail,1500),minutes:clamp(Number(x.minutes||30),10,120)
-    })).filter(x=>x.title||x.focus):[],
-    practice_questions:practice,
-    final_exam:finalExam,
-    source_digest:cleanText(parsed?.source_digest,16000),
-    created_from_history:true
-  };
+  if(topics.length<1||practice.length<6)return null;
+  let branches=Array.isArray(parsed?.concept_map?.branches)?parsed.concept_map.branches.slice(0,8).map(b=>({label:cleanText(b.label,320),children:Array.isArray(b.children)?b.children.slice(0,5).map(x=>cleanText(x,600)).filter(Boolean):[]})).filter(b=>b.label):[];
+  if(!branches.length)branches=topics.slice(0,7).map(t=>({label:t.name,children:(t.concepts||[]).slice(0,4)}));
+  let diagrams=Array.isArray(parsed?.diagrams)?parsed.diagrams.slice(0,3).map((d,i)=>({title:cleanText(d.title,320)||`Diagrama ${i+1}`,caption:cleanText(d.caption,900),steps:Array.isArray(d.steps)?d.steps.slice(0,8).map(s=>({label:cleanText(s.label,320),detail:cleanText(s.detail,1000)})).filter(s=>s.label):[]})).filter(d=>d.steps.length>=2):[];
+  if(!diagrams.length)diagrams=[{title:"Temas que más se repiten",caption:"Frecuencia observada en las claves cargadas",steps:topics.slice(0,8).map(t=>({label:t.name,detail:`Aparece en ${t.occurrence_count} archivo(s). ${(t.concepts||[]).slice(0,3).join(" · ")}`}))}];
+  const important=Array.isArray(parsed?.important_points)?parsed.important_points.slice(0,20).map(x=>cleanText(x,1000)).filter(Boolean):[];
+  const remember=Array.isArray(parsed?.must_remember)?parsed.must_remember.slice(0,20).map(x=>cleanText(x,1000)).filter(Boolean):important.slice(0,14);
+  return {version:30.05,historical_keys_pack:true,historical_simple_v30:true,title:cleanText(parsed?.title,380)||`${subject} · Repaso desde claves`,subject,source_count:sourceFiles.length,source_files:sourceFiles,overview:cleanText(parsed?.overview,4200),source_quality:cleanText(parsed?.source_quality,1600),limitations:Array.isArray(parsed?.limitations)?parsed.limitations.slice(0,12).map(x=>cleanText(x,1000)).filter(Boolean):[],recurring_topics:topics,historical_patterns:Array.isArray(parsed?.historical_patterns)?parsed.historical_patterns.slice(0,15).map(x=>cleanText(x,1000)).filter(Boolean):[],important_points:important,must_remember:remember,common_traps:Array.isArray(parsed?.common_traps)?parsed.common_traps.slice(0,14).map(x=>cleanText(x,1000)).filter(Boolean):[],concept_map:{center:cleanText(parsed?.concept_map?.center,320)||subject,branches},diagrams,practice_questions:practice,source_digest:cleanText(parsed?.source_digest,16000),lessons:[],study_plan:[],final_exam:[],created_from_history:true};
 }
 
 async function analyzeHistoricalKeysApi(request,env,user){
   ensureAI(env);requireLibraryR2(env);
-  const body=await readJson(request);
-  const fileIds=Array.isArray(body.file_ids)?[...new Set(body.file_ids.map(x=>cleanText(x,220)).filter(Boolean))].slice(0,12):[];
-  const subject=cleanText(body.subject,320),note=cleanText(body.note,2000);
+  const body=await readJson(request),fileIds=Array.isArray(body.file_ids)?[...new Set(body.file_ids.map(x=>cleanText(x,220)).filter(Boolean))].slice(0,12):[],subject=cleanText(body.subject,320),note=cleanText(body.note,2000);
   if(!fileIds.length||!subject)return json({error:"Agrega al menos un PDF y escribe la materia."},400);
+  const signature=await sha256(`historical-simple-v30.0.5|${smartNormalize(subject)}|${[...fileIds].sort().join("|")}`);
+  const existing=await env.DB.prepare(`SELECT id,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%' ORDER BY datetime(updated_at) DESC LIMIT 100`).bind(user.id).all();
+  for(const row of (existing.results||[])){const m=parseJsonLoose(row.metadata_json)||{};if(m.source_signature===signature&&m.historical_simple_v30===true)return json({ok:true,id:row.id,cached:true})}
+  const extracted=[];for(const id of fileIds){const src=await getLibraryExtractedText(env,user,id);extracted.push({id,name:src.row.title||src.meta?.original_name||"Clave histórica",text:String(src.text||"")})}
+  const perFile=Math.max(6500,Math.min(28000,Math.floor(100000/extracted.length))),documents=extracted.map((x,i)=>`===== ARCHIVO ${i+1}: ${x.name} =====\n${x.text.slice(0,perFile)}\n===== FIN ARCHIVO ${i+1} =====`).join("\n\n");
+  const prompt=`Eres MED AI DALTON. El estudiante subió CLAVES/PARCIALES DE AÑOS ANTERIORES de "${subject}". ${note?`Indicación: ${note}`:""}
 
-  const signature=await sha256(`${smartNormalize(subject)}|${[...fileIds].sort().join("|")}`);
-  const existing=await env.DB.prepare(`
-    SELECT id,metadata_json FROM notes
-    WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%'
-    ORDER BY datetime(updated_at) DESC LIMIT 100
-  `).bind(user.id).all();
-  for(const row of (existing.results||[])){
-    const m=parseJsonLoose(row.metadata_json)||{};
-    if(m.source_signature===signature)return json({ok:true,id:row.id,cached:true});
-  }
+QUIERE UN REPASO SIMPLE. Genera ÚNICAMENTE:
+1) RESUMEN de lo que muestran las claves.
+2) PUNTOS IMPORTANTES y temas que MÁS SE REPITEN, con frecuencia histórica real.
+3) MAPA MENTAL de esos temas.
+4) 1 a 3 DIAGRAMAS de relaciones/procesos útiles.
+5) EXACTAMENTE 12 EJERCICIOS NUEVOS para practicar los temas identificados.
 
-  const extracted=[];
-  for(const id of fileIds){
-    const src=await getLibraryExtractedText(env,user,id);
-    extracted.push({id,name:src.row.title||src.meta?.original_name||"Clave histórica",text:String(src.text||"")});
-  }
-  const totalBudget=115000;
-  const perFile=Math.max(6500,Math.min(30000,Math.floor(totalBudget/extracted.length)));
-  const documents=extracted.map((x,i)=>`===== ARCHIVO ${i+1}: ${x.name} =====\n${x.text.slice(0,perFile)}\n===== FIN ARCHIVO ${i+1} =====`).join("\n\n");
-
-  const prompt=`Eres MED AI DALTON, profesor universitario y diseñador instruccional.
-
-El estudiante NO está entregando su examen personal. Está entregando VARIOS PDF DE CLAVES/PARCIALES DE AÑOS ANTERIORES de la materia "${subject}".
-${note?`INDICACIÓN DEL ESTUDIANTE: ${note}`:""}
-
-OBJETIVO:
-Usar este conjunto histórico para ayudarle a ESTUDIAR:
-1) identificar temas y conceptos que aparecieron históricamente;
-2) detectar repeticiones entre archivos;
-3) construir una CLASE MAESTRA completa de esos temas;
-4) preparar un REPASO de alto rendimiento;
-5) crear práctica;
-6) crear un EXAMEN FINAL NUEVO de 20 preguntas para comprobar dominio.
-
-IMPORTANTE:
-- No digas que un tema "vendrá" en el próximo examen.
-- Habla de "apareció históricamente", "se repitió en estos archivos" o "conviene priorizar por frecuencia histórica".
-- No inventes preguntas originales que no puedas ver.
-- Para la CLASE puedes usar conocimiento académico correcto para explicar los temas identificados.
-- En medicina/ciencias, si un contenido antiguo parece desactualizado, explícalo de forma actual y anótalo como limitación/trampa.
-- Si un PDF contiene solo una lista de letras/respuestas sin preguntas, títulos ni contexto, NO puedes inferir el tema a partir de las letras. Señálalo en limitations y basa el análisis en los archivos que sí contienen contexto suficiente.
-- Las preguntas de práctica y examen final deben ser NUEVAS, sobre los conceptos identificados, no copias del material histórico.
-- Los temas recurrentes solo pueden salir de evidencia que realmente exista en al menos uno de los archivos cargados; no agregues temas por conocimiento general.
-- Si solo hay una letra de respuesta sin pregunta ni contexto, jamás asignes un tema a esa letra.
-- El examen final debe evaluar comprensión, aplicación y razonamiento, no solo memoria.
+NO generes clase maestra, plan de estudio ni examen final.
+NO predigas qué vendrá en el próximo parcial.
+Los temas recurrentes solo pueden salir de evidencia real de los archivos.
+Si un archivo tiene solo letras A/B/C sin pregunta ni contexto, no inventes el tema.
+Las preguntas de práctica pueden usar conocimiento académico correcto PARA EXPLICAR los temas identificados, pero no pueden introducir un tema nuevo que no aparezca en las claves.
 
 Devuelve SOLO JSON:
 {
- "title":"...",
- "overview":"qué muestran en conjunto los archivos",
- "source_quality":"qué tan útil/legible fue el conjunto",
- "limitations":["..."],
- "recurring_topics":[
-   {
-     "name":"tema",
-     "occurrence_count":3,
-     "historical_weight":25,
-     "source_files":["archivo1.pdf","archivo3.pdf"],
-     "concepts":["concepto 1","concepto 2"],
-     "why_priority":"por qué conviene dominarlo según el historial"
-   }
- ],
- "historical_patterns":["patrón observado sin predecir el futuro"],
- "class_title":"...",
- "class_overview":"...",
- "lessons":[
-   {
-     "title":"tema de la clase",
-     "explanation":"explicación docente completa y autosuficiente",
-     "key_points":["..."],
-     "exam_focus":"qué razonamiento debe dominar el estudiante"
-   }
- ],
- "must_remember":["..."],
- "common_traps":["..."],
- "study_plan":[{"title":"Sesión 1","focus":"...","minutes":30}],
- "practice_questions":[
-   {"stem":"pregunta nueva","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","topic":"..."}
- ],
- "final_exam":[
-   {"stem":"pregunta nueva","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","topic":"..."}
- ],
- "source_digest":"resumen compacto de los temas históricos para búsquedas futuras"
+ "title":"...","overview":"resumen claro del conjunto","source_quality":"...","limitations":["..."],
+ "recurring_topics":[{"name":"tema","occurrence_count":3,"historical_weight":25,"source_files":["..."],"concepts":["..."],"why_priority":"..."}],
+ "historical_patterns":["patrones observados sin predecir"],
+ "important_points":["puntos esenciales de repaso"],"must_remember":["..."],"common_traps":["..."],
+ "concept_map":{"center":"${subject}","branches":[{"label":"tema","children":["concepto","concepto"]}]},
+ "diagrams":[{"title":"...","caption":"...","steps":[{"label":"...","detail":"..."}]}],
+ "practice_questions":[{"stem":"pregunta nueva","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","topic":"..."}],
+ "source_digest":"síntesis compacta"
 }
 
-REQUISITOS:
-- recurring_topics: 4–18 si el contenido lo permite.
-- lessons: 4–10 y deben enseñar realmente, no solo enumerar.
-- practice_questions: EXACTAMENTE 12 si hay contenido suficiente.
-- final_exam: EXACTAMENTE 20.
-- study_plan: 4–8 sesiones.
-- historical_weight sirve para priorizar y debe sumar aproximadamente 100 entre los temas principales.
-- occurrence_count representa en cuántos de los PDF proporcionados aparece evidencia del tema.
+REQUISITOS: recurring_topics 1-18 según evidencia; diagrams 1-3; practice_questions EXACTAMENTE 12 si hay contenido suficiente; historical_weight aproximadamente 100 entre temas principales.
 
-===== CLAVES / PARCIALES HISTÓRICOS =====
+===== CLAVES HISTÓRICAS =====
 ${documents}
-===== FIN DEL CONJUNTO =====`;
-
-  let parsed=null,lastErr=null;
-  try{
-    const response=await callCloudflareAI(env,{
-      model:PREMIUM_FLASH_MODEL,task:"historical_keys_study_pack",
-      messages:[
-        {role:"system",content:"Eres un profesor académico riguroso. Convierte evidencia histórica de exámenes en un plan de estudio, sin predecir preguntas futuras. Devuelve exclusivamente JSON válido."},
-        {role:"user",content:prompt}
-      ],
-      max_tokens:8200,temperature:0.14,response_format:{type:"json_object"}
-    });
-    parsed=parseJsonLoose(extractCloudflareText(response));
-  }catch(err){lastErr=err}
-
-  const sourceFiles=extracted.map(x=>x.name);
-  const pack=sanitizeHistoricalKeysPack(parsed,subject,sourceFiles);
-  if(!pack){
-    if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);
-    return json({error:"No pude construir una clase completa con estas claves. Revisa que al menos algunos PDF contengan preguntas, temas o texto suficiente para identificar qué se evaluó."},422);
-  }
-
-  const id=crypto.randomUUID(),now=new Date().toISOString();
-  const meta={
-    historical_keys_pack:true,version:29,subject,study_title:pack.title,
-    source_file_ids:fileIds,source_files:sourceFiles,source_count:fileIds.length,source_signature:signature
-  };
-  await env.DB.prepare(`
-    INSERT INTO notes
-    (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
-  `).bind(
-    id,user.id,null,null,`CLAVES HISTÓRICAS · ${subject}`,JSON.stringify(pack),
-    JSON.stringify(["historical_keys_pack","smart_study","study_pack","v29"]),
-    JSON.stringify(meta),now,now
-  ).run();
-  await questionBankUpsertQuestions(env,user,[...(pack.practice_questions||[]),...(pack.final_exam||[])],{
-    source_type:"historical_keys",source_ref:id,subject,source_name:pack.title
-  });
+===== FIN =====`;
+  let parsed=null,lastErr=null;try{const response=await callCloudflareAI(env,{model:PREMIUM_FLASH_MODEL,task:"historical_keys_simple_v30",messages:[{role:"system",content:"Analiza claves históricas con rigor. Solo resumen, recurrencias, mapa, diagramas y práctica. Devuelve JSON válido."},{role:"user",content:prompt}],max_tokens:5600,temperature:0.12,response_format:{type:"json_object"}});parsed=parseJsonLoose(extractCloudflareText(response))}catch(err){lastErr=err}
+  const sourceFiles=extracted.map(x=>x.name),pack=sanitizeHistoricalKeysPack(parsed,subject,sourceFiles);
+  if(!pack){if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);return json({error:"No pude preparar el repaso simple. Verifica que al menos algunos PDF tengan preguntas, títulos o contexto suficiente."},422)}
+  const id=crypto.randomUUID(),now=new Date().toISOString(),meta={historical_keys_pack:true,historical_simple_v30:true,version:30.05,subject,study_title:pack.title,source_file_ids:fileIds,source_files:sourceFiles,source_count:fileIds.length,source_signature:signature};
+  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(id,user.id,null,null,`CLAVES HISTÓRICAS · ${subject}`,JSON.stringify(pack),JSON.stringify(["historical_keys_pack","historical_simple_v30","smart_study","study_pack","v30_0_5"]),JSON.stringify(meta),now,now).run();
+  await questionBankUpsertQuestions(env,user,pack.practice_questions||[],{source_type:"historical_keys",source_ref:id,subject,source_name:pack.title});
   return json({ok:true,id,cached:false,model:PREMIUM_FLASH_MODEL},201);
 }
 

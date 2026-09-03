@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.4";
+const APP_VERSION="30.0.5";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -1617,8 +1617,37 @@ async function openSavedUniversitySource(id,justCreated=false){
   }
 }
 
+
+function librarySimpleDiagrams(p){
+  const arr=Array.isArray(p?.diagrams)&&p.diagrams.length?p.diagrams:(p?.diagram?[p.diagram]:[]);
+  return arr.length?arr:[{title:"Diagrama del material",caption:"Relaciones principales",steps:(p?.concept_map?.branches||[]).slice(0,6).map(b=>({label:b.label,detail:(b.children||[]).join(" · ")}))}];
+}
+function renderLibrarySimpleSummary(){
+  const p=state.universitySourcePack,sm=p?.summary||{};
+  $("#university-study-content").innerHTML=`<article class="university-summary-view library-simple-summary"><div class="university-summary-hero"><div><span>RESUMEN</span><h3>${escapeHtml(p?.title||"")}</h3><p>${escapeHtml(sm.overview||p?.overview||"")}</p></div></div>${(sm.must_remember||[]).length?`<section class="library-simple-points"><span>PUNTOS ESENCIALES</span><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>`:""}${(p?.key_terms||[]).length?`<section class="university-keyterms"><span>CONCEPTOS DEL FRAGMENTO</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}</article>`;
+}
+function renderLibrarySimpleDiagrams(){
+  const p=state.universitySourcePack,diagrams=librarySimpleDiagrams(p);
+  $("#university-study-content").innerHTML=`<div class="library-simple-diagrams">${diagrams.map(d=>renderCourseDiagram(d,[]).replace("para esta clase","para este material")).join("")}</div>`;
+  $$(".academy-diagram-step",$("#university-study-content")).forEach(step=>step.onclick=()=>{step.classList.toggle("selected");step.querySelector(".academy-diagram-detail")?.classList.toggle("open")});
+}
+function renderLibrarySimpleMap(){
+  const p=state.universitySourcePack;
+  $("#university-study-content").innerHTML=renderCourseConceptMap(p?.concept_map,p||{});
+  $$(".academy-map-branch",$("#university-study-content")).forEach(branch=>branch.onclick=()=>{if(branch.classList.contains("expanded"))branch.classList.remove("expanded");else{$$(".academy-map-branch",$("#university-study-content")).forEach(x=>x.classList.remove("expanded"));branch.classList.add("expanded")}});
+}
+function renderLibrarySimpleStudyPack(tab="summary"){
+  const p=state.universitySourcePack,src=state.universitySourceRecord;if(!p||!src)return;
+  const meta=safeJson(src.metadata_json,{}),allowed=["summary","map","diagram"];if(!allowed.includes(tab))tab="summary";
+  const body=$("#university-source-body");
+  body.innerHTML=`<section class="university-study-head"><button id="uni-study-back" class="ghost-btn">← MI BIBLIOTECA</button><div class="university-study-title"><div class="university-source-icon ${escapeAttr(meta.source_type||"text")}">${sourceTypeIcon(meta.source_type)}</div><div><span>${sourceTypeLabel(meta.source_type)} · RESUMEN VISUAL GUARDADO</span><h2>${escapeHtml(p.title||meta.source_name||src.title)}</h2><p>${escapeHtml(p.overview||"")}</p></div></div><div class="university-study-actions"><button id="uni-print-source" class="secondary-btn">▣ GUARDAR PDF</button><span>☁ Guardado · abrir de nuevo no usa IA</span></div></section><nav class="university-study-tabs library-simple-tabs"><button data-tab="summary" class="${tab==="summary"?"active":""}"><span>◎</span>RESUMEN</button><button data-tab="map" class="${tab==="map"?"active":""}"><span>⌘</span>MAPA MENTAL</button><button data-tab="diagram" class="${tab==="diagram"?"active":""}"><span>◈</span>DIAGRAMAS</button></nav><main id="university-study-content" class="university-study-content"></main>`;
+  $("#uni-study-back").onclick=renderUniversitySourceLibrary;$("#uni-print-source").onclick=printUniversitySourcePdf;$$('.university-study-tabs button').forEach(btn=>btn.onclick=()=>renderLibrarySimpleStudyPack(btn.dataset.tab));
+  if(tab==="summary")renderLibrarySimpleSummary();if(tab==="map")renderLibrarySimpleMap();if(tab==="diagram")renderLibrarySimpleDiagrams();
+}
+
 function renderUniversityStudyPack(tab="summary"){
   const p=state.universitySourcePack,src=state.universitySourceRecord;
+  if(p?.library_study_pack)return renderLibrarySimpleStudyPack(tab);
   if(!p||!src)return;
   const meta=safeJson(src.metadata_json,{});
   const body=$("#university-source-body");
@@ -3922,7 +3951,7 @@ async function renderLibraryStudyHome(){
 
     <section class="library-study-choice-grid">
       <button id="library-study-new" class="library-study-choice new" ${support.type==="unsupported"?"disabled":""}>
-        <div>✦</div><span><strong>NUEVA SESIÓN DE ESTUDIO</strong><small>${support.type==="unsupported"?"Este formato todavía no se puede analizar directamente":`Elegir ${support.unit} y crear una clase guardada`}</small></span>
+        <div>✦</div><span><strong>NUEVA SESIÓN DE ESTUDIO</strong><small>${support.type==="unsupported"?"Este formato todavía no se puede analizar directamente":`Elegir ${support.unit} y crear un resumen visual guardado`}</small></span>
       </button>
       <div class="library-study-choice independent">
         <div>∞</div><span><strong>TU CURSO DE MED AI SIGUE APARTE</strong><small>Estas sesiones no alteran el porcentaje ni desbloqueo de tus cursos.</small></span>
@@ -4098,10 +4127,10 @@ function renderLibraryStudyRangeForm(info){
           <label class="form-check library-ocr-option"><input id="library-study-pdf-ocr" type="checkbox"><span><strong>Usar OCR si alguna página es escaneada</strong><small>Déjalo apagado para máxima velocidad. Actívalo solo si el PDF es una foto/escaneo.</small></span></label>`:""}
           <div class="field"><label>¿Qué tema o enfoque estás viendo?</label><input id="library-study-focus" placeholder="Ej. Farmacocinética, páginas 35–42..."></div>
           <div class="field"><label>Instrucción opcional para MED AI</label><textarea id="library-study-instruction" rows="4" placeholder="Ej. Esto entra al parcial. Quiero entender mecanismos y diferencias..."></textarea></div>
-          <div class="library-study-options"><label class="form-check"><input id="library-study-examfocus" type="checkbox" checked><span>Priorizar conceptos de alto rendimiento para examen</span></label><label class="form-check"><input id="library-study-deep" type="checkbox" checked><span>Explicar desde cero cuando el material sea difícil</span></label></div>
+          <div class="library-simple-output-note"><span>SE GENERARÁ SOLO</span><strong>Resumen · Mapa mental · Diagramas</strong><small>Sin clase extensa, ejercicios, examen ni videos.</small></div>
           <button id="library-study-extract" class="library-analyze-btn"><span>→</span><div><strong>CONTINUAR Y PREPARAR SESIÓN</strong><small>${isPdf?"Leeremos solo las páginas seleccionadas":"Extraeremos solo el fragmento seleccionado"}</small></div></button>
         </section>
-        <aside class="library-study-budget-card"><div class="panel-code">CÓMO AHORRAMOS</div><div><b>01</b><span><strong>${isPdf?"Tú eliges las páginas":"No enviamos el libro completo"}</strong><small>Solo se procesa lo seleccionado.</small></span></div><div><b>02</b><span><strong>Menos contexto</strong><small>Rangos pequeños suelen responder más rápido.</small></span></div><div><b>03</b><span><strong>Todo queda guardado</strong><small>Clase, ejercicios y examen.</small></span></div><div><b>04</b><span><strong>Repasos sin nueva IA</strong><small>Reabrir reutiliza la sesión.</small></span></div></aside>
+        <aside class="library-study-budget-card"><div class="panel-code">CÓMO AHORRAMOS</div><div><b>01</b><span><strong>${isPdf?"Tú eliges las páginas":"No enviamos el libro completo"}</strong><small>Solo se procesa lo seleccionado.</small></span></div><div><b>02</b><span><strong>Menos contexto</strong><small>Rangos pequeños suelen responder más rápido.</small></span></div><div><b>03</b><span><strong>Solo lo esencial</strong><small>Resumen, mapa mental y diagramas.</small></span></div><div><b>04</b><span><strong>Repasos sin nueva IA</strong><small>Reabrir reutiliza la sesión.</small></span></div></aside>
       </div>
     </section>`;
   $("#library-study-range-back").onclick=renderLibraryStudyHome;
@@ -4159,18 +4188,18 @@ function renderLibraryStudyConfirm(ctx){
   const exactPdf=info.type==="pdf"&&state.libraryStudyDoc?.exact_pages,scope=info.total>1?(exactPdf?`Páginas ${start}–${end}`:info.label==="bloques"?`Bloques ${start}–${end}`:`Diapositivas ${start}–${end}`):"Documento",approx=Math.max(1,Math.round(text.length/4));
   body.innerHTML=`<section class="library-study-confirm">
     <button id="library-study-confirm-back" class="ghost-btn">← CAMBIAR SELECCIÓN</button>
-    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2 · FUENTE VERIFICADA</span><h2>Este es el contenido que MED AI encontró realmente.</h2><p>La clase, resumen, ejercicios y examen quedarán limitados a esta selección, sin importar la materia.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens aproximados</small></div></div>
+    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2 · FUENTE VERIFICADA</span><h2>Este es el contenido que MED AI encontró realmente.</h2><p>El resumen, mapa mental y diagramas quedarán limitados a esta selección, sin importar la materia.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens aproximados</small></div></div>
     <section class="v30-source-preview"><div><span>CONTENIDO REAL DETECTADO EN TUS PÁGINAS</span><strong>Revisa que corresponda exactamente a lo que quieres estudiar.</strong><small>${ctx.sourceMap?.domain?`${escapeHtml(ctx.sourceMap.domain)} · ${escapeHtml(ctx.sourceMap.material_type||"Material académico")}`:"Detector académico general"}</small></div><div class="v30-source-preview-topics">${sourceTopics.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</div>${sourceSummary?`<p>${escapeHtml(sourceSummary)}</p>`:""}<small>Si algo importante no aparece aquí, vuelve y selecciona las páginas donde sí aparece. MED AI no añadirá temas del resto del PDF ni conocimientos vecinos que no aparezcan aquí.</small></section>
     <div class="library-study-confirm-grid"><section class="card"><div class="panel-code">SESIÓN</div><h3>${escapeHtml(focus||file.title)}</h3>
-    <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div><div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>${exactPdf?`<div class="library-confirm-row"><span>Páginas enviadas</span><strong>${end-start+1} de ${state.libraryStudyDoc.pageCount}</strong></div>`:""}${ocrPages.length?`<div class="library-confirm-row"><span>OCR utilizado</span><strong>Pág. ${escapeHtml(ocrPages.join(", "))}</strong></div>`:""}<div class="library-confirm-row"><span>Control</span><strong>FUENTE BLOQUEADA · solo ${sourceTopics.length} tema${sourceTopics.length===1?"":"s"} detectado${sourceTopics.length===1?"":"s"}</strong></div><div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Clase · Diagrama · Mapa · 8 ejercicios · Examen de 10 · Videos</strong></div>${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}<button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR CLASE SOLO DE ESTE CONTENIDO</strong><small>Funciona con cualquier materia y solo usa estas páginas</small></div></button></section>
-    <aside class="library-study-generated-list"><div class="panel-code">GARANTÍAS DE ESTA SESIÓN</div><div><b>1</b><span><strong>Páginas exactas</strong><small>Solo tu rango</small></span></div><div><b>2</b><span><strong>Temario detectado</strong><small>Se verifica antes de generar</small></span></div><div><b>3</b><span><strong>Clase bloqueada</strong><small>No mezcla otros temas</small></span></div><div><b>4</b><span><strong>Validación final</strong><small>Se rechaza si se aleja de la fuente</small></span></div></aside></div></section>`;
+    <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div><div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>${exactPdf?`<div class="library-confirm-row"><span>Páginas enviadas</span><strong>${end-start+1} de ${state.libraryStudyDoc.pageCount}</strong></div>`:""}${ocrPages.length?`<div class="library-confirm-row"><span>OCR utilizado</span><strong>Pág. ${escapeHtml(ocrPages.join(", "))}</strong></div>`:""}<div class="library-confirm-row"><span>Control</span><strong>FUENTE BLOQUEADA · solo ${sourceTopics.length} tema${sourceTopics.length===1?"":"s"} detectado${sourceTopics.length===1?"":"s"}</strong></div><div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Mapa mental · Diagramas</strong></div>${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}<button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR RESUMEN VISUAL DE ESTE CONTENIDO</strong><small>Funciona con cualquier materia y solo usa estas páginas</small></div></button></section>
+    <aside class="library-study-generated-list"><div class="panel-code">GARANTÍAS DE ESTA SESIÓN</div><div><b>1</b><span><strong>Páginas exactas</strong><small>Solo tu rango</small></span></div><div><b>2</b><span><strong>Temario detectado</strong><small>Se verifica antes de generar</small></span></div><div><b>3</b><span><strong>Resumen enfocado</strong><small>No mezcla otros temas</small></span></div><div><b>4</b><span><strong>Validación final</strong><small>Se rechaza si se aleja de la fuente</small></span></div></aside></div></section>`;
   $("#library-study-confirm-back").onclick=()=>renderLibraryStudyRangeForm(info);$("#library-study-create").onclick=()=>createLibraryStudyPack({...ctx,scope});
 }
 
 async function createLibraryStudyPack(ctx){
   if(state.maintenanceMode&&navigator.onLine){state.maintenanceMode=false;updateMaintenanceBanner();}
   const btn=$("#library-study-create"),file=state.libraryStudyFile;
-  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ CREANDO CLASE + PRÁCTICA + EXAMEN EN PARALELO…</strong><small>Al terminar quedará guardada</small></div>`;
+  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ CREANDO TU RESUMEN + MAPA + DIAGRAMAS…</strong><small>Al terminar quedará guardada</small></div>`;
   try{
     const result=await api("/api/library/study-pack",{method:"POST",body:{
       file_id:file.id,
@@ -4178,8 +4207,6 @@ async function createLibraryStudyPack(ctx){
       study_focus:ctx.focus,
       instruction:ctx.instruction,
       study_scope:ctx.scope,
-      exam_focus:$("#library-study-examfocus")?.checked??true,
-      deep_explanation:$("#library-study-deep")?.checked??true,
       page_start:ctx.info?.type==="pdf"&&state.libraryStudyDoc?.exact_pages?ctx.start:null,
       page_end:ctx.info?.type==="pdf"&&state.libraryStudyDoc?.exact_pages?ctx.end:null,
       pdf_page_count:ctx.info?.type==="pdf"&&state.libraryStudyDoc?.exact_pages?state.libraryStudyDoc.pageCount:null,
@@ -4215,14 +4242,14 @@ async function createLibraryStudyPack(ctx){
         }
       }catch(recoverErr){logSystemError("library_pack_recovery",recoverErr)}
     }
-    btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>CREAR Y GUARDAR ESTA SESIÓN</strong><small>Esta acción sí utiliza IA una vez</small></div>`;
+    btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>CREAR RESUMEN + MAPA + DIAGRAMAS</strong><small>Esta acción utiliza IA una vez</small></div>`;
     toast(err.message,true);
   }
 }
 
 async function openLibrarySavedStudyPack(id,justCreated=false){
   const body=$("#library-study-body");
-  body.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando y abriendo tu nueva clase…":"Abriendo sesión guardada…"}</strong><small>No se está regenerando con IA.</small></div>`;
+  body.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando y abriendo tu nuevo resumen visual…":"Abriendo sesión guardada…"}</strong><small>No se está regenerando con IA.</small></div>`;
   try{
     const data=await api(`/api/course/source?id=${encodeURIComponent(id)}`);
     state.universitySourceRecord=data.source;
@@ -4524,7 +4551,7 @@ async function renderExamPrepCenter(){
         <div>
           <div class="learning-home-chip"><span></span> ANTES DEL PARCIAL · V29 FINAL</div>
           <h1>Tu centro de preparación antes del examen.</h1>
-          <p>Claves de años anteriores, clase, repaso, banco permanente, errores y simulacros. MED AI usa la frecuencia histórica para priorizar, nunca como garantía de lo que vendrá.</p>
+          <p>Claves de años anteriores, resumen, puntos repetidos, mapas, práctica, banco permanente y errores. MED AI usa la frecuencia histórica para priorizar, nunca como garantía de lo que vendrá.</p>
           <div class="exam-prep-actions">
             <button id="exam-prep-upload" class="primary-btn">▤ SUBIR CLAVES DE AÑOS PASADOS</button>
             <button id="exam-prep-errors" class="secondary-btn">↻ REPASAR ERRORES ${due?`· ${due}`:""}</button>
@@ -4551,27 +4578,27 @@ async function renderExamPrepCenter(){
 
       <section class="exam-prep-step-grid">
         <article><b>01</b><span><strong>CLAVES</strong><small>Sube varios PDF históricos</small></span></article>
-        <article><b>02</b><span><strong>CLASE</strong><small>Aprende los temas detectados</small></span></article>
-        <article><b>03</b><span><strong>REPASO</strong><small>Fija conceptos y practica</small></span></article>
-        <article><b>04</b><span><strong>EXAMEN</strong><small>Final + adaptativo</small></span></article>
+        <article><b>02</b><span><strong>RESUMEN</strong><small>Qué debes estudiar</small></span></article>
+        <article><b>03</b><span><strong>MAPA</strong><small>Mapa mental + diagramas</small></span></article>
+        <article><b>04</b><span><strong>PRÁCTICA</strong><small>Ejercicios de los temas</small></span></article>
       </section>
 
       ${latest?`
       <section class="card exam-prep-current">
         <div class="exam-prep-current-head">
           <div><span>REPASO MÁS RECIENTE</span><h2>${escapeHtml(latest.study_title||latest.title||"Claves históricas")}</h2><p>${escapeHtml(latest.subject||"")} · ${Number(latest.source_count||0)} PDF históricos</p></div>
-          <button id="exam-prep-open-analysis" class="ghost-btn">VER ANÁLISIS →</button>
+          <button id="exam-prep-open-analysis" class="ghost-btn">VER REPASO →</button>
         </div>
         <div class="exam-prep-stage-buttons">
-          <button data-prep-tab="analysis"><span>01</span><div><strong>ANÁLISIS</strong><small>Temas y frecuencia histórica</small></div></button>
-          <button data-prep-tab="class"><span>02</span><div><strong>CLASE</strong><small>Explicación completa</small></div></button>
-          <button data-prep-tab="review"><span>03</span><div><strong>REPASO</strong><small>Puntos clave + práctica</small></div></button>
-          <button data-prep-tab="exam"><span>04</span><div><strong>EXAMEN FINAL</strong><small>Preguntas ya guardadas</small></div></button>
+          <button data-prep-tab="summary"><span>01</span><div><strong>RESUMEN</strong><small>Síntesis de las claves</small></div></button>
+          <button data-prep-tab="keypoints"><span>02</span><div><strong>PUNTOS CLAVE</strong><small>Qué más se repite</small></div></button>
+          <button data-prep-tab="visuals"><span>03</span><div><strong>MAPA + DIAGRAMAS</strong><small>Relaciones visuales</small></div></button>
+          <button data-prep-tab="practice"><span>04</span><div><strong>PRÁCTICA</strong><small>Preguntas guardadas</small></div></button>
         </div>
       </section>`:`
       <section class="card exam-prep-empty">
         <div>▤</div><h2>Aún no has preparado tus claves históricas.</h2>
-        <p>Sube varios PDF de años anteriores de la misma materia. MED AI construirá análisis, clase, repaso y examen final.</p>
+        <p>Sube varios PDF de años anteriores de la misma materia. MED AI preparará resumen, puntos repetidos, mapa mental, diagramas y ejercicios de práctica.</p>
         <button id="exam-prep-empty-upload" class="primary-btn">SUBIR MIS PRIMERAS CLAVES</button>
       </section>`}
 
@@ -4592,7 +4619,7 @@ async function renderExamPrepCenter(){
     $("#exam-prep-bank").onclick=()=>navigate("question_bank");
     $("#v29-create-plan").onclick=createExamPrepPlanV29;
     if(latest){
-      $("#exam-prep-open-analysis").onclick=()=>openHistoricalKeysPack(latest.id,false,"analysis");
+      $("#exam-prep-open-analysis").onclick=()=>openHistoricalKeysPack(latest.id,false,"summary");
       $$(".exam-prep-stage-buttons button").forEach(b=>b.onclick=()=>openHistoricalKeysPack(latest.id,false,b.dataset.prepTab));
     }
     $$(".exam-prep-pack").forEach(b=>b.onclick=()=>openHistoricalKeysPack(b.dataset.id,false,"analysis"));
@@ -4690,7 +4717,7 @@ async function renderSmartStudy(){
       <section class="smart-grid-main">
         <article class="card smart-exam-trends">
           <div class="smart-section-head"><div><span>CLAVES DE AÑOS PASADOS</span><h2>Qué se ha repetido históricamente</h2></div><button id="smart-open-keys-studio" class="ghost-btn">ABRIR ESTUDIO →</button></div>
-          ${keyTrend.length?`<div class="smart-trend-bars">${keyTrend.slice(0,8).map((t,i)=>`<div><span>${escapeHtml(t.topic)}</span><i><b style="width:${Math.min(100,Number(t.score||0))}%"></b></i><strong>${Number(t.count||0)}×</strong></div>`).join("")}</div>`:`<div class="smart-exam-empty"><span>▤</span><strong>Aún no has creado un repaso desde claves pasadas.</strong><p>Sube varios PDF de claves de años anteriores. MED AI detectará los temas históricos, te dará una clase/repaso y guardará un examen final nuevo.</p></div>`}
+          ${keyTrend.length?`<div class="smart-trend-bars">${keyTrend.slice(0,8).map((t,i)=>`<div><span>${escapeHtml(t.topic)}</span><i><b style="width:${Math.min(100,Number(t.score||0))}%"></b></i><strong>${Number(t.count||0)}×</strong></div>`).join("")}</div>`:`<div class="smart-exam-empty"><span>▤</span><strong>Aún no has creado un repaso desde claves pasadas.</strong><p>Sube varios PDF de claves de años anteriores. MED AI detectará los temas históricos y guardará resumen, puntos repetidos, mapa mental, diagramas y práctica.</p></div>`}
           <div class="smart-past-exam-list">${historicalKeys.slice(0,5).map(x=>`<button class="smart-open-historical-keys" data-id="${escapeAttr(x.id)}"><span>▤</span><div><strong>${escapeHtml(x.study_title||x.title)}</strong><small>${escapeHtml(x.subject||"Claves históricas")} · ${Number(x.source_count||0)} PDF</small></div><b>ESTUDIAR →</b></button>`).join("")}</div>
         </article>
 
@@ -4885,7 +4912,7 @@ function renderHistoricalKeysHome(saved=[]){
         <div class="field"><label>Materia / curso</label><input id="historical-keys-subject" placeholder="Ej. Fisiología, Química, Física..."></div>
         <div class="field"><label>Indicación opcional</label><textarea id="historical-keys-note" rows="3" placeholder="Ej. Son claves del primer parcial de varios años. Quiero prepararme para mi próximo parcial."></textarea></div>
         <div class="historical-keys-warning"><span>i</span><p>MED AI usa estos archivos como <b>evidencia histórica de estudio</b>, no como garantía de qué vendrá en tu próximo examen. Si una clave contiene únicamente letras como “1-B, 2-C” sin el texto de las preguntas, no hay suficiente información para saber qué tema evaluaba.</p></div>
-        <button id="historical-keys-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR CLASE + REPASO + EXAMEN</strong><small>Analiza el conjunto una sola vez y lo guarda</small></div></button>
+        <button id="historical-keys-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR REPASO + MAPA + PRÁCTICA</strong><small>Analiza el conjunto una sola vez y lo guarda</small></div></button>
       </section>
 
       <aside class="historical-keys-output">
@@ -4935,18 +4962,18 @@ async function createHistoricalKeysPack(){
       if(!res.ok)throw new Error(d.error||`No pude subir ${item.name}.`);
       ids.push(d.id);
     }
-    btn.innerHTML=`<span class="university-spin">✦</span><div><strong>CREANDO TU REPASO HISTÓRICO…</strong><small>Temas → clase → práctica → examen final</small></div>`;
+    btn.innerHTML=`<span class="university-spin">✦</span><div><strong>CREANDO TU REPASO HISTÓRICO…</strong><small>Resumen → repetidos → mapa/diagramas → práctica</small></div>`;
     const result=await api("/api/smart/historical-keys",{method:"POST",body:{file_ids:ids,subject,note}});
     state.historicalKeysDraft=[];
-    toast(result.cached?"Este mismo conjunto ya estaba preparado; se reutilizó.":"Clase histórica preparada y guardada.");
+    toast(result.cached?"Este mismo conjunto ya estaba preparado; se reutilizó.":"Repaso histórico preparado y guardado.");
     await openHistoricalKeysPack(result.id,true);
   }catch(err){
     toast(err.message,true);
-    btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>CREAR CLASE + REPASO + EXAMEN</strong><small>Analiza el conjunto una sola vez y lo guarda</small></div>`;
+    btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>CREAR REPASO + MAPA + PRÁCTICA</strong><small>Analiza el conjunto una sola vez y lo guarda</small></div>`;
   }
 }
 
-async function openHistoricalKeysPack(id,justCreated=false,startTab="analysis"){
+async function openHistoricalKeysPack(id,justCreated=false,startTab="summary"){
   const o=ensureHistoricalKeysOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
   const box=$("#historical-keys-body");
   box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando tu nuevo paquete…":"Abriendo paquete guardado…"}</strong><small>No se está regenerando con IA.</small></div>`;
@@ -4959,74 +4986,23 @@ async function openHistoricalKeysPack(id,justCreated=false,startTab="analysis"){
   }
 }
 
-function renderHistoricalKeysPack(tab="analysis"){
+function renderHistoricalKeysPack(tab="summary"){
   const p=state.historicalKeysPack,box=$("#historical-keys-body");if(!p)return;
-  const topics=p.recurring_topics||[];
-  box.innerHTML=`<section class="historical-pack">
-    <header class="historical-pack-head">
-      <button id="historical-pack-back" class="ghost-btn">← MIS CLAVES</button>
-      <div><span>${escapeHtml(p.subject||"")} · ${Number(p.source_count||p.source_files?.length||0)} PDF HISTÓRICOS</span><h2>${escapeHtml(p.title||"Repaso desde claves pasadas")}</h2><p>${escapeHtml(p.overview||"")}</p></div>
-      <div class="historical-pack-saved">✓ GUARDADO</div>
-    </header>
-    <nav class="historical-pack-tabs">
-      <button data-historical-tab="analysis" class="${tab==="analysis"?"active":""}"><b>01</b><span>ANÁLISIS</span></button>
-      <button data-historical-tab="class" class="${tab==="class"?"active":""}"><b>02</b><span>CLASE</span></button>
-      <button data-historical-tab="review" class="${tab==="review"?"active":""}"><b>03</b><span>REPASO</span></button>
-      <button data-historical-tab="exam" class="${tab==="exam"?"active":""}"><b>04</b><span>EXAMEN FINAL</span></button>
-    </nav>
-    <main id="historical-pack-content"></main>
-  </section>`;
-  $("#historical-pack-back").onclick=()=>openHistoricalKeysStudio();
-  $$(".historical-pack-tabs button").forEach(b=>b.onclick=()=>renderHistoricalKeysPack(b.dataset.historicalTab));
-  const area=$("#historical-pack-content");
-
-  if(tab==="analysis"){
-    area.innerHTML=`<section class="historical-analysis-grid">
-      <article class="card">
-        <div class="smart-section-head"><div><span>PATRÓN HISTÓRICO</span><h2>Temas que aparecieron en tus claves</h2></div><small>No es una predicción del próximo examen</small></div>
-        <div class="historical-topic-list">${topics.map((t,i)=>`<button class="historical-topic-study" data-topic="${escapeAttr(t.name)}">
-          <span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(t.name)}</strong><small>${escapeHtml((t.concepts||[]).slice(0,4).join(" · "))}</small></div>
-          <b>${Number(t.occurrence_count||0)} archivo${Number(t.occurrence_count||0)===1?"":"s"}</b><i><em style="width:${Math.max(4,Number(t.historical_weight||0))}%"></em></i>
-        </button>`).join("")}</div>
-      </article>
-      <aside class="card"><div class="panel-code">LO QUE OBSERVÓ MED AI</div><ul class="historical-pattern-list">${(p.historical_patterns||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>
-        ${p.limitations?.length?`<div class="historical-limitations"><b>LIMITACIONES</b>${p.limitations.map(x=>`<p>${escapeHtml(x)}</p>`).join("")}</div>`:""}
-      </aside>
-    </section>
-    <section class="card historical-plan-card"><div class="panel-code">PLAN DE ESTUDIO RECOMENDADO</div><div class="past-study-plan">${(p.study_plan||[]).map((s,i)=>`<article><b>${i+1}</b><div><strong>${escapeHtml(s.title||`Sesión ${i+1}`)}</strong><p>${escapeHtml(s.focus||"")}</p><small>${Number(s.minutes||25)} min</small></div></article>`).join("")}</div></section>`;
-    $$(".historical-topic-study",area).forEach(b=>b.onclick=()=>openOnePastExamTopic(b.dataset.topic));
-    return;
-  }
-
-  if(tab==="class"){
-    area.innerHTML=`<article class="historical-masterclass">
-      <header><div class="eyebrow">CLASE MAESTRA · BASADA EN LOS TEMAS HISTÓRICOS</div><h1>${escapeHtml(p.class_title||p.title||"Clase de repaso")}</h1><p>${escapeHtml(p.class_overview||p.overview||"")}</p></header>
-      ${(p.lessons||[]).map((l,i)=>`<section class="historical-lesson"><div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div><div><h2>${escapeHtml(l.title)}</h2><div class="masterclass-prose">${renderStudyParagraphs(l.explanation||"")}</div>${l.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${l.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}${l.exam_focus?`<div class="masterclass-application"><span>ENFOQUE DE REPASO</span>${renderStudyParagraphs(l.exam_focus)}</div>`:""}</div></section>`).join("")}
-    </article>`;
-    return;
-  }
-
-  if(tab==="review"){
-    area.innerHTML=`<section class="historical-review-grid">
-      <article class="card"><div class="panel-code">DEBES RECORDAR</div><div class="historical-memory-list">${(p.must_remember||[]).map((x,i)=>`<div><span>${i+1}</span><p>${escapeHtml(x)}</p></div>`).join("")}</div></article>
-      <article class="card"><div class="panel-code">ERRORES / TRAMPAS COMUNES</div><div class="historical-memory-list traps">${(p.common_traps||[]).map((x,i)=>`<div><span>!</span><p>${escapeHtml(x)}</p></div>`).join("")}</div></article>
-    </section>
-    <div class="historical-review-action"><button id="historical-start-practice" class="primary-btn">▶ HACER PRÁCTICA DE ${Number((p.practice_questions||[]).length)}</button><small>Preguntas ya guardadas · no usa IA adicional</small></div>`;
-    $("#historical-start-practice").onclick=()=>startHistoricalKeysQuiz("practice");
-    return;
-  }
-
-  area.innerHTML=`<section class="historical-final-exam">
-    <div class="historical-final-icon">✓</div><div class="eyebrow">EXAMEN FINAL NUEVO</div><h2>${Number((p.final_exam||[]).length)} preguntas sobre los temas encontrados</h2><p>Este examen no intenta adivinar tu próximo parcial. Comprueba si dominas los conceptos que aparecieron históricamente en las claves que subiste.</p>
-    <div class="historical-exam-rules"><span>80% para aprobar</span><span>Clave oculta hasta terminar</span><span>Repetible sin IA</span></div>
-    <button id="historical-start-exam" class="primary-btn">COMENZAR EXAMEN →</button>
-  </section>`;
-  $("#historical-start-exam").onclick=()=>startHistoricalKeysQuiz("exam");
+  const legacy={analysis:"keypoints",class:"summary",review:"keypoints",exam:"practice"};tab=legacy[tab]||tab;if(!["summary","keypoints","visuals","practice"].includes(tab))tab="summary";
+  const topics=p.recurring_topics||[],important=(p.important_points?.length?p.important_points:p.must_remember)||[];
+  const cmap=p.concept_map?.branches?.length?p.concept_map:{center:p.subject||p.title||"Temas",branches:topics.slice(0,7).map(t=>({label:t.name,children:(t.concepts||[]).slice(0,4)}))};
+  const diagrams=Array.isArray(p.diagrams)&&p.diagrams.length?p.diagrams:[{title:"Temas que más se repiten",caption:"Frecuencia histórica observada",steps:topics.slice(0,8).map(t=>({label:t.name,detail:`${Number(t.occurrence_count||0)} archivo(s) · ${(t.concepts||[]).slice(0,3).join(" · ")}`}))}];
+  box.innerHTML=`<section class="historical-pack"><header class="historical-pack-head"><button id="historical-pack-back" class="ghost-btn">← MIS CLAVES</button><div><span>${escapeHtml(p.subject||"")} · ${Number(p.source_count||p.source_files?.length||0)} PDF HISTÓRICOS</span><h2>${escapeHtml(p.title||"Repaso desde claves")}</h2><p>${escapeHtml(p.overview||"")}</p></div><div class="historical-pack-saved">✓ GUARDADO</div></header><nav class="historical-pack-tabs simplified"><button data-historical-tab="summary" class="${tab==="summary"?"active":""}"><b>01</b><span>RESUMEN</span></button><button data-historical-tab="keypoints" class="${tab==="keypoints"?"active":""}"><b>02</b><span>PUNTOS CLAVE</span></button><button data-historical-tab="visuals" class="${tab==="visuals"?"active":""}"><b>03</b><span>MAPA + DIAGRAMAS</span></button><button data-historical-tab="practice" class="${tab==="practice"?"active":""}"><b>04</b><span>PRÁCTICA</span></button></nav><main id="historical-pack-content"></main></section>`;
+  $("#historical-pack-back").onclick=()=>openHistoricalKeysStudio();$$('.historical-pack-tabs button').forEach(b=>b.onclick=()=>renderHistoricalKeysPack(b.dataset.historicalTab));const area=$("#historical-pack-content");
+  if(tab==="summary"){area.innerHTML=`<section class="historical-simple-summary"><article class="card"><div class="panel-code">RESUMEN DE TUS CLAVES</div><h2>${escapeHtml(p.title||"")}</h2><p>${escapeHtml(p.overview||"")}</p>${p.source_quality?`<div class="historical-source-quality"><b>CALIDAD DEL MATERIAL</b><span>${escapeHtml(p.source_quality)}</span></div>`:""}</article>${p.limitations?.length?`<article class="card"><div class="panel-code">LIMITACIONES</div>${p.limitations.map(x=>`<p>• ${escapeHtml(x)}</p>`).join("")}</article>`:""}</section>`;return}
+  if(tab==="keypoints"){area.innerHTML=`<section class="historical-analysis-grid"><article class="card"><div class="smart-section-head"><div><span>MÁS REPETIDO</span><h2>Temas y frecuencia histórica</h2></div><small>No es predicción</small></div><div class="historical-topic-list">${topics.map((t,i)=>`<div class="historical-topic-study"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(t.name)}</strong><small>${escapeHtml((t.concepts||[]).slice(0,4).join(" · "))}</small></div><b>${Number(t.occurrence_count||0)}×</b><i><em style="width:${Math.max(4,Number(t.historical_weight||0))}%"></em></i></div>`).join("")}</div></article><aside class="card"><div class="panel-code">PUNTOS IMPORTANTES</div><div class="historical-memory-list">${important.map((x,i)=>`<div><span>${i+1}</span><p>${escapeHtml(x)}</p></div>`).join("")}</div>${p.historical_patterns?.length?`<div class="historical-limitations"><b>PATRONES OBSERVADOS</b>${p.historical_patterns.map(x=>`<p>${escapeHtml(x)}</p>`).join("")}</div>`:""}</aside></section>${p.common_traps?.length?`<section class="card"><div class="panel-code">CONFUSIONES / TRAMPAS</div><div class="historical-memory-list traps">${p.common_traps.map(x=>`<div><span>!</span><p>${escapeHtml(x)}</p></div>`).join("")}</div></section>`:""}`;return}
+  if(tab==="visuals"){area.innerHTML=`<div class="historical-visuals-v305">${renderCourseConceptMap(cmap,{title:p.subject||p.title,sections:[]})}${diagrams.map(d=>renderCourseDiagram(d,[]).replace("para esta clase","para este repaso")).join("")}</div>`;$$('.academy-map-branch',area).forEach(branch=>branch.onclick=()=>branch.classList.toggle('expanded'));$$('.academy-diagram-step',area).forEach(step=>step.onclick=()=>{step.classList.toggle('selected');step.querySelector('.academy-diagram-detail')?.classList.toggle('open')});return}
+  area.innerHTML=`<section class="historical-final-exam simplified-practice"><div class="historical-final-icon">✦</div><div class="eyebrow">EJERCICIOS DE PRÁCTICA</div><h2>${Number((p.practice_questions||[]).length)} preguntas sobre los temas encontrados</h2><p>Son preguntas nuevas para practicar lo que apareció en tus claves. Puedes repetirlas sin volver a usar IA.</p><button id="historical-start-practice" class="primary-btn">COMENZAR PRÁCTICA →</button></section>`;$("#historical-start-practice").onclick=()=>startHistoricalKeysQuiz("practice");
 }
 
 function startHistoricalKeysQuiz(kind){
   const p=state.historicalKeysPack;
-  const questions=(kind==="exam"?p.final_exam:p.practice_questions)||[];
+  const questions=p.practice_questions||[];kind="practice";
   if(!questions.length)return toast("Este paquete no tiene preguntas guardadas.",true);
   state.historicalKeysQuiz={kind,questions,index:0,answers:{},score:0,started_at:new Date().toISOString()};
   renderHistoricalKeysQuestion();
@@ -5036,7 +5012,7 @@ function renderHistoricalKeysQuestion(){
   if(!q){finishHistoricalKeysQuiz();return}
   const choice=st.answers[`q${st.index}`],practice=st.kind==="practice";
   box.innerHTML=`<section class="answer-key-session historical-quiz">
-    <header class="answer-key-session-head"><button id="historical-quiz-exit" class="ghost-btn">← SALIR</button><div><span>${practice?"PRÁCTICA":"EXAMEN FINAL"} · CLAVES HISTÓRICAS</span><strong>${st.index+1} / ${st.questions.length}</strong></div><div class="answer-key-session-score">${practice?`${st.score} ✓`:"RESPUESTAS OCULTAS"}</div></header>
+    <header class="answer-key-session-head"><button id="historical-quiz-exit" class="ghost-btn">← SALIR</button><div><span>PRÁCTICA · CLAVES HISTÓRICAS</span><strong>${st.index+1} / ${st.questions.length}</strong></div><div class="answer-key-session-score">${practice?`${st.score} ✓`:"RESPUESTAS OCULTAS"}</div></header>
     <div class="master-exam-progress"><i style="width:${st.index/st.questions.length*100}%"></i></div>
     <article class="answer-key-question"><div class="answer-key-question-meta"><span>PREGUNTA ${st.index+1}</span><b>${escapeHtml(q.topic||"Repaso")}</b></div><h1>${escapeHtml(q.stem||q.question||"")}</h1>
       <div class="answer-key-options">${(q.options||[]).map((op,i)=>`<button data-i="${i}" class="${choice===i?"selected":""}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div>
@@ -5044,7 +5020,7 @@ function renderHistoricalKeysQuestion(){
       <div class="answer-key-question-actions">${st.index>0?`<button id="historical-prev" class="secondary-btn">← ANTERIOR</button>`:"<span></span>"}${choice===undefined?`<small>Selecciona una respuesta.</small>`:`<button id="historical-next" class="primary-btn">${st.index+1===st.questions.length?"TERMINAR":"SIGUIENTE →"}</button>`}</div>
     </article>
   </section>`;
-  $("#historical-quiz-exit").onclick=()=>renderHistoricalKeysPack(st.kind==="exam"?"exam":"review");
+  $("#historical-quiz-exit").onclick=()=>renderHistoricalKeysPack("practice");
   $$(".answer-key-options button",box).forEach(b=>b.onclick=()=>selectHistoricalKeysAnswer(Number(b.dataset.i)));
   $("#historical-prev")?.addEventListener("click",()=>{st.index--;renderHistoricalKeysQuestion()});
   $("#historical-next")?.addEventListener("click",()=>{st.index++;renderHistoricalKeysQuestion()});
@@ -5061,19 +5037,9 @@ function renderHistoricalPracticeFeedback(q,choice){
   return `<section class="answer-key-feedback ${ok?"correct":"wrong"}"><div class="answer-key-feedback-title"><span>${ok?"✓":"×"}</span><div><strong>${ok?"Correcto":"Revisa este concepto"}</strong><small>Respuesta correcta: ${String.fromCharCode(65+Number(q.correctIndex||0))}</small></div></div><p>${escapeHtml(q.explanation||"")}</p></section>`;
 }
 async function finishHistoricalKeysQuiz(){
-  const st=state.historicalKeysQuiz,p=state.historicalKeysPack;
-  let score=0;st.questions.forEach((q,i)=>{if(Number(st.answers[`q${i}`])===Number(q.correctIndex))score++});
-  const pct=Math.round(score/Math.max(1,st.questions.length)*100);
-  if(st.kind==="exam"){
-    try{await api("/api/exams/record",{method:"POST",body:{
-      title:`Examen final · Claves históricas · ${p.subject||""}`,
-      settings:{smart_study:true,historical_keys:true,historical_keys_pack_id:state.historicalKeysSource?.id,subject:p.subject},
-      started_at:st.started_at,score,max_score:st.questions.length,percentage:pct,questions:st.questions,answers:st.answers
-    }})}catch{}
-  }
-  $("#historical-keys-body").innerHTML=`<section class="answer-key-result"><div class="answer-key-result-ring"><strong>${pct}%</strong><small>${score}/${st.questions.length}</small></div><div class="eyebrow">${st.kind==="exam"?"EXAMEN FINAL":"PRÁCTICA"} TERMINADO</div><h2>${pct>=80?"Buen dominio de los temas históricos.":"Conviene reforzar algunos conceptos."}</h2><p>${st.kind==="exam"?"Tus errores se guardan para que Repaso inteligente pueda volver a trabajarlos.":"Puedes repetir esta práctica todas las veces que quieras sin nueva IA."}</p><div class="answer-key-result-actions"><button id="historical-result-back" class="secondary-btn">VOLVER AL PAQUETE</button><button id="historical-result-repeat" class="primary-btn">REPETIR</button></div></section>`;
-  $("#historical-result-back").onclick=()=>renderHistoricalKeysPack(st.kind==="exam"?"exam":"review");
-  $("#historical-result-repeat").onclick=()=>startHistoricalKeysQuiz(st.kind);
+  const st=state.historicalKeysQuiz,p=state.historicalKeysPack;let score=0;st.questions.forEach((q,i)=>{if(Number(st.answers[`q${i}`])===Number(q.correctIndex))score++});const pct=Math.round(score/Math.max(1,st.questions.length)*100);
+  $("#historical-keys-body").innerHTML=`<section class="answer-key-result"><div class="answer-key-result-ring"><strong>${pct}%</strong><small>${score}/${st.questions.length}</small></div><div class="eyebrow">PRÁCTICA TERMINADA</div><h2>${pct>=80?"Buen dominio de los temas históricos.":"Conviene reforzar algunos conceptos."}</h2><p>Puedes repetir esta práctica todas las veces que quieras sin nueva IA.</p><div class="answer-key-result-actions"><button id="historical-result-back" class="secondary-btn">VOLVER AL REPASO</button><button id="historical-result-repeat" class="primary-btn">REPETIR</button></div></section>`;
+  $("#historical-result-back").onclick=()=>renderHistoricalKeysPack("practice");$("#historical-result-repeat").onclick=()=>startHistoricalKeysQuiz("practice");
 }
 
 async function renderMistakes(){
@@ -5394,12 +5360,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3004",Date.now().toString());
+  url.searchParams.set("v3005",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.4",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.5",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
