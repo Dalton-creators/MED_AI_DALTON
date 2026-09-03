@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v30-0-1-library-reliability";
+const CACHE = "med-ai-dalton-v30-0-2-parallel-library";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=30.0.1",
-  "/app.js?v=30.0.1",
+  "/styles.css?v=30.0.2",
+  "/app.js?v=30.0.2",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

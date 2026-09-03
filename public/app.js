@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.1";
+const APP_VERSION="30.0.2";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -4170,7 +4170,7 @@ function renderLibraryStudyConfirm(ctx){
     <div class="library-study-confirm-grid"><section class="card"><div class="panel-code">SESIÓN</div><h3>${escapeHtml(focus||file.title)}</h3>
     <div class="library-confirm-row"><span>Fuente</span><strong>${escapeHtml(file.title)}</strong></div><div class="library-confirm-row"><span>Fragmento</span><strong>${escapeHtml(scope)}</strong></div>
     ${exactPdf?`<div class="library-confirm-row"><span>Páginas enviadas</span><strong>${end-start+1} de ${state.libraryStudyDoc.pageCount}</strong></div>`:""}${ocrPages.length?`<div class="library-confirm-row"><span>OCR utilizado</span><strong>Pág. ${escapeHtml(ocrPages.join(", "))}</strong></div>`:""}
-    <div class="library-confirm-row"><span>Modelo</span><strong>Gemini 2.5 Flash + respaldo automático</strong></div><div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Clase · Diagrama · Mapa · 8 ejercicios · Examen de 10 · Videos</strong></div>
+    <div class="library-confirm-row"><span>Modelo</span><strong>Gemini 2.5 Flash · Flash Lite · respaldo automático</strong></div><div class="library-confirm-row"><span>Se guardará</span><strong>Resumen · Clase · Diagrama · Mapa · 8 ejercicios · Examen de 10 · Videos</strong></div>
     ${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(instruction)}</p></div>`:""}<button id="library-study-create" class="library-create-study-btn"><span>✦</span><div><strong>CREAR Y GUARDAR ESTA SESIÓN</strong><small>La IA trabajará solo con este fragmento</small></div></button></section>
     <aside class="library-study-generated-list"><div class="panel-code">DESPUÉS PODRÁS</div><div><b>◎</b><span><strong>Repasar el resumen</strong><small>Sin nueva inferencia</small></span></div><div><b>◈</b><span><strong>Abrir diagrama y mapa</strong><small>Ya quedan generados</small></span></div><div><b>✦</b><span><strong>Practicar 8 ejercicios</strong><small>Calificación local</small></span></div><div><b>✓</b><span><strong>Repetir examen de 10</strong><small>Las veces que quieras</small></span></div></aside></div></section>`;
   $("#library-study-confirm-back").onclick=()=>renderLibraryStudyRangeForm(info);
@@ -4178,8 +4178,9 @@ function renderLibraryStudyConfirm(ctx){
 }
 
 async function createLibraryStudyPack(ctx){
+  if(state.maintenanceMode&&navigator.onLine){state.maintenanceMode=false;updateMaintenanceBanner();}
   const btn=$("#library-study-create"),file=state.libraryStudyFile;
-  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ PREPARANDO TU SESIÓN… · respaldo automático activo</strong><small>Al terminar quedará guardada</small></div>`;
+  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ CREANDO CLASE + PRÁCTICA + EXAMEN EN PARALELO…</strong><small>Al terminar quedará guardada</small></div>`;
   try{
     const result=await api("/api/library/study-pack",{method:"POST",body:{
       file_id:file.id,
@@ -5401,12 +5402,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3001",Date.now().toString());
+  url.searchParams.set("v3002",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.1",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.2",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
@@ -5440,7 +5441,7 @@ async function api(url,opts={}){
   if(opts.body && typeof opts.body!=="string") config.body=JSON.stringify(opts.body);
   const cacheKey=offlineApiKey(url);
   try{
-    const timeoutMs=url.includes("/api/library/study-pack")?170000:90000;
+    const timeoutMs=url.includes("/api/library/study-pack")?105000:90000;
     const res=await fetchWithTimeout(url,config,timeoutMs);
     const data=await res.json().catch(()=>({}));
     if(!res.ok){
@@ -5471,7 +5472,8 @@ async function api(url,opts={}){
       updateNetworkBadge();
       return {ok:true,queued:true};
     }
-    if(navigator.onLine){
+    const localizedAIError=url.includes("/api/library/study-pack")||url.includes("/api/academic/explain")||url.includes("/api/ai/exam");
+    if(navigator.onLine&&!localizedAIError){
       state.maintenanceMode=true;updateMaintenanceBanner("Un servicio remoto no respondió. Puedes continuar con el material que ya está guardado.");
     }
     throw err;

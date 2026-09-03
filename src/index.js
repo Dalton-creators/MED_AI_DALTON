@@ -433,7 +433,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.0.1";
+const SYSTEM_VERSION="30.0.2";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -2973,6 +2973,134 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
   return {parsed:null,raw,usedModel,shape};
 }
 
+
+async function callLibraryPartJson(env,{
+  task,model=PREMIUM_FLASH_LITE_MODEL,system,prompt,
+  maxOutputTokens=2600,temperature=0.08,providerTimeout=32000,fallbackTimeout=18000
+}){
+  ensureAI(env);
+  let primaryError=null,raw=null,parsed=null;
+
+  try{
+    raw=await promiseTimeout(
+      env.AI.run(
+        model,
+        {
+          contents:[{role:"user",parts:[{text:prompt}]}],
+          systemInstruction:{parts:[{text:system}]},
+          generationConfig:{
+            temperature,
+            maxOutputTokens,
+            responseMimeType:"application/json"
+          }
+        },
+        gatewayOptions(task,{
+          model_requested:model,
+          model_used:model,
+          format:"library_parallel_json"
+        })
+      ),
+      providerTimeout,
+      model
+    );
+    parsed=parseAIJsonResponse(raw);
+    if(parsed)return {parsed,model,source:"primary"};
+  }catch(err){
+    primaryError=err;
+    console.error("LIBRARY_PARALLEL_PRIMARY_ERROR",task,model,err?.stack||err);
+  }
+
+  // One small Workers AI fallback. We do not chain several long providers:
+  // each component must finish quickly or fail explicitly.
+  try{
+    raw=await promiseTimeout(
+      env.AI.run(
+        WORKERS_FAST_MODEL,
+        {
+          messages:[
+            {role:"system",content:system+"\nDevuelve exclusivamente JSON válido, sin Markdown."},
+            {role:"user",content:prompt}
+          ],
+          max_tokens:Math.min(maxOutputTokens,3200),
+          temperature,
+          chat_template_kwargs:{enable_thinking:false}
+        },
+        gatewayOptions(task,{
+          model_requested:model,
+          model_used:WORKERS_FAST_MODEL,
+          format:"library_parallel_workers_fallback"
+        })
+      ),
+      fallbackTimeout,
+      WORKERS_FAST_MODEL
+    );
+    parsed=parseAIJsonResponse(raw);
+    if(parsed)return {parsed,model:WORKERS_FAST_MODEL,source:"fallback"};
+  }catch(err){
+    console.error("LIBRARY_PARALLEL_FALLBACK_ERROR",task,err?.stack||err);
+    const finalErr=new Error(
+      primaryError?.code==="MEDAI_TIMEOUT"||err?.code==="MEDAI_TIMEOUT"
+        ? `La parte “${task}” tardó demasiado incluso con el respaldo rápido.`
+        : `No pude generar la parte “${task}”.`
+    );
+    finalErr.code="LIBRARY_PART_FAILED";
+    finalErr.task=task;
+    finalErr.primary=String(primaryError?.message||"");
+    finalErr.fallback=String(err?.message||"");
+    throw finalErr;
+  }
+
+  const err=new Error(`La parte “${task}” no devolvió JSON utilizable.`);
+  err.code="LIBRARY_PART_INVALID";
+  err.task=task;
+  throw err;
+}
+
+function libraryParallelCoreValid(p){
+  const sections=Array.isArray(p?.sections)?p.sections.filter(x=>x?.title&&(x?.content||x?.explanation)).length:0;
+  return sections>=3 && !!(p?.title||p?.overview);
+}
+function libraryParallelPracticeValid(p){
+  const q=Array.isArray(p?.practice)?p.practice.filter(x=>x&&(x.question||x.stem)&&Array.isArray(x.options)&&x.options.length===4):[];
+  return q.length>=8;
+}
+function libraryParallelExamValid(p){
+  const q=Array.isArray(p?.exam)?p.exam.filter(x=>x&&(x.stem||x.question)&&Array.isArray(x.options)&&x.options.length===4):[];
+  return q.length>=10;
+}
+
+async function retryLibraryPartFast(env,{task,system,prompt,maxOutputTokens=2600}){
+  let raw;
+  try{
+    raw=await promiseTimeout(
+      env.AI.run(
+        WORKERS_FAST_MODEL,
+        {
+          messages:[
+            {role:"system",content:system+"\nDevuelve SOLO JSON válido. Cumple exactamente las cantidades solicitadas."},
+            {role:"user",content:prompt}
+          ],
+          max_tokens:Math.min(maxOutputTokens,3200),
+          temperature:0.04,
+          chat_template_kwargs:{enable_thinking:false}
+        },
+        gatewayOptions(`${task}_retry`,{
+          model_requested:WORKERS_FAST_MODEL,
+          model_used:WORKERS_FAST_MODEL,
+          format:"library_parallel_retry"
+        })
+      ),
+      16000,
+      WORKERS_FAST_MODEL
+    );
+    const parsed=parseAIJsonResponse(raw);
+    if(parsed)return {parsed,model:WORKERS_FAST_MODEL,source:"retry"};
+  }catch(err){
+    console.error("LIBRARY_PART_RETRY_ERROR",task,err?.stack||err);
+  }
+  return null;
+}
+
 function libraryPackRequiredCounts(parsed){
   const sections=Array.isArray(parsed?.sections)?parsed.sections.filter(x=>x&&x.title&&(x.content||x.explanation)).length:0;
   const practice=Array.isArray(parsed?.practice)?parsed.practice.filter(x=>x&&(x.question||x.stem)&&Array.isArray(x.options)&&x.options.length>=4).length:0;
@@ -3065,6 +3193,7 @@ async function createLibraryStudyPackApi(request,env,user){
     WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1
   `).bind(fileId,user.id).first();
   if(!file)return json({error:"No encontré el archivo original en tu Biblioteca."},404);
+
   const fileMeta=parseJsonLoose(file.metadata_json)||{};
   const studyFocus=cleanText(body.study_focus,500)||file.title;
   const studyScope=cleanText(body.study_scope,240)||"Fragmento seleccionado";
@@ -3072,125 +3201,238 @@ async function createLibraryStudyPackApi(request,env,user){
   const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0);
   const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
   const exactPageRange=pageStart>0&&pageEnd>=pageStart;
+
   const sourceSignature=await sha256([
     user.id,fileId,studyScope,studyFocus,
     exactPageRange?`${pageStart}-${pageEnd}`:"",
     extracted
   ].join("|"));
 
-  // If the exact same session already finished in a prior/retried request,
-  // reuse it instead of spending AI again or creating duplicates.
-  const recentExisting=await env.DB.prepare(`
+  // Idempotent retry: never regenerate an identical finished session.
+  const existingRows=await env.DB.prepare(`
     SELECT id,title,metadata_json,updated_at
     FROM notes
     WHERE user_id=? AND tags_json LIKE '%library_study_pack%'
-    ORDER BY datetime(updated_at) DESC LIMIT 120
+    ORDER BY datetime(updated_at) DESC LIMIT 160
   `).bind(user.id).all();
-  for(const row of (recentExisting.results||[])){
+  for(const row of (existingRows.results||[])){
     const meta=parseJsonLoose(row.metadata_json)||{};
     if(meta.source_signature===sourceSignature){
-      return json({ok:true,id:row.id,title:meta.study_title||row.title,reused:true,model:"saved"},200);
+      return json({
+        ok:true,id:row.id,title:meta.study_title||row.title,
+        reused:true,model:"saved",generation_ms:0
+      },200);
     }
   }
 
-  const pseudoRow={
-    subject_name:"Biblioteca personal",
-    topic_name:studyFocus,
-    subject_code:"LIBRARY"
-  };
+  const pseudoRow={subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"};
   const promptBody={
     source_type:(fileMeta.mime_type==="application/pdf"?"pdf":"text"),
-    source_name:file.title,
-    exam_focus:body.exam_focus!==false,
-    deep_explanation:body.deep_explanation!==false
+    source_name:file.title,exam_focus:body.exam_focus!==false,deep_explanation:body.deep_explanation!==false
   };
 
-  const basePrompt=universitySourcePrompt(pseudoRow,promptBody);
-  const extra=`\n\nCONTEXTO ESPECIAL DE ESTA SESIÓN:
-- Archivo de Biblioteca: ${file.title}
-- Fragmento seleccionado: ${studyScope}
-${exactPageRange?`- Rango PDF exacto: páginas ${pageStart} a ${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}. Respeta los marcadores ===== PÁGINA N ===== y no atribuyas información a páginas no incluidas.`:""}
-- Enfoque del estudiante: ${studyFocus}
-${instruction?`- Indicación del estudiante: ${instruction}`:""}
-- Esta sesión es independiente del progreso oficial del curso.
-- Enseña exactamente el fragmento seleccionado y úsalo como fuente principal.
-- No inventes contenido de páginas o diapositivas no incluidas.
-- Para velocidad y estabilidad: usa 4 secciones claras (no 7), párrafos concisos, 8 preguntas de práctica y 10 de examen. No repitas explicaciones largas en varias claves del JSON.`;
+  const scopeInfo=[
+    `Archivo: ${file.title}`,
+    `Selección: ${studyScope}`,
+    exactPageRange?`Páginas PDF exactas: ${pageStart}-${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}`:"",
+    `Enfoque: ${studyFocus}`,
+    instruction?`Indicación del estudiante: ${instruction}`:"",
+    "Usa exclusivamente el material incluido abajo como fuente académica principal.",
+    "No inventes contenido de páginas no incluidas.",
+    "Esta sesión NO modifica el progreso oficial del curso."
+  ].filter(Boolean).join("\n");
+
+  const material=`${scopeInfo}\n\n===== MATERIAL SELECCIONADO =====\n${extracted}\n===== FIN DEL MATERIAL =====`;
+
+  const corePrompt=`Crea SOLO la parte de CLASE de una sesión universitaria de MED AI DALTON.
+Devuelve exclusivamente este JSON:
+{
+  "title":"título de la clase",
+  "overview":"introducción clara y breve",
+  "estimated_minutes":30,
+  "source_digest":"síntesis fiel del material",
+  "objectives":["4 a 6 objetivos"],
+  "sections":[
+    {"title":"parte","content":"explicación clara y rigurosa","key_points":["2 a 5 puntos"],"example":"ejemplo/aplicación si procede"}
+  ],
+  "key_terms":["8 a 14 conceptos"],
+  "exam_focus":["5 a 8 puntos de alto rendimiento"],
+  "diagram":{"title":"...","caption":"...","steps":[{"label":"...","detail":"..."}]},
+  "concept_map":{"center":"...","branches":[{"label":"...","children":["...","..."]}]},
+  "summary":{"overview":"...","must_remember":["6 a 10"],"common_errors":["3 a 5"],"connection":"..."},
+  "video_searches":[{"query":"búsqueda educativa","channel_hint":"","why":"qué reforzar"}]
+}
+REGLAS:
+- EXACTAMENTE 4 sections, compactas pero suficientes para estudiar.
+- 4 a 6 pasos en diagram.
+- 4 a 6 ramas en concept_map.
+- 3 búsquedas de video.
+- No incluyas practice ni exam.
+- Si es Medicina, mantén precisión educativa y no conviertas esto en atención clínica.
+
+${material}`;
+
+  const practicePrompt=`Crea SOLO 8 ejercicios de práctica basados estrictamente en el material.
+Devuelve exclusivamente:
+{"practice":[
+ {"question":"...","context":"","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación breve y útil"}
+]}
+REGLAS:
+- EXACTAMENTE 8 preguntas.
+- EXACTAMENTE 4 opciones por pregunta.
+- Una sola respuesta correcta.
+- Mezcla recuerdo, comprensión y aplicación.
+- No repitas preguntas.
+- No inventes información ausente del material.
+
+${material}`;
+
+  const examPrompt=`Crea SOLO el examen final de esta sesión usando estrictamente el material.
+Devuelve exclusivamente:
+{"exam":[
+ {"stem":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación breve"}
+]}
+REGLAS:
+- EXACTAMENTE 10 preguntas.
+- EXACTAMENTE 4 opciones por pregunta.
+- Una sola respuesta correcta.
+- No copies literalmente los ejercicios de práctica.
+- Prioriza comprensión y aplicación.
+- No inventes información ausente del material.
+
+${material}`;
 
   const generationStartedAt=Date.now();
-  let parsed=null,lastErr=null,generationInfo=null;
-  try{
-    generationInfo=await callLibraryStructuredJson(env,{
-      task:"library_study_pack",
-      system:"Eres MED AI DALTON, profesor universitario y diseñador instruccional. Devuelve únicamente JSON válido.",
-      prompt:`${basePrompt}${extra}\n\n===== FRAGMENTO EXTRAÍDO LOCALMENTE =====\n${extracted}\n===== FIN DEL FRAGMENTO =====`,
-      maxOutputTokens:4800,
-      temperature:0.08,
-      profile:"normal"
-    });
-    parsed=generationInfo.parsed;
-  }catch(err){lastErr=err}
 
-  let pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
-  let repairInfo=null;
-  if(!pack && !lastErr){
-    try{
-      repairInfo=await repairLibraryStudyPack(env,parsed,extracted,studyFocus,file.title);
-      parsed=repairInfo.merged;
-      pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
-    }catch(repairErr){
-      lastErr=repairErr;
-    }
+  // Critical reliability change V30.0.2:
+  // three small generations run concurrently instead of one huge JSON request.
+  let [coreRes,practiceRes,examRes]=await Promise.allSettled([
+    callLibraryPartJson(env,{
+      task:"library_core",
+      model:PREMIUM_FLASH_MODEL,
+      system:"Eres MED AI DALTON, profesor universitario. Construye una clase fiel a la fuente y devuelve únicamente JSON.",
+      prompt:corePrompt,maxOutputTokens:3000,temperature:0.08,providerTimeout:35000,fallbackTimeout:18000
+    }),
+    callLibraryPartJson(env,{
+      task:"library_practice",
+      model:PREMIUM_FLASH_LITE_MODEL,
+      system:"Eres MED AI DALTON. Diseña práctica universitaria fiel a la fuente. Devuelve únicamente JSON.",
+      prompt:practicePrompt,maxOutputTokens:2300,temperature:0.06,providerTimeout:26000,fallbackTimeout:16000
+    }),
+    callLibraryPartJson(env,{
+      task:"library_exam",
+      model:PREMIUM_FLASH_LITE_MODEL,
+      system:"Eres MED AI DALTON. Diseña un examen universitario fiel a la fuente. Devuelve únicamente JSON.",
+      prompt:examPrompt,maxOutputTokens:2700,temperature:0.06,providerTimeout:28000,fallbackTimeout:16000
+    })
+  ]);
+
+  let core=coreRes.status==="fulfilled"?coreRes.value:null;
+  let practice=practiceRes.status==="fulfilled"?practiceRes.value:null;
+  let exam=examRes.status==="fulfilled"?examRes.value:null;
+
+  // If a model returned JSON but missed an exact count, do one short targeted retry.
+  const retryJobs=[];
+  const retryKinds=[];
+  if(!core||!libraryParallelCoreValid(core.parsed)){
+    retryKinds.push("core");
+    retryJobs.push(retryLibraryPartFast(env,{
+      task:"library_core",
+      system:"Crea la parte de clase de una sesión universitaria fiel a la fuente.",
+      prompt:corePrompt,maxOutputTokens:3000
+    }));
   }
-  if(!pack){
-    if(lastErr)return json({
-      error:workersAIUserMessage(lastErr),
-      component:"Biblioteca · sesión de estudio",
-      stage:"repair",
-      generated_counts:libraryPackRequiredCounts(parsed)
-    },503);
-    const counts=libraryPackRequiredCounts(parsed);
+  if(!practice||!libraryParallelPracticeValid(practice.parsed)){
+    retryKinds.push("practice");
+    retryJobs.push(retryLibraryPartFast(env,{
+      task:"library_practice",
+      system:"Genera exactamente 8 preguntas de práctica fieles a la fuente.",
+      prompt:practicePrompt,maxOutputTokens:2300
+    }));
+  }
+  if(!exam||!libraryParallelExamValid(exam.parsed)){
+    retryKinds.push("exam");
+    retryJobs.push(retryLibraryPartFast(env,{
+      task:"library_exam",
+      system:"Genera exactamente 10 preguntas de examen fieles a la fuente.",
+      prompt:examPrompt,maxOutputTokens:2700
+    }));
+  }
+
+  if(retryJobs.length){
+    const retryResults=await Promise.all(retryJobs);
+    retryKinds.forEach((kind,i)=>{
+      const r=retryResults[i];if(!r)return;
+      if(kind==="core")core=r;
+      if(kind==="practice")practice=r;
+      if(kind==="exam")exam=r;
+    });
+  }
+
+  const failures=[];
+  if(!core||!libraryParallelCoreValid(core.parsed))failures.push("clase/resumen/mapa");
+  if(!practice||!libraryParallelPracticeValid(practice.parsed))failures.push("8 ejercicios");
+  if(!exam||!libraryParallelExamValid(exam.parsed))failures.push("examen de 10");
+
+  if(failures.length){
     return json({
-      error:`La sesión quedó incompleta después de la reparación automática (secciones ${counts.sections}/3+, práctica ${counts.practice}/6+, examen ${counts.exam}/10).`,
+      error:`No pude completar: ${failures.join(", ")}. Las demás partes no se guardaron para evitar una sesión incompleta.`,
       component:"Biblioteca · sesión de estudio",
-      stage:"validation",
-      generated_counts:counts,
-      ai_model:generationInfo?.usedModel||repairInfo?.model||null,
-      response_shape:generationInfo?.shape||repairInfo?.shape||"sin_forma_detectable",
-      parsed_keys:parsed&&typeof parsed==="object"?Object.keys(parsed).slice(0,20):[],
-      source_chars:extracted.length,
-      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V30.0.1 muestra modelo, forma de respuesta y claves JSON recibidas."
+      stage:"parallel_generation",
+      failed_parts:failures,
+      generation_ms:Date.now()-generationStartedAt,
+      suggestion:"Vuelve a pulsar Crear. V30.0.2 genera cada parte por separado y solo repetirá lo necesario en esa nueva solicitud."
     },502);
   }
 
-  pack.version=30.01;
+  const parsed={
+    ...core.parsed,
+    practice:(practice.parsed.practice||[]).slice(0,8),
+    exam:(exam.parsed.exam||[]).slice(0,10)
+  };
+
+  const pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
+  if(!pack){
+    return json({
+      error:"Las tres partes respondieron, pero la validación final detectó una estructura incompleta.",
+      component:"Biblioteca · sesión de estudio",
+      stage:"final_validation",
+      generated_counts:libraryPackRequiredCounts(parsed),
+      generation_ms:Date.now()-generationStartedAt
+    },502);
+  }
+
+  pack.version=30.02;
   pack.library_study_pack=true;
   pack.source_reference={
-    type:"library",
-    source_file_id:fileId,
-    name:file.title,
-    mime_type:fileMeta.mime_type||"",
+    type:"library",source_file_id:fileId,name:file.title,mime_type:fileMeta.mime_type||"",
     study_scope:studyScope,
-    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,
+    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,
+    pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,
     imported_at:new Date().toISOString()
   };
   pack.overview=pack.overview||`Sesión basada en ${studyScope} de ${file.title}.`;
 
   const id=crypto.randomUUID(),now=new Date().toISOString();
+  const models={
+    core:core.model||null,
+    practice:practice.model||null,
+    exam:exam.model||null
+  };
   const metadata={
-    university_source:true,
-    library_study_pack:true,
-    version:30.01,
-    source_type:"library",
-    source_file_id:fileId,
-    source_name:file.title,
+    university_source:true,library_study_pack:true,version:30.02,
+    source_type:"library",source_file_id:fileId,source_name:file.title,
     source_detail:`${studyScope} · sesión guardada`,
-    study_scope:studyScope,
-    study_focus:studyFocus,
-    study_title:pack.title||studyFocus,
-    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,exact_page_range:exactPageRange,
+    study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,
+    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,
+    pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,exact_page_range:exactPageRange,
+    source_signature:sourceSignature,
+    generation_version:"30.0.2",
+    generation_models:models,
+    generation_ms:Date.now()-generationStartedAt,
     imported_once:true
   };
+
   await env.DB.prepare(`
     INSERT INTO notes
     (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
@@ -3199,18 +3441,21 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     id,user.id,null,null,
     `LIB · ${file.title} · ${studyScope}`,
     JSON.stringify(pack),
-    JSON.stringify(["university_source","study_pack","library_study_pack","v30_0_1"]),
-    JSON.stringify(metadata),
-    now,now
+    JSON.stringify(["university_source","study_pack","library_study_pack","v30_0_2"]),
+    JSON.stringify(metadata),now,now
   ).run();
 
   try{
-    await questionBankUpsertQuestions(env,user,[...(pack.practice||[]),...(pack.practice_questions||[]),...(pack.exam||[]),...(pack.final_exam||[])],{
+    await questionBankUpsertQuestions(env,user,[...(pack.practice||[]),...(pack.exam||[])],{
       source_type:"library_study",source_ref:id,subject:studyFocus,source_name:file.title
     });
   }catch(err){console.error("LIBRARY_BANK_SAVE_ERROR",err?.stack||err)}
 
-  return json({ok:true,id,title:pack.title,model:PREMIUM_FLASH_MODEL},201);
+  return json({
+    ok:true,id,title:pack.title,reused:false,
+    generation_ms:Date.now()-generationStartedAt,
+    models
+  },201);
 }
 
 async function listNotes(env, user) {
@@ -4453,6 +4698,7 @@ const AI_GATEWAY_ID = "med-ai-dalton";
 // Premium models through AI Gateway Unified Billing.
 const PREMIUM_PRO_MODEL = "google/gemini-2.5-pro";
 const PREMIUM_FLASH_MODEL = "google/gemini-2.5-flash";
+const PREMIUM_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite";
 
 // Workers AI remains as automatic backup. These requests also pass through
 // the same AI Gateway so prepaid credits can cover them when necessary.
@@ -4474,7 +4720,7 @@ function gatewayOptions(task="general",extra={}){
       collectLog:true,
       metadata:{
         app:"MED AI DALTON",
-        version:"29.0.2",
+        version:"30.0.2",
         task,
         ...extra
       }

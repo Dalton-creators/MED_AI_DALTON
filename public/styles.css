@@ -1982,3 +1982,6 @@ html[data-focus-mode="1"] .topbar:hover .sync-badge{opacity:1}
 
 /* V30.0.1 · Library reliability */
 .library-create-study-btn:disabled,.library-analyze-btn:disabled{cursor:wait;opacity:.78}
+
+/* V30.0.2 · parallel Library generator */
+.library-create-study-btn:disabled{cursor:wait;filter:saturate(.82)}
