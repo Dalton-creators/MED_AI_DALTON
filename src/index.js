@@ -397,7 +397,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="29.0.0";
+const SYSTEM_VERSION="29.0.1";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -2444,6 +2444,84 @@ async function listLibraryStudyPacks(url,env,user){
   return json({packs});
 }
 
+
+function libraryPackRequiredCounts(parsed){
+  const sections=Array.isArray(parsed?.sections)?parsed.sections.filter(x=>x&&x.title&&(x.content||x.explanation)).length:0;
+  const practice=Array.isArray(parsed?.practice)?parsed.practice.filter(x=>x&&(x.question||x.stem)&&Array.isArray(x.options)&&x.options.length>=4).length:0;
+  const exam=Array.isArray(parsed?.exam)?parsed.exam.filter(x=>x&&(x.stem||x.question)&&Array.isArray(x.options)&&x.options.length>=4).length:0;
+  return {sections,practice,exam};
+}
+
+function mergeLibraryPackRepair(base,repair){
+  const out=(base&&typeof base==="object")?structuredClone(base):{};
+  if(repair&&typeof repair==="object"){
+    for(const key of ["title","overview","estimated_minutes","source_digest","objectives","key_terms","exam_focus","diagram","concept_map","summary","video_searches"]){
+      if((out[key]===undefined||out[key]===null||out[key]===""||(Array.isArray(out[key])&&!out[key].length))&&repair[key]!==undefined){
+        out[key]=repair[key];
+      }
+    }
+    if(Array.isArray(repair.sections)&&libraryPackRequiredCounts(out).sections<3)out.sections=repair.sections;
+    if(Array.isArray(repair.practice)&&libraryPackRequiredCounts(out).practice<6)out.practice=repair.practice;
+    if(Array.isArray(repair.exam)&&libraryPackRequiredCounts(out).exam<10)out.exam=repair.exam;
+  }
+  return out;
+}
+
+async function repairLibraryStudyPack(env,parsed,sourceText,studyFocus,fileTitle){
+  const before=libraryPackRequiredCounts(parsed);
+  const needSections=before.sections<3;
+  const needPractice=before.practice<6;
+  const needExam=before.exam<10;
+
+  const compactSource=cleanText(sourceText,65000);
+  const prompt=`La primera generación de un paquete de estudio quedó incompleta.
+Debes REPARAR solamente los componentes obligatorios que faltan.
+
+ARCHIVO: ${fileTitle}
+ENFOQUE: ${studyFocus}
+
+FALTANTES:
+- sections: ${needSections?"SÍ — genera 4 secciones completas":"NO"}
+- practice: ${needPractice?"SÍ — genera EXACTAMENTE 8 preguntas":"NO"}
+- exam: ${needExam?"SÍ — genera EXACTAMENTE 10 preguntas":"NO"}
+
+Devuelve SOLO JSON válido. Usa únicamente estas claves:
+{
+  ${needSections?`"sections":[{"title":"...","content":"explicación clara en varios párrafos","key_points":["..."],"example":"..."}],`:""}
+  ${needPractice?`"practice":[{"question":"...","context":"","options":["A","B","C","D"],"correctIndex":0,"explanation":"..."}],`:""}
+  ${needExam?`"exam":[{"stem":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"..."}],`:""}
+  "overview":"resumen breve",
+  "source_digest":"resumen denso y fiel de la fuente"
+}
+
+REGLAS:
+- Cada pregunta debe tener exactamente 4 opciones.
+- correctIndex debe ser 0, 1, 2 o 3.
+- No copies preguntas idénticas entre practice y exam.
+- Las respuestas correctas deben poder justificarse con el material.
+- No inventes páginas, autores, datos ni contenido no presente.
+- Prioriza comprensión y aplicación.
+
+===== MATERIAL =====
+${compactSource}
+===== FIN =====`;
+
+  const response=await callCloudflareAI(env,{
+    model:PREMIUM_FLASH_MODEL,
+    fallback:true,
+    task:"library_study_pack_repair",
+    messages:[
+      {role:"system",content:"Reparas salidas JSON académicas incompletas. Devuelve únicamente JSON válido y cumple exactamente las cantidades solicitadas."},
+      {role:"user",content:prompt}
+    ],
+    max_tokens:5200,
+    temperature:0.08,
+    response_format:{type:"json_object"}
+  });
+  const repair=parseJsonLoose(extractCloudflareText(response));
+  return {merged:mergeLibraryPackRepair(parsed,repair),before,after:libraryPackRequiredCounts(mergeLibraryPackRepair(parsed,repair))};
+}
+
 async function createLibraryStudyPackApi(request,env,user){
   ensureAI(env);
   const body=await readJson(request);
@@ -2493,20 +2571,42 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
         {role:"system",content:"Eres MED AI DALTON, profesor universitario y diseñador instruccional. Devuelve únicamente JSON válido."},
         {role:"user",content:`${basePrompt}${extra}\n\n===== FRAGMENTO EXTRAÍDO LOCALMENTE =====\n${extracted}\n===== FIN DEL FRAGMENTO =====`}
       ],
-      max_tokens:5000,
-      temperature:0.16,
+      max_tokens:6800,
+      temperature:0.12,
       response_format:{type:"json_object"}
     });
     parsed=parseJsonLoose(extractCloudflareText(response));
   }catch(err){lastErr=err}
 
-  const pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
+  let pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
+  let repairInfo=null;
+  if(!pack && !lastErr){
+    try{
+      repairInfo=await repairLibraryStudyPack(env,parsed,extracted,studyFocus,file.title);
+      parsed=repairInfo.merged;
+      pack=sanitizeUniversityStudyPack(parsed,pseudoRow,promptBody);
+    }catch(repairErr){
+      lastErr=repairErr;
+    }
+  }
   if(!pack){
-    if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);
-    return json({error:"La IA no logró construir una sesión completa con este fragmento. Prueba un rango más pequeño o con más texto."},502);
+    if(lastErr)return json({
+      error:workersAIUserMessage(lastErr),
+      component:"Biblioteca · sesión de estudio",
+      stage:"repair",
+      generated_counts:libraryPackRequiredCounts(parsed)
+    },503);
+    const counts=libraryPackRequiredCounts(parsed);
+    return json({
+      error:`La sesión quedó incompleta después de la reparación automática (secciones ${counts.sections}/3+, práctica ${counts.practice}/6+, examen ${counts.exam}/10).`,
+      component:"Biblioteca · sesión de estudio",
+      stage:"validation",
+      generated_counts:counts,
+      suggestion:"Prueba un fragmento de 2 a 12 páginas con contenido continuo."
+    },502);
   }
 
-  pack.version=23;
+  pack.version=29.01;
   pack.library_study_pack=true;
   pack.source_reference={
     type:"library",
@@ -2522,7 +2622,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
   const metadata={
     university_source:true,
     library_study_pack:true,
-    version:23,
+    version:29.01,
     source_type:"library",
     source_file_id:fileId,
     source_name:file.title,
@@ -2540,7 +2640,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     id,user.id,null,null,
     `LIB · ${file.title} · ${studyScope}`,
     JSON.stringify(pack),
-    JSON.stringify(["university_source","study_pack","library_study_pack","v23"]),
+    JSON.stringify(["university_source","study_pack","library_study_pack","v29_0_1"]),
     JSON.stringify(metadata),
     now,now
   ).run();
