@@ -1979,3 +1979,6 @@ html[data-focus-mode="1"] .topbar:hover .sync-badge{opacity:1}
 
 .v30-profile-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
 @media(max-width:650px){.v30-profile-actions{grid-template-columns:1fr}}
+
+/* V30.0.1 · Library reliability */
+.library-create-study-btn:disabled,.library-analyze-btn:disabled{cursor:wait;opacity:.78}

@@ -433,7 +433,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.0.0";
+const SYSTEM_VERSION="30.0.1";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -1919,6 +1919,8 @@ async function importUniversitySourceApi(request,env,user){
     lesson_id:row.lesson_id,
     topic_name:row.topic_name,
     subject_name:row.subject_name,
+    source_signature:sourceSignature,
+    generation_version:"30.0.1",
     imported_once:true
   };
   await env.DB.prepare(`
@@ -1934,7 +1936,12 @@ async function importUniversitySourceApi(request,env,user){
     now,now
   ).run();
 
-  return json({ok:true,id,title:pack.title,model:PREMIUM_FLASH_MODEL},201);
+  return json({
+    ok:true,id,title:pack.title,
+    model:generationInfo?.usedModel||repairInfo?.model||PREMIUM_FLASH_MODEL,
+    generation_ms:Date.now()-generationStartedAt,
+    repaired:!!repairInfo
+  },201);
 }
 
 async function universitySourceChat(request,env,user){
@@ -2875,9 +2882,13 @@ function promiseTimeout(promise,ms,label="operación"){
   return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
 }
 
-async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens=7000,temperature=0.10}){
+async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens=7000,temperature=0.10,profile="normal"}){
   ensureAI(env);
   let lastErr=null,raw=null,parsed=null,usedModel=null,shape="";
+  const repairMode=profile==="repair";
+  const geminiTimeout=repairMode?28000:50000;
+  const workerTimeout=repairMode?18000:25000;
+  const fallbackModels=repairMode?[WORKERS_FAST_MODEL]:[WORKERS_FAST_MODEL,WORKERS_TEXT_MODEL];
 
   try{
     raw=await promiseTimeout(
@@ -2898,7 +2909,7 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
           format:"gemini_native_json"
         })
       ),
-      65000,
+      geminiTimeout,
       "Gemini 2.5 Flash"
     );
     usedModel=PREMIUM_FLASH_MODEL;
@@ -2914,7 +2925,7 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
     console.error("LIBRARY_GEMINI_NATIVE_JSON_ERROR",err?.stack||err);
   }
 
-  for(const model of [WORKERS_TEXT_MODEL,WORKERS_FAST_MODEL]){
+  for(const model of fallbackModels){
     try{
       raw=await promiseTimeout(
         env.AI.run(
@@ -2924,7 +2935,7 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
               {role:"system",content:system+"\nDevuelve únicamente JSON válido, sin Markdown ni texto antes o después."},
               {role:"user",content:prompt}
             ],
-            max_tokens:Math.min(maxOutputTokens,5600),
+            max_tokens:Math.min(maxOutputTokens,repairMode?3600:4800),
             temperature,
             chat_template_kwargs:{enable_thinking:false}
           },
@@ -2934,7 +2945,7 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
             format:"workers_json_fallback"
           })
         ),
-        40000,
+        workerTimeout,
         model
       );
       usedModel=model;
@@ -2951,7 +2962,9 @@ async function callLibraryStructuredJson(env,{task,system,prompt,maxOutputTokens
 
   if(lastErr){
     if(lastErr?.code==="MEDAI_TIMEOUT"){
-      const err=new Error("Los modelos tardaron demasiado en crear esta sesión. MED AI detuvo la espera para evitar que la pantalla quede congelada.");
+      const err=new Error(repairMode
+        ?"La reparación automática tardó demasiado y fue detenida."
+        :"Los modelos tardaron demasiado en crear esta sesión. MED AI detuvo la espera y probó sus respaldos para evitar una espera infinita.");
       err.code="MEDAI_TIMEOUT";
       throw err;
     }
@@ -3025,8 +3038,9 @@ ${compactSource}
     task:"library_study_pack_repair",
     system:"Reparas salidas JSON académicas incompletas. Devuelve únicamente JSON válido y cumple exactamente las cantidades solicitadas.",
     prompt,
-    maxOutputTokens:4800,
-    temperature:0.06
+    maxOutputTokens:3600,
+    temperature:0.06,
+    profile:"repair"
   });
   const repair=generated.parsed;
   const merged=mergeLibraryPackRepair(parsed,repair);
@@ -3058,6 +3072,26 @@ async function createLibraryStudyPackApi(request,env,user){
   const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0);
   const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
   const exactPageRange=pageStart>0&&pageEnd>=pageStart;
+  const sourceSignature=await sha256([
+    user.id,fileId,studyScope,studyFocus,
+    exactPageRange?`${pageStart}-${pageEnd}`:"",
+    extracted
+  ].join("|"));
+
+  // If the exact same session already finished in a prior/retried request,
+  // reuse it instead of spending AI again or creating duplicates.
+  const recentExisting=await env.DB.prepare(`
+    SELECT id,title,metadata_json,updated_at
+    FROM notes
+    WHERE user_id=? AND tags_json LIKE '%library_study_pack%'
+    ORDER BY datetime(updated_at) DESC LIMIT 120
+  `).bind(user.id).all();
+  for(const row of (recentExisting.results||[])){
+    const meta=parseJsonLoose(row.metadata_json)||{};
+    if(meta.source_signature===sourceSignature){
+      return json({ok:true,id:row.id,title:meta.study_title||row.title,reused:true,model:"saved"},200);
+    }
+  }
 
   const pseudoRow={
     subject_name:"Biblioteca personal",
@@ -3080,16 +3114,19 @@ ${exactPageRange?`- Rango PDF exacto: páginas ${pageStart} a ${pageEnd}${pdfPag
 ${instruction?`- Indicación del estudiante: ${instruction}`:""}
 - Esta sesión es independiente del progreso oficial del curso.
 - Enseña exactamente el fragmento seleccionado y úsalo como fuente principal.
-- No inventes contenido de páginas o diapositivas no incluidas.`;
+- No inventes contenido de páginas o diapositivas no incluidas.
+- Para velocidad y estabilidad: usa 4 secciones claras (no 7), párrafos concisos, 8 preguntas de práctica y 10 de examen. No repitas explicaciones largas en varias claves del JSON.`;
 
+  const generationStartedAt=Date.now();
   let parsed=null,lastErr=null,generationInfo=null;
   try{
     generationInfo=await callLibraryStructuredJson(env,{
       task:"library_study_pack",
       system:"Eres MED AI DALTON, profesor universitario y diseñador instruccional. Devuelve únicamente JSON válido.",
       prompt:`${basePrompt}${extra}\n\n===== FRAGMENTO EXTRAÍDO LOCALMENTE =====\n${extracted}\n===== FIN DEL FRAGMENTO =====`,
-      maxOutputTokens:5600,
-      temperature:0.08
+      maxOutputTokens:4800,
+      temperature:0.08,
+      profile:"normal"
     });
     parsed=generationInfo.parsed;
   }catch(err){lastErr=err}
@@ -3122,11 +3159,11 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
       response_shape:generationInfo?.shape||repairInfo?.shape||"sin_forma_detectable",
       parsed_keys:parsed&&typeof parsed==="object"?Object.keys(parsed).slice(0,20):[],
       source_chars:extracted.length,
-      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V30.0.0 muestra modelo, forma de respuesta y claves JSON recibidas."
+      suggestion:"Copia el diagnóstico si vuelve a ocurrir. V30.0.1 muestra modelo, forma de respuesta y claves JSON recibidas."
     },502);
   }
 
-  pack.version=29.04;
+  pack.version=30.01;
   pack.library_study_pack=true;
   pack.source_reference={
     type:"library",
@@ -3143,7 +3180,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
   const metadata={
     university_source:true,
     library_study_pack:true,
-    version:29.04,
+    version:30.01,
     source_type:"library",
     source_file_id:fileId,
     source_name:file.title,
@@ -3162,7 +3199,7 @@ ${instruction?`- Indicación del estudiante: ${instruction}`:""}
     id,user.id,null,null,
     `LIB · ${file.title} · ${studyScope}`,
     JSON.stringify(pack),
-    JSON.stringify(["university_source","study_pack","library_study_pack","v29_0_4"]),
+    JSON.stringify(["university_source","study_pack","library_study_pack","v30_0_1"]),
     JSON.stringify(metadata),
     now,now
   ).run();

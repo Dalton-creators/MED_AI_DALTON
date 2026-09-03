@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.0";
+const APP_VERSION="30.0.1";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -4179,7 +4179,7 @@ function renderLibraryStudyConfirm(ctx){
 
 async function createLibraryStudyPack(ctx){
   const btn=$("#library-study-create"),file=state.libraryStudyFile;
-  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ PREPARANDO TU SESIÓN… · espera máxima ~2 min</strong><small>Al terminar quedará guardada</small></div>`;
+  btn.disabled=true;btn.innerHTML=`<span class="university-spin">✦</span><div><strong>MED AI ESTÁ PREPARANDO TU SESIÓN… · respaldo automático activo</strong><small>Al terminar quedará guardada</small></div>`;
   try{
     const result=await api("/api/library/study-pack",{method:"POST",body:{
       file_id:file.id,
@@ -4196,9 +4196,32 @@ async function createLibraryStudyPack(ctx){
     }});
     const list=await api(`/api/library/study-packs?file_id=${encodeURIComponent(file.id)}`);
     state.libraryStudyPacks=list.packs||[];
-    toast("Sesión de estudio creada y guardada.");
+    const seconds=result.generation_ms?Math.max(1,Math.round(Number(result.generation_ms)/1000)):null;
+    toast(result.reused
+      ?"Esta misma sesión ya estaba guardada; la reutilicé sin gastar IA otra vez."
+      :`Sesión creada y guardada${seconds?` en ${seconds} s`:""}.`);
     await openLibrarySavedStudyPack(result.id,true);
   }catch(err){
+    // A browser/network timeout can occasionally occur just as the Worker finishes.
+    // Before reporting failure, check whether the requested session actually reached D1.
+    if(err?.code==="MEDAI_CLIENT_TIMEOUT"||/tardó más de/i.test(String(err?.message||""))){
+      btn.innerHTML=`<span class="university-spin">✦</span><div><strong>COMPROBANDO SI LA SESIÓN QUEDÓ GUARDADA…</strong><small>Última verificación automática</small></div>`;
+      try{
+        await new Promise(r=>setTimeout(r,3500));
+        const list=await api(`/api/library/study-packs?file_id=${encodeURIComponent(file.id)}`);
+        const candidates=(list.packs||[]).filter(p=>{
+          const m=safeJson(p.metadata_json,{});
+          return String(m.study_scope||"")===String(ctx.scope||"") &&
+                 String(m.study_focus||"")===String(ctx.focus||file.title);
+        });
+        if(candidates[0]){
+          state.libraryStudyPacks=list.packs||[];
+          toast("La respuesta se demoró, pero la sesión sí quedó guardada. La recuperé automáticamente.");
+          await openLibrarySavedStudyPack(candidates[0].id,true);
+          return;
+        }
+      }catch(recoverErr){logSystemError("library_pack_recovery",recoverErr)}
+    }
     btn.disabled=false;btn.innerHTML=`<span>✦</span><div><strong>CREAR Y GUARDAR ESTA SESIÓN</strong><small>Esta acción sí utiliza IA una vez</small></div>`;
     toast(err.message,true);
   }
@@ -5378,12 +5401,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3000",Date.now().toString());
+  url.searchParams.set("v3001",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.0",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.1",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
@@ -5417,7 +5440,7 @@ async function api(url,opts={}){
   if(opts.body && typeof opts.body!=="string") config.body=JSON.stringify(opts.body);
   const cacheKey=offlineApiKey(url);
   try{
-    const timeoutMs=url.includes("/api/library/study-pack")?145000:90000;
+    const timeoutMs=url.includes("/api/library/study-pack")?170000:90000;
     const res=await fetchWithTimeout(url,config,timeoutMs);
     const data=await res.json().catch(()=>({}));
     if(!res.ok){
