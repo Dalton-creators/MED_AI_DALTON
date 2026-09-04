@@ -437,7 +437,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.0.7";
+const SYSTEM_VERSION="30.0.8";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -3589,6 +3589,134 @@ function completeLibraryVisualsWithSourceMap(parsed,map,title){
   return parsed;
 }
 
+
+function libraryFallbackParagraphs(text){
+  return String(text||"")
+    .replace(/===== PÁGINA \d+ =====/g,"\n")
+    .split(/\n{2,}|(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÜÑ])/)
+    .map(x=>cleanText(x,1800))
+    .filter(x=>x.length>=45)
+    .slice(0,180);
+}
+function libraryFallbackSentences(text){
+  return String(text||"")
+    .replace(/===== PÁGINA \d+ =====/g," ")
+    .split(/(?<=[.!?])\s+/)
+    .map(x=>cleanText(x,900))
+    .filter(x=>x.length>=35)
+    .slice(0,300);
+}
+function libraryFallbackKeywords(text,limit=24){
+  const stop=new Set(["para","como","desde","entre","sobre","este","esta","estos","estas","donde","cuando","porque","tambien","también","puede","pueden","debe","deben","del","las","los","una","uno","unos","unas","con","sin","por","que","son","ser","más","mas","muy","cada","the","and","for","with","from","this","that","into","their"]);
+  const words=normalizeSourceLockText(text).split(/\s+/).filter(w=>w.length>=5&&!stop.has(w)&&!/^\d+$/.test(w));
+  const c=new Map();
+  for(const w of words)c.set(w,(c.get(w)||0)+1);
+  return [...c.entries()].sort((a,b)=>b[1]-a[1]).slice(0,limit).map(x=>x[0]);
+}
+function libraryFallbackSectionText(sourceText,heading,nextHeading){
+  const src=String(sourceText||"");
+  const norm=normalizeSourceLockText(src);
+  const h=normalizeSourceLockText(heading);
+  if(!h)return "";
+  // Work on normalized index only to locate approximate region, then use paragraphs.
+  const paras=libraryFallbackParagraphs(src);
+  const hits=[];
+  let started=false;
+  for(const p of paras){
+    const pn=normalizeSourceLockText(p);
+    if(!started && (pn.includes(h)||sourceLockTopicSupported(heading,[],pn)))started=true;
+    if(started){
+      if(nextHeading){
+        const nn=normalizeSourceLockText(nextHeading);
+        if(hits.length && nn && (pn.includes(nn)||sourceLockTopicSupported(nextHeading,[],pn)))break;
+      }
+      hits.push(p);
+      if(hits.join(" ").length>6500)break;
+    }
+  }
+  return hits.join("\n\n");
+}
+function buildDeterministicLibraryPack({sourceText,sourceMap,title,scope}){
+  const headings=(sourceMap?.headings||[]).map(x=>x.title).filter(Boolean);
+  const topics=(sourceMap?.topics||[]).map(x=>x.name).filter(Boolean);
+  const units=(headings.length?headings:topics).slice(0,16);
+  const allSent=libraryFallbackSentences(sourceText);
+  const keywords=libraryFallbackKeywords(sourceText,28);
+  const sections=[];
+
+  for(let i=0;i<units.length;i++){
+    const unit=units[i],next=units[i+1];
+    let chunk=libraryFallbackSectionText(sourceText,unit,next);
+    if(chunk.length<80){
+      const candidates=allSent.filter(s=>sourceLockTopicSupported(unit,[],normalizeSourceLockText(s))).slice(0,8);
+      chunk=candidates.join(" ");
+    }
+    if(chunk.length<80)continue;
+    const sents=libraryFallbackSentences(chunk);
+    const summary=sents.slice(0,8).join(" ");
+    const key_points=sents.slice(0,6).map(x=>x.length>320?x.slice(0,317)+"…":x);
+    sections.push({
+      title:unit,
+      page_refs:(sourceMap?.headings||[]).find(h=>h.title===unit)?.page_refs || (sourceMap?.topics||[]).find(t=>t.name===unit)?.page_refs || [],
+      summary:summary||chunk.slice(0,2200),
+      key_points,
+      important_data:sents.filter(s=>/\d|%|mg|ml|mmhg|hz|°|=|\bley\b|\bformula\b/i.test(s)).slice(0,6)
+    });
+  }
+
+  if(!sections.length){
+    const paras=libraryFallbackParagraphs(sourceText).slice(0,8);
+    sections.push({
+      title:topics[0]||headings[0]||"Contenido seleccionado",
+      page_refs:[],
+      summary:paras.join("\n\n").slice(0,7000),
+      key_points:allSent.slice(0,8),
+      important_data:allSent.filter(s=>/\d|%|mg|ml|mmhg|hz|°|=/i.test(s)).slice(0,6)
+    });
+  }
+
+  const must=sections.flatMap(s=>s.key_points||[]).slice(0,16);
+  const branches=sections.slice(0,10).map(s=>({
+    label:s.title,
+    summary:(s.summary||"").slice(0,500),
+    children:(s.key_points||[]).slice(0,5).map(x=>({label:x.slice(0,180),detail:""}))
+  }));
+  const diagSteps=sections.slice(0,10).map((s,i)=>({
+    label:s.title,
+    detail:(s.key_points||[]).slice(0,3).join(" · ").slice(0,900),
+    relation:i<Math.min(sections.length,10)-1?"Siguiente unidad del fragmento":""
+  }));
+
+  return {
+    version:30.08,university_source:true,library_study_pack:true,library_simple_v30:true,library_rich_summary_v30:true,
+    title:cleanText(title,420)||"Material seleccionado",
+    overview:sections.map(s=>s.summary).join(" ").slice(0,3000),
+    estimated_minutes:25,
+    source_digest:sections.map(s=>`${s.title}: ${s.summary}`).join("\n\n").slice(0,18000),
+    key_terms:keywords,
+    summary:{
+      overview:sections.map(s=>s.summary).join(" ").slice(0,4200),
+      sections,
+      must_remember:must,
+      final_synthesis:`Este material de contingencia se construyó directamente desde ${scope||"las páginas seleccionadas"} para mantener fidelidad a la fuente cuando el servicio de IA no respondió a tiempo.`
+    },
+    concept_map:{
+      center:cleanText(title,360)||"Material seleccionado",
+      overview:"Mapa estructural generado directamente desde los encabezados y contenido detectado.",
+      branches
+    },
+    diagrams:[{
+      title:"Estructura del contenido seleccionado",
+      type:"jerarquía",
+      caption:"Organización de las unidades detectadas en el fragmento.",
+      steps:diagSteps
+    }],
+    diagram:{title:"Estructura del contenido seleccionado",type:"jerarquía",caption:"Organización de las unidades detectadas en el fragmento.",steps:diagSteps},
+    sections:[],objectives:[],exam_focus:[],practice:[],exam:[],video_searches:[],
+    fallback_generated:true
+  };
+}
+
 async function createLibraryStudyPackApi(request,env,user){
   ensureAI(env);
   const body=await readJson(request),fileId=cleanText(body.file_id,220),extracted=cleanText(body.extracted_text,90000);
@@ -3605,16 +3733,13 @@ async function createLibraryStudyPackApi(request,env,user){
   const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
   const exactPageRange=pageStart>0&&pageEnd>=pageStart;
 
-  const sourceSignature=await sha256([
-    "library-rich-v30.0.7",user.id,fileId,studyScope,studyFocus,
-    exactPageRange?`${pageStart}-${pageEnd}`:"",extracted
-  ].join("|"));
+  const sourceSignature=await sha256(["library-never-stuck-v30.0.8",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
 
   const existing=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 180`).bind(user.id).all();
   for(const row of (existing.results||[])){
     const m=parseJsonLoose(row.metadata_json)||{};
-    if(m.source_signature===sourceSignature&&m.library_rich_summary_v30===true){
-      return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,generation_ms:0,source_topics:m.source_topics||[]},200);
+    if(m.source_signature===sourceSignature){
+      return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,generation_ms:0,source_topics:m.source_topics||[],fallback_generated:!!m.fallback_generated},200);
     }
   }
 
@@ -3626,15 +3751,20 @@ async function createLibraryStudyPackApi(request,env,user){
       sourceMap=built.parsed;
       sourceMapModel=built.model||PREMIUM_FLASH_LITE_MODEL;
     }catch(err){
-      return json({error:"No pude identificar con seguridad la estructura real de estas páginas.",component:"Biblioteca · estructura de fuente",detail:String(err?.message||err)},502);
+      // If source-map AI fails, derive a minimal safe source map from explicit headings/topics already visible in text.
+      const keywords=libraryFallbackKeywords(extracted,12);
+      sourceMap={
+        domain:"General",material_type:"Material académico",language:null,
+        headings:[],
+        topics:keywords.slice(0,8).map(k=>({name:k,aliases:[],page_refs:[],evidence:[],subtopics:[]})),
+        excluded:[],source_summary:libraryFallbackSentences(extracted).slice(0,5).join(" ")
+      };
     }
   }
 
   const topicNames=sourceLockNames(sourceMap);
   const headingNames=(sourceMap.headings||[]).map(h=>h.title).filter(Boolean);
-  const headingBlock=headingNames.length
-    ? headingNames.map((x,i)=>`${i+1}. ${x}`).join("\n")
-    : topicNames.map((x,i)=>`${i+1}. ${x}`).join("\n");
+  const headingBlock=(headingNames.length?headingNames:topicNames).map((x,i)=>`${i+1}. ${x}`).join("\n");
   const topicBlock=topicNames.map((x,i)=>`${i+1}. ${x}`).join("\n");
 
   const material=[
@@ -3645,258 +3775,132 @@ async function createLibraryStudyPackApi(request,env,user){
     instruction?`Indicación adicional: ${instruction}`:"",
     `ENCABEZADOS/SUBTÍTULOS DETECTADOS:\n${headingBlock}`,
     `TEMAS EXPLÍCITOS:\n${topicBlock}`,
-    "REGLA ABSOLUTA: usa únicamente estas páginas. No añadas contenido del resto del archivo.",
+    "REGLA ABSOLUTA: usa únicamente estas páginas.",
     `===== MATERIAL =====\n${extracted}\n===== FIN =====`
   ].filter(Boolean).join("\n\n");
 
-  const summaryPrompt=`Crea un RESUMEN DE ESTUDIO COMPLETO pero enfocado, basado únicamente en las páginas seleccionadas.
-
-IMPORTANTE:
-- El resumen debe ABARCAR los encabezados/subtítulos reales detectados.
-- No hagas un resumen de 3 frases. Quiero suficiente contenido para estudiar.
-- Dedica una sección a cada subtítulo importante cuando el material lo permita.
-- Conserva nombres, fórmulas, valores, definiciones, clasificaciones, mecanismos, fechas o datos importantes que realmente aparezcan.
-- Distingue lo esencial de los detalles secundarios.
-- No inventes información que no esté en las páginas.
-- Funciona con cualquier materia.
+  const summaryPrompt=`Crea un RESUMEN DE ESTUDIO COMPLETO y fiel a las páginas seleccionadas.
+Debe cubrir los encabezados/subtítulos reales. Dedica una sección a cada subtítulo importante cuando el texto lo permita.
+No añadas datos externos.
 
 Devuelve SOLO JSON:
 {
  "title":"título fiel",
- "overview":"introducción general de 4 a 8 frases",
+ "overview":"introducción general",
  "estimated_minutes":30,
- "source_digest":"síntesis densa y fiel",
- "key_terms":["15 a 30 conceptos importantes"],
+ "source_digest":"síntesis densa",
+ "key_terms":["conceptos importantes"],
  "summary":{
-   "overview":"visión general suficientemente completa",
-   "sections":[
-     {
-       "title":"encabezado/subtítulo real o unidad explícita",
-       "page_refs":[7,8],
-       "summary":"explicación completa del contenido de este subtítulo; puede usar varios párrafos separados por saltos de línea",
-       "key_points":["4 a 8 ideas más importantes"],
-       "important_data":["datos, fórmulas, dosis, valores, fechas, vocabulario o relaciones que valga la pena memorizar; solo si existen"]
-     }
-   ],
-   "must_remember":["8 a 18 ideas de máxima prioridad"],
-   "final_synthesis":"cómo se conectan entre sí las secciones del fragmento"
+   "overview":"visión general completa",
+   "sections":[{"title":"subtítulo/unidad","page_refs":[7],"summary":"explicación sustancial","key_points":["4 a 8"],"important_data":["solo datos presentes"]}],
+   "must_remember":["8 a 18"],
+   "final_synthesis":"conexión entre secciones"
  }
 }
-
-SUBTÍTULOS/UNIDADES QUE DEBES CUBRIR:
+UNIDADES QUE DEBES CUBRIR:
 ${headingBlock}
 
 ${material}`;
 
-  const visualPrompt=`Construye SOLO el MAPA MENTAL y los DIAGRAMAS del fragmento seleccionado.
-
-El mapa mental debe ser jerárquico:
-CENTRO → ramas principales → subideas con explicación breve.
-No hagas ramas vagas como "Importancia" si el texto no las desarrolla.
-Cada rama debe corresponder a un subtítulo o unidad real cuando sea posible.
-
-Los diagramas deben elegirse según la naturaleza del material:
-- proceso/secuencia;
-- ciclo;
-- comparación;
-- clasificación/jerarquía;
-- causa → efecto;
-- estructura/relaciones;
-- algoritmo/procedimiento.
-No fuerces una secuencia cuando no existe.
-
+  const visualPrompt=`Construye SOLO un MAPA MENTAL JERÁRQUICO y 1 a 3 DIAGRAMAS fieles al fragmento.
 Devuelve SOLO JSON:
 {
- "concept_map":{
-   "center":"tema central real",
-   "overview":"cómo leer el mapa",
-   "branches":[
-     {
-       "label":"rama principal",
-       "summary":"qué representa",
-       "children":[
-         {"label":"subidea","detail":"relación o dato clave"}
-       ]
-     }
-   ]
- },
- "diagrams":[
-   {
-     "title":"nombre claro",
-     "type":"proceso|ciclo|comparación|jerarquía|causa-efecto|estructura|procedimiento",
-     "caption":"qué ayuda a comprender",
-     "steps":[
-       {"label":"elemento","detail":"explicación","relation":"qué lo conecta con el siguiente"}
-     ]
-   }
- ]
+ "concept_map":{"center":"tema central","overview":"cómo leerlo","branches":[{"label":"rama","summary":"qué representa","children":[{"label":"subidea","detail":"relación/dato"}]}]},
+ "diagrams":[{"title":"...","type":"proceso|ciclo|comparación|jerarquía|causa-efecto|estructura|procedimiento","caption":"...","steps":[{"label":"elemento","detail":"...","relation":"..."}]}]
 }
-
-REQUISITOS:
-- 5 a 10 ramas en el mapa cuando el contenido lo justifique.
-- 2 a 7 subideas por rama.
-- 1 a 3 diagramas; cada uno debe aportar algo distinto.
-- 3 a 10 elementos por diagrama según el material.
-- Todo debe salir de estas páginas.
-
-UNIDADES REALES:
-${headingBlock}
-
+Todo debe salir de estas páginas.
 ${material}`;
 
   let summaryResult=null,visualResult=null;
   const results=await Promise.allSettled([
-    callLibraryPartJson(env,{
-      task:"library_rich_summary_v3006",
-      model:PREMIUM_FLASH_MODEL,
-      system:"Eres MED AI DALTON. Produces resúmenes académicos completos, organizados por los subtítulos reales de la fuente y sin contenido externo.",
-      prompt:summaryPrompt,maxOutputTokens:5200,temperature:0.03,providerTimeout:42000,fallbackTimeout:20000
-    }),
-    callLibraryPartJson(env,{
-      task:"library_visual_structure_v3006",
-      model:PREMIUM_FLASH_LITE_MODEL,
-      system:"Eres MED AI DALTON. Diseñas mapas mentales jerárquicos y diagramas académicos fieles a la fuente.",
-      prompt:visualPrompt,maxOutputTokens:3200,temperature:0.03,providerTimeout:30000,fallbackTimeout:16000
-    })
+    callLibraryPartJson(env,{task:"library_summary_v3008",model:PREMIUM_FLASH_MODEL,system:"Resume de forma completa y fiel. Solo fuente seleccionada.",prompt:summaryPrompt,maxOutputTokens:4300,temperature:0.03,providerTimeout:30000,fallbackTimeout:14000}),
+    callLibraryPartJson(env,{task:"library_visual_v3008",model:PREMIUM_FLASH_LITE_MODEL,system:"Genera mapa mental y diagramas fieles a la fuente.",prompt:visualPrompt,maxOutputTokens:2600,temperature:0.03,providerTimeout:22000,fallbackTimeout:12000})
   ]);
-
   if(results[0].status==="fulfilled")summaryResult=results[0].value;
   if(results[1].status==="fulfilled")visualResult=results[1].value;
 
+  // One short targeted backup only.
   if(!summaryResult){
-    const retry=await retryLibraryPartFast(env,{
-      task:"library_rich_summary_v3007",
-      system:"Genera un resumen completo organizado por subtítulos reales. No inventes.",
-      prompt:summaryPrompt,maxOutputTokens:4600
-    });
+    const retry=await retryLibraryPartFast(env,{task:"library_summary_v3008",system:"Resumen completo por subtítulos, solo con esta fuente.",prompt:summaryPrompt,maxOutputTokens:3400});
     if(retry)summaryResult=retry;
   }
-
-  if(summaryResult?.parsed){
-    const missingHeadings=libraryMissingSummaryHeadings(summaryResult.parsed,sourceMap);
-    if(missingHeadings.length){
-      const repairPrompt=`Completa ÚNICAMENTE las secciones faltantes de este resumen.
-SUBTÍTULOS QUE FALTAN:
-${missingHeadings.map((x,i)=>`${i+1}. ${x}`).join("\n")}
-
-Devuelve SOLO:
-{"sections":[{"title":"subtítulo exacto","page_refs":[7],"summary":"resumen sustancial y fiel","key_points":["4 a 8"],"important_data":["solo datos presentes"]}]}
-
-REGLAS:
-- Una sección por cada subtítulo faltante.
-- No repitas secciones ya creadas.
-- No añadas conocimiento externo.
-- Usa únicamente el material seleccionado.
-
-${material}`;
-      try{
-        const repaired=await callLibraryPartJson(env,{
-          task:"library_summary_heading_repair_v3007",
-          model:PREMIUM_FLASH_LITE_MODEL,
-          system:"Completa subtítulos faltantes de un resumen académico usando exclusivamente la fuente.",
-          prompt:repairPrompt,maxOutputTokens:3000,temperature:0.02,providerTimeout:26000,fallbackTimeout:15000
-        });
-        summaryResult.parsed=mergeLibrarySummaryRepair(summaryResult.parsed,repaired.parsed);
-      }catch(err){
-        console.error("LIBRARY_HEADING_REPAIR_ERROR",err?.stack||err);
-      }
-    }
-  }
-
   if(!visualResult){
-    const retry=await retryLibraryPartFast(env,{
-      task:"library_visual_structure_v3007",
-      system:"Genera solo un mapa mental jerárquico y diagramas fieles.",
-      prompt:visualPrompt,maxOutputTokens:3000
-    });
+    const retry=await retryLibraryPartFast(env,{task:"library_visual_v3008",system:"Mapa mental y diagramas fieles, solo con esta fuente.",prompt:visualPrompt,maxOutputTokens:2200});
     if(retry)visualResult=retry;
   }
 
-  if(!summaryResult){
-    return json({error:"No pude completar el resumen de estas páginas.",component:"Biblioteca · resumen completo",generation_ms:Date.now()-started},502);
+  let pack=null,fallbackGenerated=false;
+  if(summaryResult){
+    const visualParsed=typeof completeLibraryVisualsWithSourceMap==="function"
+      ? completeLibraryVisualsWithSourceMap(visualResult?.parsed||{},sourceMap,studyFocus)
+      : (visualResult?.parsed||deterministicLibraryVisuals(sourceMap,studyFocus));
+    const combined={...summaryResult.parsed,...visualParsed};
+    const pseudoRow={subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"};
+    const promptBody={source_type:fileMeta.mime_type==="application/pdf"?"pdf":"text",source_name:file.title,mime_type:fileMeta.mime_type||""};
+    pack=sanitizeLibrarySimplePack(combined,pseudoRow,promptBody);
   }
 
-  const visualParsed=completeLibraryVisualsWithSourceMap(visualResult?.parsed||{},sourceMap,studyFocus);
-  const combined={...summaryResult.parsed,...visualParsed};
-  const pseudoRow={subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"};
-  const promptBody={source_type:fileMeta.mime_type==="application/pdf"?"pdf":"text",source_name:file.title,mime_type:fileMeta.mime_type||""};
-  const pack=sanitizeLibrarySimplePack(combined,pseudoRow,promptBody);
-
+  // HARD RELIABILITY GUARANTEE: if remote AI cannot deliver a valid pack,
+  // create a source-only pack directly from the extracted pages.
   if(!pack){
-    return json({error:"La IA respondió, pero faltó parte del resumen, mapa mental o diagramas.",component:"Biblioteca · validación visual"},502);
+    pack=buildDeterministicLibraryPack({sourceText:extracted,sourceMap,title:studyFocus,scope:studyScope});
+    fallbackGenerated=true;
   }
 
-  const validation=validateLibrarySimplePackAgainstSource(pack,sourceMap,extracted);
-  if(!validation.ok){
-    return json({
-      error:"El material generado no cubrió suficientemente la estructura de las páginas seleccionadas. MED AI lo rechazó para no darte un resumen incompleto o mezclado.",
-      component:"Biblioteca · cobertura de subtítulos",
-      missing_topics:validation.missing_topics,
-      missing_headings:validation.missing_headings,
-      heading_recall:validation.heading_recall
-    },502);
-  }
-
+  pack.version=30.08;
+  pack.library_study_pack=true;
+  pack.library_simple_v30=true;
+  pack.library_rich_summary_v30=true;
+  pack.fallback_generated=fallbackGenerated;
   pack.source_lock={
-    enabled:true,version:"30.0.7",
+    enabled:true,version:"30.0.8",
     domain:sourceMap.domain||"General",
     material_type:sourceMap.material_type||"Material académico",
     topics:sourceMap.topics||[],
     headings:sourceMap.headings||[],
     excluded:sourceMap.excluded||[],
-    source_summary:sourceMap.source_summary||"",
-    validation
+    source_summary:sourceMap.source_summary||""
   };
   pack.source_reference={
     type:"library",source_file_id:fileId,name:file.title,mime_type:fileMeta.mime_type||"",
     study_scope:studyScope,
-    page_start:exactPageRange?pageStart:null,
-    page_end:exactPageRange?pageEnd:null,
-    pdf_page_count:pdfPageCount||null,
-    ocr_pages:ocrPages,
+    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,
+    pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,
     imported_at:new Date().toISOString()
   };
 
   const id=crypto.randomUUID(),now=new Date().toISOString();
   const metadata={
-    university_source:true,
-    library_study_pack:true,
-    library_simple_v30:true,
-    library_rich_summary_v30:true,
-    version:30.06,
-    source_type:"library",
-    source_file_id:fileId,
-    source_name:file.title,
-    study_scope:studyScope,
-    study_focus:studyFocus,
-    study_title:pack.title||studyFocus,
-    page_start:exactPageRange?pageStart:null,
-    page_end:exactPageRange?pageEnd:null,
-    pdf_page_count:pdfPageCount||null,
-    source_signature:sourceSignature,
-    source_lock_v30:true,
-    source_topics:topicNames,
-    source_headings:headingNames,
+    university_source:true,library_study_pack:true,library_simple_v30:true,library_rich_summary_v30:true,
+    version:30.08,source_type:"library",source_file_id:fileId,source_name:file.title,
+    study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,
+    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,
+    pdf_page_count:pdfPageCount||null,source_signature:sourceSignature,
+    source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,
     source_domain:sourceMap.domain||"General",
-    generation_version:"30.0.7",
-    generation_models:{summary:summaryResult.model||null,visuals:visualResult.model||null,source_map:sourceMapModel},
-    generation_ms:Date.now()-started,
-    imported_once:true
+    fallback_generated:fallbackGenerated,
+    generation_version:"30.0.8",
+    generation_models:{
+      summary:summaryResult?.model||null,
+      visuals:visualResult?.model||null,
+      source_map:sourceMapModel,
+      fallback:fallbackGenerated?"deterministic_source_only":null
+    },
+    generation_ms:Date.now()-started,imported_once:true
   };
 
   await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`)
     .bind(
-      id,user.id,null,null,
-      `LIB · ${file.title} · ${studyScope}`,
+      id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,
       JSON.stringify(pack),
-      JSON.stringify(["university_source","study_pack","library_study_pack","library_simple_v30","library_rich_summary_v30","source_locked","v30_0_7"]),
+      JSON.stringify(["university_source","study_pack","library_study_pack","library_simple_v30","library_rich_summary_v30","source_locked","v30_0_8"]),
       JSON.stringify(metadata),now,now
     ).run();
 
   return json({
     ok:true,id,title:pack.title,reused:false,
-    source_topics:topicNames,
-    source_headings:headingNames,
+    source_topics:topicNames,source_headings:headingNames,
+    fallback_generated:fallbackGenerated,
     generation_ms:Date.now()-started,
     models:metadata.generation_models
   },201);

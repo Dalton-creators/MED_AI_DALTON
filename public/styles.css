@@ -2073,3 +2073,6 @@ html[data-focus-mode="1"] .topbar:hover .sync-badge{opacity:1}
 .v30-live-ai-test strong{font-size:9px}.v30-live-ai-test small{font-size:7px;color:var(--muted);margin-top:3px}
 .v30-live-ai-test.ok{border-color:rgba(82,223,179,.28)}.v30-live-ai-test.ok strong{color:var(--v17-green)}
 .v30-live-ai-test.bad{border-color:rgba(245,109,109,.3)}.v30-live-ai-test.bad strong{color:#f56d6d}
+
+/* V30.0.8 · Library never-stuck fallback */
+.library-fallback-badge{margin-left:auto;padding:4px 7px;border:1px solid rgba(243,204,104,.28);border-radius:999px;font-family:var(--font-mono);font-size:6px;color:var(--v17-yellow);background:rgba(243,204,104,.04)}

@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.7";
+const APP_VERSION="30.0.8";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -1635,7 +1635,7 @@ function renderLibrarySimpleSummary(){
         <aside><strong>${sections.length||((p?.source_lock?.headings||[]).length)}</strong><small>secciones cubiertas</small></aside>
       </header>
 
-      ${p?.source_lock?.enabled?`<section class="library-rich-source-strip"><span>FUENTE</span><strong>${escapeHtml(p.source_reference?.study_scope||"Selección")}</strong><small>${escapeHtml(p.source_lock.domain||"General")} · solo contenido de las páginas seleccionadas</small></section>`:""}
+      ${p?.source_lock?.enabled?`<section class="library-rich-source-strip"><span>FUENTE</span><strong>${escapeHtml(p.source_reference?.study_scope||"Selección")}</strong><small>${escapeHtml(p.source_lock.domain||"General")} · solo contenido de las páginas seleccionadas</small>${p.fallback_generated?`<b class="library-fallback-badge">MODO FUENTE DIRECTA</b>`:""}</section>`:""}
 
       ${sections.length?`<nav class="library-rich-summary-index"><span>ÍNDICE DEL RESUMEN</span>${sections.map((s,i)=>`<button data-summary-sec="${i}"><b>${String(i+1).padStart(2,"0")}</b><strong>${escapeHtml(s.title)}</strong>${s.page_refs?.length?`<small>pág. ${escapeHtml(s.page_refs.join(", "))}</small>`:""}</button>`).join("")}</nav>`:""}
 
@@ -5456,12 +5456,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3007",Date.now().toString());
+  url.searchParams.set("v3008",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.7",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.8",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
@@ -5495,7 +5495,7 @@ async function api(url,opts={}){
   if(opts.body && typeof opts.body!=="string") config.body=JSON.stringify(opts.body);
   const cacheKey=offlineApiKey(url);
   try{
-    const timeoutMs=url.includes("/api/library/study-pack")?105000:90000;
+    const timeoutMs=url.includes("/api/library/study-pack")?75000:90000;
     const res=await fetchWithTimeout(url,config,timeoutMs);
     const data=await res.json().catch(()=>({}));
     if(!res.ok){
