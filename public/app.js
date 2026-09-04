@@ -1,4 +1,4 @@
-const APP_VERSION="30.0.8";
+const APP_VERSION="30.0.9";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -1627,71 +1627,37 @@ function librarySimpleDiagrams(p){
   return arr.length?arr:[{title:"Diagrama del material",caption:"Relaciones principales",steps:(p?.concept_map?.branches||[]).slice(0,6).map(b=>({label:b.label,detail:(b.children||[]).join(" · ")}))}];
 }
 function renderLibrarySimpleSummary(){
-  const p=state.universitySourcePack,sm=p?.summary||{},sections=sm.sections||[];
+  const p=state.universitySourcePack,sm=p?.summary||{},sections=sm.sections||[],src=p?.source_reference||{};
   $("#university-study-content").innerHTML=`
-    <article class="library-rich-summary">
-      <header class="library-rich-summary-hero">
-        <div><span>RESUMEN COMPLETO DEL FRAGMENTO</span><h2>${escapeHtml(p?.title||"")}</h2><p>${renderStudyParagraphs(sm.overview||p?.overview||"")}</p></div>
-        <aside><strong>${sections.length||((p?.source_lock?.headings||[]).length)}</strong><small>secciones cubiertas</small></aside>
+    <article class="v3009-notebook">
+      <header class="v3009-notebook-hero">
+        <div class="v3009-notebook-kicker">APUNTES DE BIBLIOTECA · MED AI</div>
+        <h1>${escapeHtml(p?.title||"Resumen de estudio")}</h1>
+        <div class="v3009-notebook-meta">
+          <span>📄 ${escapeHtml(src.name||"Material de Biblioteca")}</span>
+          ${src.study_scope?`<span>📖 ${escapeHtml(src.study_scope)}</span>`:""}
+          ${p?.source_lock?.domain?`<span>◆ ${escapeHtml(p.source_lock.domain)}</span>`:""}
+        </div>
+        <div class="v3009-notebook-intro">${renderStudyParagraphs(sm.overview||p?.overview||"")}</div>
       </header>
-
-      ${p?.source_lock?.enabled?`<section class="library-rich-source-strip"><span>FUENTE</span><strong>${escapeHtml(p.source_reference?.study_scope||"Selección")}</strong><small>${escapeHtml(p.source_lock.domain||"General")} · solo contenido de las páginas seleccionadas</small>${p.fallback_generated?`<b class="library-fallback-badge">MODO FUENTE DIRECTA</b>`:""}</section>`:""}
-
-      ${sections.length?`<nav class="library-rich-summary-index"><span>ÍNDICE DEL RESUMEN</span>${sections.map((s,i)=>`<button data-summary-sec="${i}"><b>${String(i+1).padStart(2,"0")}</b><strong>${escapeHtml(s.title)}</strong>${s.page_refs?.length?`<small>pág. ${escapeHtml(s.page_refs.join(", "))}</small>`:""}</button>`).join("")}</nav>`:""}
-
-      <div class="library-rich-summary-sections">
-        ${sections.length?sections.map((s,i)=>`<section id="library-summary-sec-${i}" class="library-rich-summary-section">
-          <header><span>${String(i+1).padStart(2,"0")}</span><div><h3>${escapeHtml(s.title)}</h3>${s.page_refs?.length?`<small>PÁGINA${s.page_refs.length>1?"S":""} ${escapeHtml(s.page_refs.join(", "))}</small>`:""}</div></header>
-          <div class="library-rich-summary-prose">${renderStudyParagraphs(s.summary||"")}</div>
-          <div class="library-rich-section-grids">
-            ${s.key_points?.length?`<div class="library-rich-keypoints"><strong>LO MÁS IMPORTANTE</strong><ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
-            ${s.important_data?.length?`<div class="library-rich-data"><strong>DATOS QUE VALE LA PENA RECORDAR</strong><ul>${s.important_data.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
-          </div>
-        </section>`).join(""):`<section class="library-simple-points"><span>RESUMEN</span><p>${renderStudyParagraphs(sm.overview||p?.overview||"")}</p></section>`}
+      ${sections.length?`<nav class="v3009-notebook-index"><div><span>ÍNDICE DE ESTUDIO</span><strong>${sections.length} apartados</strong></div><div>${sections.map((s,i)=>`<button data-summary-sec="${i}"><b>${String(i+1).padStart(2,"0")}</b><span>${escapeHtml(s.title)}</span></button>`).join("")}</div></nav>`:""}
+      <div class="v3009-notebook-sections">
+        ${sections.length?sections.map((s,i)=>`<section id="library-summary-sec-${i}" class="v3009-note-section"><div class="v3009-note-number">${String(i+1).padStart(2,"0")}</div><div class="v3009-note-body"><div class="v3009-note-title-row"><h2>${escapeHtml(s.title)}</h2>${s.page_refs?.length?`<span>Pág. ${escapeHtml(s.page_refs.join(", "))}</span>`:""}</div><div class="v3009-note-explanation">${renderStudyParagraphs(s.summary||"")}</div>${s.key_points?.length?`<div class="v3009-study-callout key"><div class="v3009-callout-title"><span>★</span><strong>LO MÁS IMPORTANTE</strong></div><ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}${s.important_data?.length?`<div class="v3009-study-callout data"><div class="v3009-callout-title"><span>✦</span><strong>DATOS PARA RECORDAR</strong></div><ul>${s.important_data.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}</div></section>`).join(""):`<section class="v3009-note-section"><div class="v3009-note-number">01</div><div class="v3009-note-body"><h2>Resumen</h2>${renderStudyParagraphs(sm.overview||p?.overview||"")}</div></section>`}
       </div>
-
-      ${(sm.must_remember||[]).length?`<section class="library-rich-must"><div><span>REPASO FINAL</span><strong>Lo que no deberías olvidar</strong></div><ol>${sm.must_remember.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol></section>`:""}
-      ${sm.final_synthesis?`<section class="library-rich-synthesis"><span>SÍNTESIS</span>${renderStudyParagraphs(sm.final_synthesis)}</section>`:""}
-      ${(p?.key_terms||[]).length?`<section class="university-keyterms"><span>CONCEPTOS CLAVE DEL FRAGMENTO</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}
+      ${(sm.must_remember||[]).length?`<section class="v3009-final-review"><div><span>REPASO RÁPIDO</span><h2>Lo que no debes olvidar</h2><p>Ideal para copiar al final de tus apuntes.</p></div><ol>${sm.must_remember.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol></section>`:""}
+      ${sm.final_synthesis?`<section class="v3009-conclusion"><span>CONCLUSIÓN / CONEXIÓN DE IDEAS</span>${renderStudyParagraphs(sm.final_synthesis)}</section>`:""}
+      ${(p?.key_terms||[]).length?`<section class="v3009-keywords"><span>PALABRAS CLAVE</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}
+      ${p?.fallback_generated?`<div class="v3009-source-safe"><b>FUENTE DIRECTA</b><span>El servicio de IA no completó a tiempo; MED AI construyó este material directamente desde las páginas seleccionadas.</span></div>`:""}
     </article>`;
-
-  $$(".library-rich-summary-index button",$("#university-study-content")).forEach(btn=>btn.onclick=()=>$("#library-summary-sec-"+btn.dataset.summarySec)?.scrollIntoView({behavior:"smooth",block:"start"}));
+  $$(".v3009-notebook-index button",$("#university-study-content")).forEach(btn=>btn.onclick=()=>$("#library-summary-sec-"+btn.dataset.summarySec)?.scrollIntoView({behavior:"smooth",block:"start"}));
 }
 function renderLibrarySimpleDiagrams(){
   const p=state.universitySourcePack,diagrams=librarySimpleDiagrams(p);
-  $("#university-study-content").innerHTML=`
-    <section class="library-rich-diagram-hub">
-      <header><span>DIAGRAMAS DEL FRAGMENTO</span><h2>Visualiza relaciones, procesos y estructuras.</h2><p>Cada diagrama usa el formato que mejor corresponde al contenido real de tus páginas.</p></header>
-      <div class="library-rich-diagrams">
-        ${diagrams.map((d,di)=>`<article class="library-rich-diagram">
-          <header><div><span>DIAGRAMA ${di+1} · ${escapeHtml(String(d.type||"relación").toUpperCase())}</span><h3>${escapeHtml(d.title||`Diagrama ${di+1}`)}</h3><p>${escapeHtml(d.caption||"")}</p></div></header>
-          <div class="library-diagram-flow ${escapeAttr(d.type||"relation")}">
-            ${(d.steps||[]).map((s,i)=>`<div class="library-diagram-unit">
-              <div class="library-diagram-node"><span>${String(i+1).padStart(2,"0")}</span><strong>${escapeHtml(s.label||"")}</strong><small>${escapeHtml(s.detail||"")}</small></div>
-              ${i<d.steps.length-1?`<div class="library-diagram-arrow"><b>↓</b>${s.relation?`<small>${escapeHtml(s.relation)}</small>`:""}</div>`:""}
-            </div>`).join("")}
-          </div>
-        </article>`).join("")}
-      </div>
-    </section>`;
+  $("#university-study-content").innerHTML=`<section class="v3009-diagram-page"><header class="v3009-visual-header"><span>DIAGRAMAS DE ESTUDIO</span><h1>Entiende el contenido de forma visual.</h1><p>Procesos, jerarquías, comparaciones y relaciones organizadas según el material seleccionado.</p></header><div class="v3009-diagram-list">${diagrams.map((d,di)=>`<article class="v3009-diagram-card"><header><div><span>DIAGRAMA ${di+1}</span><h2>${escapeHtml(d.title||`Diagrama ${di+1}`)}</h2><p>${escapeHtml(d.caption||"")}</p></div><b>${escapeHtml(String(d.type||"relación").toUpperCase())}</b></header><div class="v3009-diagram-flow ${escapeAttr(d.type||"relacion")}">${(d.steps||[]).map((s,i)=>`<div class="v3009-diagram-piece"><div class="v3009-diagram-node"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(s.label||"")}</strong><small>${escapeHtml(s.detail||"")}</small></div></div>${i<d.steps.length-1?`<div class="v3009-diagram-link"><i></i><b>↓</b>${s.relation?`<small>${escapeHtml(s.relation)}</small>`:""}</div>`:""}</div>`).join("")}</div></article>`).join("")}</div></section>`;
 }
 function renderLibrarySimpleMap(){
   const p=state.universitySourcePack,map=p?.concept_map||{},branches=map.branches||[];
-  $("#university-study-content").innerHTML=`
-    <section class="library-rich-map">
-      <header><span>MAPA MENTAL ESTRUCTURADO</span><h2>${escapeHtml(map.center||p?.title||"Tema central")}</h2>${map.overview?`<p>${escapeHtml(map.overview)}</p>`:""}</header>
-      <div class="library-map-center"><span>TEMA CENTRAL</span><strong>${escapeHtml(map.center||p?.title||"")}</strong></div>
-      <div class="library-map-connector"></div>
-      <div class="library-map-branches">
-        ${branches.map((b,i)=>`<article class="library-map-branch">
-          <div class="library-map-branch-head"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(b.label||"Rama")}</strong>${b.summary?`<small>${escapeHtml(b.summary)}</small>`:""}</div></div>
-          <div class="library-map-children">${(b.children||[]).map((x,j)=>{
-            const child=typeof x==="string"?{label:x,detail:""}:x;
-            return `<div><b>${i+1}.${j+1}</b><span><strong>${escapeHtml(child.label||"")}</strong>${child.detail?`<small>${escapeHtml(child.detail)}</small>`:""}</span></div>`;
-          }).join("")}</div>
-        </article>`).join("")}
-      </div>
-    </section>`;
+  $("#university-study-content").innerHTML=`<section class="v3009-mindmap"><header class="v3009-visual-header"><span>MAPA MENTAL</span><h1>${escapeHtml(map.center||p?.title||"Tema central")}</h1><p>${escapeHtml(map.overview||"Organiza visualmente los conceptos principales del material seleccionado.")}</p></header><div class="v3009-mindmap-canvas"><div class="v3009-mind-center"><small>TEMA CENTRAL</small><strong>${escapeHtml(map.center||p?.title||"")}</strong></div><div class="v3009-mind-rail"></div><div class="v3009-mind-grid">${branches.map((b,i)=>`<article class="v3009-mind-branch"><div class="v3009-mind-branch-head"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(b.label||"Rama")}</strong>${b.summary?`<small>${escapeHtml(b.summary)}</small>`:""}</div></div><div class="v3009-mind-subideas">${(b.children||[]).map((x,j)=>{const c=typeof x==="string"?{label:x,detail:""}:x;return `<div class="v3009-mind-subidea"><b>${i+1}.${j+1}</b><span><strong>${escapeHtml(c.label||"")}</strong>${c.detail?`<small>${escapeHtml(c.detail)}</small>`:""}</span></div>`}).join("")}</div></article>`).join("")}</div></div><footer class="v3009-visual-tip">Guía visual para tu cuaderno: tema central → ramas → subideas.</footer></section>`;
 }
 function renderLibrarySimpleStudyPack(tab="summary"){
   const p=state.universitySourcePack,src=state.universitySourceRecord;if(!p||!src)return;
@@ -5086,14 +5052,14 @@ function renderHistoricalKeysPack(tab="summary"){
   const p=state.historicalKeysPack,box=$("#historical-keys-body");if(!p)return;
   const legacy={analysis:"keypoints",class:"summary",review:"keypoints",exam:"practice"};tab=legacy[tab]||tab;if(!["summary","keypoints","visuals","practice"].includes(tab))tab="summary";
   const topics=p.recurring_topics||[],important=(p.important_points?.length?p.important_points:p.must_remember)||[];
-  const cmap=p.concept_map?.branches?.length?p.concept_map:{center:p.subject||p.title||"Temas",branches:topics.slice(0,7).map(t=>({label:t.name,children:(t.concepts||[]).slice(0,4)}))};
+  const cmap=p.concept_map?.branches?.length?p.concept_map:{center:p.subject||p.title||"Temas",branches:topics.slice(0,8).map(t=>({label:t.name,children:(t.concepts||[]).slice(0,5)}))};
   const diagrams=Array.isArray(p.diagrams)&&p.diagrams.length?p.diagrams:[{title:"Temas que más se repiten",caption:"Frecuencia histórica observada",steps:topics.slice(0,8).map(t=>({label:t.name,detail:`${Number(t.occurrence_count||0)} archivo(s) · ${(t.concepts||[]).slice(0,3).join(" · ")}`}))}];
-  box.innerHTML=`<section class="historical-pack"><header class="historical-pack-head"><button id="historical-pack-back" class="ghost-btn">← MIS CLAVES</button><div><span>${escapeHtml(p.subject||"")} · ${Number(p.source_count||p.source_files?.length||0)} PDF HISTÓRICOS</span><h2>${escapeHtml(p.title||"Repaso desde claves")}</h2><p>${escapeHtml(p.overview||"")}</p></div><div class="historical-pack-saved">✓ GUARDADO</div></header><nav class="historical-pack-tabs simplified"><button data-historical-tab="summary" class="${tab==="summary"?"active":""}"><b>01</b><span>RESUMEN</span></button><button data-historical-tab="keypoints" class="${tab==="keypoints"?"active":""}"><b>02</b><span>PUNTOS CLAVE</span></button><button data-historical-tab="visuals" class="${tab==="visuals"?"active":""}"><b>03</b><span>MAPA + DIAGRAMAS</span></button><button data-historical-tab="practice" class="${tab==="practice"?"active":""}"><b>04</b><span>PRÁCTICA</span></button></nav><main id="historical-pack-content"></main></section>`;
+  box.innerHTML=`<section class="historical-pack v3009-historical"><header class="historical-pack-head"><button id="historical-pack-back" class="ghost-btn">← MIS CLAVES</button><div><span>${escapeHtml(p.subject||"")} · ${Number(p.source_count||p.source_files?.length||0)} PDF HISTÓRICOS</span><h2>${escapeHtml(p.title||"Repaso desde claves")}</h2><p>${escapeHtml(p.overview||"")}</p></div><div class="historical-pack-saved">✓ GUARDADO</div></header><nav class="historical-pack-tabs simplified"><button data-historical-tab="summary" class="${tab==="summary"?"active":""}"><b>01</b><span>RESUMEN</span></button><button data-historical-tab="keypoints" class="${tab==="keypoints"?"active":""}"><b>02</b><span>PRIORIDADES</span></button><button data-historical-tab="visuals" class="${tab==="visuals"?"active":""}"><b>03</b><span>MAPA + DIAGRAMAS</span></button><button data-historical-tab="practice" class="${tab==="practice"?"active":""}"><b>04</b><span>PRÁCTICA</span></button></nav><main id="historical-pack-content"></main></section>`;
   $("#historical-pack-back").onclick=()=>openHistoricalKeysStudio();$$('.historical-pack-tabs button').forEach(b=>b.onclick=()=>renderHistoricalKeysPack(b.dataset.historicalTab));const area=$("#historical-pack-content");
-  if(tab==="summary"){area.innerHTML=`<section class="historical-simple-summary"><article class="card"><div class="panel-code">RESUMEN DE TUS CLAVES</div><h2>${escapeHtml(p.title||"")}</h2><p>${escapeHtml(p.overview||"")}</p>${p.source_quality?`<div class="historical-source-quality"><b>CALIDAD DEL MATERIAL</b><span>${escapeHtml(p.source_quality)}</span></div>`:""}</article>${p.limitations?.length?`<article class="card"><div class="panel-code">LIMITACIONES</div>${p.limitations.map(x=>`<p>• ${escapeHtml(x)}</p>`).join("")}</article>`:""}</section>`;return}
-  if(tab==="keypoints"){area.innerHTML=`<section class="historical-analysis-grid"><article class="card"><div class="smart-section-head"><div><span>MÁS REPETIDO</span><h2>Temas y frecuencia histórica</h2></div><small>No es predicción</small></div><div class="historical-topic-list">${topics.map((t,i)=>`<div class="historical-topic-study"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(t.name)}</strong><small>${escapeHtml((t.concepts||[]).slice(0,4).join(" · "))}</small></div><b>${Number(t.occurrence_count||0)}×</b><i><em style="width:${Math.max(4,Number(t.historical_weight||0))}%"></em></i></div>`).join("")}</div></article><aside class="card"><div class="panel-code">PUNTOS IMPORTANTES</div><div class="historical-memory-list">${important.map((x,i)=>`<div><span>${i+1}</span><p>${escapeHtml(x)}</p></div>`).join("")}</div>${p.historical_patterns?.length?`<div class="historical-limitations"><b>PATRONES OBSERVADOS</b>${p.historical_patterns.map(x=>`<p>${escapeHtml(x)}</p>`).join("")}</div>`:""}</aside></section>${p.common_traps?.length?`<section class="card"><div class="panel-code">CONFUSIONES / TRAMPAS</div><div class="historical-memory-list traps">${p.common_traps.map(x=>`<div><span>!</span><p>${escapeHtml(x)}</p></div>`).join("")}</div></section>`:""}`;return}
-  if(tab==="visuals"){area.innerHTML=`<div class="historical-visuals-v305">${renderCourseConceptMap(cmap,{title:p.subject||p.title,sections:[]})}${diagrams.map(d=>renderCourseDiagram(d,[]).replace("para esta clase","para este repaso")).join("")}</div>`;$$('.academy-map-branch',area).forEach(branch=>branch.onclick=()=>branch.classList.toggle('expanded'));$$('.academy-diagram-step',area).forEach(step=>step.onclick=()=>{step.classList.toggle('selected');step.querySelector('.academy-diagram-detail')?.classList.toggle('open')});return}
-  area.innerHTML=`<section class="historical-final-exam simplified-practice"><div class="historical-final-icon">✦</div><div class="eyebrow">EJERCICIOS DE PRÁCTICA</div><h2>${Number((p.practice_questions||[]).length)} preguntas sobre los temas encontrados</h2><p>Son preguntas nuevas para practicar lo que apareció en tus claves. Puedes repetirlas sin volver a usar IA.</p><button id="historical-start-practice" class="primary-btn">COMENZAR PRÁCTICA →</button></section>`;$("#historical-start-practice").onclick=()=>startHistoricalKeysQuiz("practice");
+  if(tab==="summary"){area.innerHTML=`<article class="v3009-notebook historical"><header class="v3009-notebook-hero"><div class="v3009-notebook-kicker">REPASO DE CLAVES · MED AI</div><h1>${escapeHtml(p.title||"Repaso de claves")}</h1><div class="v3009-notebook-meta"><span>▦ ${Number(p.source_count||p.source_files?.length||0)} archivos</span><span>★ ${topics.length} temas con evidencia</span></div><div class="v3009-notebook-intro">${renderStudyParagraphs(p.overview||"")}</div></header>${p.source_quality?`<section class="v3009-study-callout data"><div class="v3009-callout-title"><span>✓</span><strong>CALIDAD DEL MATERIAL</strong></div><p>${escapeHtml(p.source_quality)}</p></section>`:""}${p.limitations?.length?`<section class="v3009-study-callout warning"><div class="v3009-callout-title"><span>!</span><strong>LIMITACIONES</strong></div><ul>${p.limitations.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>`:""}${(p.must_remember||[]).length?`<section class="v3009-final-review"><div><span>ANTES DEL PARCIAL</span><h2>Lo que no debes olvidar</h2></div><ol>${p.must_remember.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ol></section>`:""}</article>`;return}
+  if(tab==="keypoints"){area.innerHTML=`<section class="v3009-keys-priority"><div class="v3009-section-heading"><span>FRECUENCIA HISTÓRICA · NO ES PREDICCIÓN</span><h2>Temas que merecen más atención</h2></div><div class="v3009-priority-grid">${topics.map((t,i)=>`<article><div><span>#${i+1}</span><strong>${escapeHtml(t.name)}</strong></div><b>${Number(t.occurrence_count||0)} / ${Number(p.source_count||p.source_files?.length||0)}</b><small>${escapeHtml(t.why_priority||"Tema identificado en las claves")}</small>${(t.concepts||[]).length?`<div>${t.concepts.slice(0,5).map(x=>`<em>${escapeHtml(x)}</em>`).join("")}</div>`:""}</article>`).join("")}</div></section>${important.length?`<section class="v3009-study-callout key"><div class="v3009-callout-title"><span>★</span><strong>PUNTOS IMPORTANTES PARA REPASAR</strong></div><ul>${important.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>`:""}${p.historical_patterns?.length?`<section class="v3009-study-callout data"><div class="v3009-callout-title"><span>↗</span><strong>PATRONES OBSERVADOS</strong></div><ul>${p.historical_patterns.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>`:""}${p.common_traps?.length?`<section class="v3009-study-callout warning"><div class="v3009-callout-title"><span>!</span><strong>TRAMPAS / CONFUSIONES</strong></div><ul>${p.common_traps.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>`:""}`;return}
+  if(tab==="visuals"){area.innerHTML=`<section class="v3009-mindmap historical-map"><header class="v3009-visual-header"><span>MAPA MENTAL DE CLAVES</span><h1>${escapeHtml(cmap.center||p.subject||p.title||"Temas")}</h1><p>Organizado según los temas identificados en tus parciales anteriores.</p></header><div class="v3009-mindmap-canvas"><div class="v3009-mind-center"><small>TEMA CENTRAL</small><strong>${escapeHtml(cmap.center||p.subject||"")}</strong></div><div class="v3009-mind-rail"></div><div class="v3009-mind-grid">${(cmap.branches||[]).map((b,i)=>`<article class="v3009-mind-branch"><div class="v3009-mind-branch-head"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(b.label||"")}</strong></div></div><div class="v3009-mind-subideas">${(b.children||[]).map((x,j)=>`<div class="v3009-mind-subidea"><b>${i+1}.${j+1}</b><span><strong>${escapeHtml(typeof x==="string"?x:(x.label||""))}</strong></span></div>`).join("")}</div></article>`).join("")}</div></div></section><section class="v3009-diagram-page"><div class="v3009-diagram-list">${diagrams.map((d,di)=>`<article class="v3009-diagram-card"><header><div><span>DIAGRAMA ${di+1}</span><h2>${escapeHtml(d.title||"")}</h2><p>${escapeHtml(d.caption||"")}</p></div></header><div class="v3009-diagram-flow">${(d.steps||[]).map((s,i)=>`<div class="v3009-diagram-piece"><div class="v3009-diagram-node"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(s.label||"")}</strong><small>${escapeHtml(s.detail||"")}</small></div></div>${i<d.steps.length-1?`<div class="v3009-diagram-link"><i></i><b>↓</b></div>`:""}</div>`).join("")}</div></article>`).join("")}</div></section>`;return}
+  area.innerHTML=`<section class="historical-final-exam simplified-practice"><div class="historical-final-icon">✦</div><div class="eyebrow">EJERCICIOS DE PRÁCTICA</div><h2>${Number((p.practice_questions||[]).length)} preguntas sobre los temas encontrados</h2><p>Preguntas nuevas para practicar lo identificado en las claves. Puedes repetirlas sin volver a usar IA.</p><button id="historical-start-practice" class="primary-btn">COMENZAR PRÁCTICA →</button></section>`;$("#historical-start-practice").onclick=()=>startHistoricalKeysQuiz("practice");
 }
 
 function startHistoricalKeysQuiz(kind){
@@ -5456,12 +5422,12 @@ async function hardRefreshApplication(){
     }
   }catch(err){logSystemError("clear_pwa_cache",err)}
   const url=new URL(location.href);
-  url.searchParams.set("v3008",Date.now().toString());
+  url.searchParams.set("v3009",Date.now().toString());
   location.replace(url.toString());
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.8",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.0.9",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }

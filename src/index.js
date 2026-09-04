@@ -437,7 +437,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.0.8";
+const SYSTEM_VERSION="30.0.9";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -3879,7 +3879,7 @@ ${material}`;
     source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,
     source_domain:sourceMap.domain||"General",
     fallback_generated:fallbackGenerated,
-    generation_version:"30.0.8",
+    generation_version:"30.0.9",
     generation_models:{
       summary:summaryResult?.model||null,
       visuals:visualResult?.model||null,
@@ -4475,7 +4475,7 @@ ${documents}`;
     evidence_verified_v30:true,
     verified_topic_count:pack.recurring_topics.length,
     practice_count:pack.practice_questions.length,
-    generation_version:"30.0.7",
+    generation_version:"30.0.9",
     generation_model:result.model||PREMIUM_FLASH_MODEL
   };
 

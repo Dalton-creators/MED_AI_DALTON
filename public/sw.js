@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v30-0-8-library-never-stuck";
+const CACHE = "med-ai-dalton-v30-0-9-academic-summary-polish";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=30.0.8",
-  "/app.js?v=30.0.8",
+  "/styles.css?v=30.0.9",
+  "/app.js?v=30.0.9",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];
