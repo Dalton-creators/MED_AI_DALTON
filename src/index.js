@@ -243,6 +243,18 @@ export default {
         return createLibraryStudyPackApi(request, env, user);
       }
 
+      if (url.pathname === "/api/library/study-pack/summary" && request.method === "POST") {
+        return createLibraryStudySummaryV301(request, env, user);
+      }
+
+      if (url.pathname === "/api/library/study-pack/visuals" && request.method === "POST") {
+        return completeLibraryStudyVisualsV301(request, env, user);
+      }
+
+      if (url.pathname === "/api/library/study-pack/personalize" && request.method === "POST") {
+        return updateLibraryStudyPersonalizationV301(request, env, user);
+      }
+
       if (url.pathname === "/api/library/extract" && request.method === "POST") {
         return extractLibraryDocument(request, env, user);
       }
@@ -437,7 +449,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.0.9";
+const SYSTEM_VERSION="30.1.0";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -545,6 +557,21 @@ async function systemSelfTestApi(url,env,user){
     add("Calendario académico",true,`${Number(n?.n||0)} fechas registradas`);
   }catch(err){add("Calendario académico",false,String(err?.message||err))}
 
+  try{
+    const r=await env.DB.prepare("SELECT body FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id).first();
+    const p=r?parseJsonLoose(r.body):null;
+    add("Biblioteca · resumen guardado",true,!r?"Sin resúmenes todavía":p?.summary?.sections?.length?`${p.summary.sections.length} secciones · calidad ${Number(p?.quality?.coverage_percent||0)}%`:"Registro legible");
+  }catch(err){add("Biblioteca · resumen guardado",false,String(err?.message||err))}
+  try{
+    const r=await env.DB.prepare("SELECT body FROM notes WHERE user_id=? AND title LIKE 'Material V19:%' ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id).first();
+    const p=r?parseJsonLoose(r.body):null;add("Cursos · material guardado",true,!r?"Sin clases generadas todavía":p?.sections?.length?`${p.sections.length} secciones válidas`:"Material legible");
+  }catch(err){add("Cursos · material guardado",false,String(err?.message||err))}
+  try{
+    const r=await env.DB.prepare("SELECT COUNT(*) AS n FROM user_topic_progress WHERE user_id=?").bind(user.id).first();add("Progreso oficial",true,`${Number(r?.n||0)} registros de progreso`);
+  }catch(err){add("Progreso oficial",false,String(err?.message||err))}
+  add("Tutor IA · rutas",typeof aiChat==="function"&&typeof aiChatStream==="function","Chat y streaming disponibles");
+  add("Cursos · motor",typeof aiCourseMaterialPack==="function"&&typeof importUniversitySourceApi==="function","Cursos y clases desde material disponibles");
+  add("Claves · motor",typeof analyzeHistoricalKeysApi==="function"&&typeof getHistoricalKeysApi==="function","Análisis histórico disponible");
   add("AI binding",!!env.AI,env.AI?"Binding AI disponible":"Falta binding AI");
   add("Assets binding",!!env.ASSETS,env.ASSETS?"Assets disponible":"Falta ASSETS");
 
@@ -1890,104 +1917,40 @@ function sanitizeUniversityStudyPack(parsed,row,body){
 }
 
 async function importUniversitySourceApi(request,env,user){
-  ensureAI(env);
-  const body=await readJson(request);
-  const type=cleanText(body.source_type,30);
+  ensureAI(env);const generationStartedAt=Date.now();
+  const body=await readJson(request),type=cleanText(body.source_type,30);
   if(!["pdf","text","video","youtube"].includes(type))return json({error:"Tipo de material no compatible."},400);
-  const topicId=cleanText(body.topic_id,220),lessonId=cleanText(body.lesson_id,220),subjectId=cleanText(body.subject_id,220);
-  const row=await getCourseTopicRow(env,topicId,lessonId,subjectId);
+  const topicId=cleanText(body.topic_id,220),lessonId=cleanText(body.lesson_id,220),subjectId=cleanText(body.subject_id,220),row=await getCourseTopicRow(env,topicId,lessonId,subjectId);
   if(!row)return json({error:"No pude relacionar este material con el tema actual."},404);
-
-  const sourceName=cleanText(body.source_name,300)||`Material de ${row.topic_name}`;
-  body.source_name=sourceName;
+  const sourceName=cleanText(body.source_name,300)||`Material de ${row.topic_name}`;body.source_name=sourceName;
+  let fingerprint="";
+  if(type==="text")fingerprint=cleanText(body.text,120000);
+  else if(type==="youtube")fingerprint=cleanText(body.url,1200);
+  else{const raw=String(body.data_base64||"");fingerprint=`${Number(body.size_bytes||0)}|${raw.slice(0,9000)}|${raw.slice(-2200)}`}
+  const sourceSignature=await sha256(["university-source-v30.1.0",user.id,row.topic_id,row.lesson_id,type,sourceName,fingerprint].join("|"));
+  const previous=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE user_id=? AND topic_id=? AND tags_json LIKE '%university_source%' ORDER BY datetime(updated_at) DESC LIMIT 80`).bind(user.id,row.topic_id).all();
+  for(const old of (previous.results||[])){const m=parseJsonLoose(old.metadata_json)||{};if(m.source_signature===sourceSignature)return json({ok:true,id:old.id,title:old.title,cached:true,generation_ms:0},200)}
   const parts=[{text:universitySourcePrompt(row,body)}];
-
   if(type==="text"){
-    const sourceText=cleanText(body.text,120000);
-    if(sourceText.length<80)return json({error:"El texto es demasiado corto para preparar una clase."},400);
-    parts.push({text:`\\n\\n===== MATERIAL DEL ESTUDIANTE =====\\n${sourceText}\\n===== FIN DEL MATERIAL =====`});
+    const sourceText=cleanText(body.text,120000);if(sourceText.length<80)return json({error:"El texto es demasiado corto para preparar una clase."},400);parts.push({text:`\n\n===== MATERIAL DEL ESTUDIANTE =====\n${sourceText}\n===== FIN DEL MATERIAL =====`});
   }else if(type==="youtube"){
-    const url=cleanText(body.url,1200);
-    if(!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url))return json({error:"El enlace de YouTube no parece válido."},400);
-    parts.push({fileData:{fileUri:url,mimeType:"video/*"}});
+    const url=cleanText(body.url,1200);if(!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url))return json({error:"El enlace de YouTube no parece válido."},400);parts.push({fileData:{fileUri:url,mimeType:"video/*"}});
   }else{
-    const data=String(body.data_base64||"").trim();
-    if(!data)return json({error:"No llegaron los datos del archivo."},400);
-    if(data.length>14_500_000)return json({error:"El archivo es demasiado grande para esta importación directa. Usa una transcripción, divide el PDF o utiliza un enlace público de YouTube para videos largos."},413);
-    const mime=cleanText(body.mime_type,120)||(type==="pdf"?"application/pdf":"video/mp4");
-    if(type==="pdf"&&!mime.includes("pdf"))return json({error:"El archivo seleccionado no parece ser PDF."},400);
-    if(type==="video"&&!mime.startsWith("video/"))return json({error:"El archivo seleccionado no parece ser video."},400);
-    parts.push({inlineData:{mimeType:mime,data}});
+    const data=String(body.data_base64||"").trim();if(!data)return json({error:"No llegaron los datos del archivo."},400);if(data.length>14_500_000)return json({error:"El archivo es demasiado grande para esta importación directa. Divide el PDF o usa Biblioteca para estudiar rangos pequeños."},413);
+    const mime=cleanText(body.mime_type,120)||(type==="pdf"?"application/pdf":"video/mp4");if(type==="pdf"&&!mime.includes("pdf"))return json({error:"El archivo seleccionado no parece ser PDF."},400);if(type==="video"&&!mime.startsWith("video/"))return json({error:"El archivo seleccionado no parece ser video."},400);parts.push({inlineData:{mimeType:mime,data}});
   }
-
   let response,parsed,lastErr;
   try{
-    response=await env.AI.run(
-      PREMIUM_FLASH_MODEL,
-      {
-        contents:[{role:"user",parts}],
-        generationConfig:{
-          temperature:0.16,
-          maxOutputTokens:5000,
-          responseMimeType:"application/json"
-        }
-      },
-      gatewayOptions("university_source_import",{
-        subject:row.subject_code,
-        source_type:type,
-        topic:row.topic_name
-      })
-    );
+    response=await promiseTimeout(env.AI.run(PREMIUM_FLASH_MODEL,{contents:[{role:"user",parts}],generationConfig:{temperature:0.14,maxOutputTokens:5000,responseMimeType:"application/json"}},gatewayOptions("university_source_import_v301",{subject:row.subject_code,source_type:type,topic:row.topic_name})),42000,"Clase desde material");
     parsed=parseJsonLoose(extractCloudflareText(response));
   }catch(err){lastErr=err}
-
   const pack=sanitizeUniversityStudyPack(parsed,row,body);
-  if(!pack){
-    if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);
-    return json({error:"La IA leyó el material, pero no logró construir una clase completa. Intenta de nuevo o divide el material en una unidad más pequeña."},502);
-  }
-
-  // Keep only a small literal excerpt for pasted text. Binary originals are intentionally
-  // not stored in D1; the reusable study pack is the persistent artifact.
-  if(type==="text"){
-    pack.source_reference.text_excerpt=cleanText(body.text,7000);
-  }
-
-  const id=crypto.randomUUID(),now=new Date().toISOString();
-  const detail=type==="youtube"?"Video público analizado":type==="video"?"Video corto analizado":type==="pdf"?"PDF analizado":"Texto/apuntes analizados";
-  const metadata={
-    university_source:true,
-    version:21,
-    source_type:type,
-    source_name:sourceName,
-    source_detail:detail,
-    source_size:Number(body.size_bytes||0),
-    lesson_id:row.lesson_id,
-    topic_name:row.topic_name,
-    subject_name:row.subject_name,
-    source_signature:sourceSignature,
-    generation_version:"30.0.1",
-    imported_once:true
-  };
-  await env.DB.prepare(`
-    INSERT INTO notes
-    (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,0,?,1,?,?)
-  `).bind(
-    id,user.id,row.subject_id,row.topic_id,
-    `UNI · ${row.topic_name} · ${sourceName}`,
-    JSON.stringify(pack),
-    JSON.stringify(["university_source","study_pack","v21"]),
-    JSON.stringify(metadata),
-    now,now
-  ).run();
-
-  return json({
-    ok:true,id,title:pack.title,
-    model:generationInfo?.usedModel||repairInfo?.model||PREMIUM_FLASH_MODEL,
-    generation_ms:Date.now()-generationStartedAt,
-    repaired:!!repairInfo
-  },201);
+  if(!pack){if(lastErr)return json({error:workersAIUserMessage(lastErr)},503);return json({error:"La IA no logró construir una clase completa. Divide el material en una unidad más pequeña y vuelve a intentar."},502)}
+  if(type==="text")pack.source_reference.text_excerpt=cleanText(body.text,7000);
+  const id=crypto.randomUUID(),now=new Date().toISOString(),detail=type==="youtube"?"Video público analizado":type==="video"?"Video corto analizado":type==="pdf"?"PDF analizado":"Texto/apuntes analizados";
+  const metadata={university_source:true,version:21,source_type:type,source_name:sourceName,source_detail:detail,source_size:Number(body.size_bytes||0),lesson_id:row.lesson_id,topic_name:row.topic_name,subject_name:row.subject_name,source_signature:sourceSignature,generation_version:"30.1.0",imported_once:true,generation_ms:Date.now()-generationStartedAt};
+  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(id,user.id,row.subject_id,row.topic_id,`UNI · ${row.topic_name} · ${sourceName}`,JSON.stringify(pack),JSON.stringify(["university_source","study_pack","v21","v30_1_0"]),JSON.stringify(metadata),now,now).run();
+  return json({ok:true,id,title:pack.title,model:PREMIUM_FLASH_MODEL,generation_ms:Date.now()-generationStartedAt,repaired:false,cached:false},201);
 }
 
 async function universitySourceChat(request,env,user){
@@ -3717,6 +3680,156 @@ function buildDeterministicLibraryPack({sourceText,sourceMap,title,scope}){
   };
 }
 
+
+function libraryAttachSourcePagesV301(parsed,map){
+  const sections=Array.isArray(parsed?.summary?.sections)?parsed.summary.sections:[];
+  const heads=Array.isArray(map?.headings)?map.headings:[];
+  for(const s of sections){
+    if(Array.isArray(s.page_refs)&&s.page_refs.length)continue;
+    const sk=libraryHeadingKey(s?.title||"");
+    if(!sk)continue;
+    const h=heads.find(x=>{
+      const hk=libraryHeadingKey(x?.title||"");
+      if(!hk)return false;
+      if(hk===sk||hk.includes(sk)||sk.includes(hk))return true;
+      const st=sourceLockMeaningfulTokens(sk),ht=new Set(sourceLockMeaningfulTokens(hk));
+      return st.length>=2&&st.filter(t=>ht.has(t)).length/Math.max(1,st.length)>=0.7;
+    });
+    if(h?.page_refs?.length)s.page_refs=h.page_refs.slice(0,12);
+  }
+  return parsed;
+}
+function libraryRepeatedRatioV301(parsed){
+  const rows=(parsed?.summary?.sections||[]).flatMap(s=>[s?.summary,...(s?.key_points||[]),...(s?.important_data||[])]).filter(Boolean);
+  const seen=new Set();let dup=0,total=0;
+  for(const row of rows){
+    for(const sentence of String(row).split(/(?<=[.!?])\s+/)){
+      const k=normalizeSourceLockText(sentence).slice(0,220);if(k.length<35)continue;total++;if(seen.has(k))dup++;else seen.add(k);
+    }
+  }
+  return total?dup/total:0;
+}
+function librarySummaryQualityV301(parsed,map,sourceText){
+  const headings=(map?.headings||[]).map(h=>cleanText(h.title,360)).filter(Boolean);
+  const missing=libraryMissingSummaryHeadings(parsed,map);
+  const sections=Array.isArray(parsed?.summary?.sections)?parsed.summary.sections:[];
+  const chars=sections.reduce((n,s)=>n+String(s?.summary||"").length+(s?.key_points||[]).join(" ").length,0);
+  const covered=Math.max(0,headings.length-missing.length);
+  const coverage=headings.length?covered/headings.length:1;
+  const repeated=libraryRepeatedRatioV301(parsed);
+  const minChars=headings.length?Math.min(5200,Math.max(900,headings.length*260)):800;
+  const sourceOverlap=sourceLockCoverage(sourceText,[parsed?.summary?.overview,...sections.flatMap(s=>[s.title,s.summary,...(s.key_points||[])])].filter(Boolean).join(" "));
+  const ok=sections.length>=1&&chars>=minChars&&coverage>=(headings.length<=6?0.95:0.78)&&repeated<=0.28&&sourceOverlap>=0.09;
+  return {ok,coverage_percent:Math.round(coverage*100),headings_total:headings.length,headings_covered:covered,missing_headings:missing,summary_chars:chars,repeated_ratio:Number(repeated.toFixed(3)),source_overlap:Number(sourceOverlap.toFixed(3)),status:ok?"verified":"repaired_or_fallback"};
+}
+async function libraryRepairMissingHeadingsV301(env,parsed,map,material){
+  const missing=libraryMissingSummaryHeadings(parsed,map);
+  if(!missing.length)return parsed;
+  const prompt=`El resumen ya existe pero faltan estos subtítulos reales:\n${missing.map((x,i)=>`${i+1}. ${x}`).join("\n")}\n\nUsa EXCLUSIVAMENTE el material proporcionado. Devuelve SOLO JSON: {"sections":[{"title":"subtítulo exacto","page_refs":[1],"summary":"explicación completa","key_points":["..."],"important_data":["..."]}]}\n\nMATERIAL:\n${material}`;
+  try{
+    const r=await callLibraryPartJson(env,{task:"library_heading_repair_v301",model:PREMIUM_FLASH_LITE_MODEL,system:"Completa únicamente subtítulos omitidos sin agregar conocimiento externo.",prompt,maxOutputTokens:2400,temperature:0.02,providerTimeout:14000,fallbackTimeout:8000});
+    return mergeLibrarySummaryRepair(parsed,r.parsed||{});
+  }catch{return parsed}
+}
+function libraryStudyMaterialFromPackV301(pack){
+  const s=pack?.summary||{};
+  return [pack?.title,s.overview,...(s.sections||[]).flatMap(x=>[x.title,x.summary,...(x.key_points||[]),...(x.important_data||[])]),...(s.must_remember||[]),s.final_synthesis].filter(Boolean).join("\n\n").slice(0,22000);
+}
+function libraryPersonalizationV301(pack){
+  const p=pack?.user_personalization||{};
+  return {
+    section_edits:(p.section_edits&&typeof p.section_edits==="object")?p.section_edits:{},
+    section_notes:(p.section_notes&&typeof p.section_notes==="object")?p.section_notes:{},
+    marks:Array.isArray(p.marks)?p.marks.slice(0,120):[],
+    updated_at:p.updated_at||null
+  };
+}
+
+async function createLibraryStudySummaryV301(request,env,user){
+  ensureAI(env);
+  const body=await readJson(request),fileId=cleanText(body.file_id,220),extracted=cleanText(body.extracted_text,90000);
+  if(!fileId||extracted.length<120)return json({error:"Falta el archivo o el fragmento tiene muy poco contenido."},400);
+  const file=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1`).bind(fileId,user.id).first();
+  if(!file)return json({error:"No encontré el archivo original en tu Biblioteca."},404);
+  const fileMeta=parseJsonLoose(file.metadata_json)||{},studyFocus=cleanText(body.study_focus,500)||file.title,studyScope=cleanText(body.study_scope,240)||"Fragmento seleccionado",instruction=cleanText(body.instruction,2500);
+  const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0),exactPageRange=pageStart>0&&pageEnd>=pageStart;
+  const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
+  const sourceSignature=await sha256(["library-quality-v30.1.0",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
+  const existing=await env.DB.prepare(`SELECT id,title,body,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 180`).bind(user.id).all();
+  for(const row of (existing.results||[])){
+    const m=parseJsonLoose(row.metadata_json)||{};
+    if(m.source_signature===sourceSignature){
+      const p=parseJsonLoose(row.body)||{};
+      return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,visual_status:p.visual_status||"ready",quality:p.quality||null,source_topics:m.source_topics||[]},200);
+    }
+  }
+  const started=Date.now();
+  let sourceMap=sanitizeSourceMapAgainstText(body.source_map,extracted),sourceMapModel="preview";
+  if(!sourceLockMapValid(sourceMap)){
+    try{const built=await buildLibrarySourceMap(env,{material:extracted,studyScope,fileTitle:file.title});sourceMap=built.parsed;sourceMapModel=built.model||PREMIUM_FLASH_LITE_MODEL}
+    catch(err){const keywords=libraryFallbackKeywords(extracted,12);sourceMap={domain:"General",material_type:"Material académico",language:null,headings:[],topics:keywords.slice(0,8).map(k=>({name:k,aliases:[],page_refs:[],evidence:[],subtopics:[]})),excluded:[],source_summary:libraryFallbackSentences(extracted).slice(0,5).join(" ")}}
+  }
+  const topicNames=sourceLockNames(sourceMap),headingNames=(sourceMap.headings||[]).map(h=>h.title).filter(Boolean),headingBlock=(headingNames.length?headingNames:topicNames).map((x,i)=>`${i+1}. ${x}`).join("\n");
+  const material=[`Archivo: ${file.title}`,`Selección: ${studyScope}`,exactPageRange?`Páginas exactas: ${pageStart}-${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}`:"",`Enfoque: ${studyFocus}`,instruction?`Indicación: ${instruction}`:"",`SUBTÍTULOS REALES:\n${headingBlock}`,"REGLA: usa únicamente estas páginas.",`===== MATERIAL =====\n${extracted}\n===== FIN =====`].filter(Boolean).join("\n\n");
+  const prompt=`Crea apuntes universitarios claros y completos basados EXCLUSIVAMENTE en las páginas seleccionadas. Usa título, subtítulos y explicaciones fáciles de copiar al cuaderno. Cubre cada subtítulo real. No agregues conocimiento externo.\nDevuelve SOLO JSON:\n{"title":"...","overview":"...","estimated_minutes":25,"source_digest":"...","key_terms":["..."],"summary":{"overview":"...","sections":[{"title":"subtítulo real","page_refs":[1],"summary":"explicación sustancial","key_points":["4 a 8"],"important_data":["solo datos presentes"]}],"must_remember":["8 a 18"],"final_synthesis":"..."}}\nSUBTÍTULOS A CUBRIR:\n${headingBlock}\n\n${material}`;
+  let parsed=null,summaryModel=null,fallbackGenerated=false;
+  try{
+    const r=await callLibraryPartJson(env,{task:"library_summary_progressive_v301",model:PREMIUM_FLASH_MODEL,system:"Redacta apuntes académicos completos, ordenados y estrictamente fieles a la fuente.",prompt,maxOutputTokens:3900,temperature:0.03,providerTimeout:24000,fallbackTimeout:10000});parsed=r.parsed;summaryModel=r.model;
+  }catch{}
+  if(parsed){parsed=await libraryRepairMissingHeadingsV301(env,parsed,sourceMap,material);parsed=libraryAttachSourcePagesV301(parsed,sourceMap)}
+  let quality=parsed?librarySummaryQualityV301(parsed,sourceMap,extracted):null;
+  const deterministic=deterministicLibraryVisuals(sourceMap,studyFocus);
+  let pack=null;
+  if(parsed){
+    const combined={...parsed,...deterministic};
+    pack=sanitizeLibrarySimplePack(combined,{subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"},{source_type:fileMeta.mime_type==="application/pdf"?"pdf":"text",source_name:file.title,mime_type:fileMeta.mime_type||""});
+    quality=librarySummaryQualityV301(parsed,sourceMap,extracted);
+  }
+  if(!pack||!quality?.ok){
+    pack=buildDeterministicLibraryPack({sourceText:extracted,sourceMap,title:studyFocus,scope:studyScope});fallbackGenerated=true;
+    quality=librarySummaryQualityV301(pack,sourceMap,extracted);quality.status="source_direct_fallback";
+  }
+  pack.version=30.10;pack.library_study_pack=true;pack.library_simple_v30=true;pack.library_rich_summary_v30=true;pack.fallback_generated=fallbackGenerated;pack.visual_status=fallbackGenerated?"fallback":"preparing";pack.quality=quality;pack.user_personalization=libraryPersonalizationV301(pack);
+  pack.source_lock={enabled:true,version:"30.1.0",domain:sourceMap.domain||"General",material_type:sourceMap.material_type||"Material académico",topics:sourceMap.topics||[],headings:sourceMap.headings||[],excluded:sourceMap.excluded||[],source_summary:sourceMap.source_summary||""};
+  pack.source_reference={type:"library",source_file_id:fileId,name:file.title,mime_type:fileMeta.mime_type||"",study_scope:studyScope,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,imported_at:new Date().toISOString()};
+  const id=crypto.randomUUID(),now=new Date().toISOString(),metadata={university_source:true,library_study_pack:true,library_simple_v30:true,library_rich_summary_v30:true,version:30.10,source_type:"library",source_file_id:fileId,source_name:file.title,study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,source_signature:sourceSignature,source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,source_domain:sourceMap.domain||"General",fallback_generated:fallbackGenerated,generation_version:"30.1.0",generation_models:{summary:summaryModel,visuals:fallbackGenerated?"deterministic_source_only":"pending",source_map:sourceMapModel},generation_ms:Date.now()-started,imported_once:true,quality};
+  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,JSON.stringify(pack),JSON.stringify(["university_source","study_pack","library_study_pack","library_simple_v30","library_rich_summary_v30","source_locked","v30_1_0"]),JSON.stringify(metadata),now,now).run();
+  return json({ok:true,id,title:pack.title,reused:false,visual_status:pack.visual_status,quality,source_topics:topicNames,generation_ms:Date.now()-started,fallback_generated:fallbackGenerated},201);
+}
+
+async function completeLibraryStudyVisualsV301(request,env,user){
+  ensureAI(env);const body=await readJson(request),id=cleanText(body.id,220);if(!id)return json({error:"Falta el material."},400);
+  const row=await env.DB.prepare(`SELECT id,body,metadata_json FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_study_pack%' LIMIT 1`).bind(id,user.id).first();if(!row)return json({error:"Resumen no encontrado."},404);
+  const pack=parseJsonLoose(row.body)||{};if(pack.visual_status==="ready")return json({ok:true,id,pack,cached:true,visual_status:"ready"});
+  const sourceMap={domain:pack?.source_lock?.domain,material_type:pack?.source_lock?.material_type,topics:pack?.source_lock?.topics||[],headings:pack?.source_lock?.headings||[]};
+  const base=libraryStudyMaterialFromPackV301(pack);
+  const prompt=`Convierte estos apuntes YA VERIFICADOS en un mapa mental jerárquico limpio y 1 a 3 diagramas útiles. No agregues hechos nuevos. Elige el tipo correcto: proceso, ciclo, comparación, jerarquía, causa-efecto, estructura o procedimiento. Devuelve SOLO JSON: {"concept_map":{"center":"...","overview":"...","branches":[{"label":"...","summary":"...","children":[{"label":"...","detail":"..."}]}]},"diagrams":[{"title":"...","type":"...","caption":"...","steps":[{"label":"...","detail":"...","relation":"..."}]}]}\n\nAPUNTES VERIFICADOS:\n${base}`;
+  let visual=null,model=null,status="ready";
+  try{const r=await callLibraryPartJson(env,{task:"library_visual_progressive_v301",model:PREMIUM_FLASH_LITE_MODEL,system:"Diseña recursos visuales académicos claros y fieles a los apuntes verificados.",prompt,maxOutputTokens:2300,temperature:0.04,providerTimeout:18000,fallbackTimeout:9000});visual=completeLibraryVisualsWithSourceMap(r.parsed||{},sourceMap,pack.title);model=r.model}
+  catch{visual=deterministicLibraryVisuals(sourceMap,pack.title);model="deterministic_source_only";status="fallback"}
+  pack.concept_map=visual.concept_map||pack.concept_map;pack.diagrams=visual.diagrams||pack.diagrams;pack.diagram=pack.diagrams?.[0]||pack.diagram;pack.visual_status=status;pack.visual_updated_at=new Date().toISOString();
+  const meta=parseJsonLoose(row.metadata_json)||{};meta.generation_version="30.1.0";meta.generation_models={...(meta.generation_models||{}),visuals:model};meta.visual_status=status;meta.updated_at=new Date().toISOString();
+  await env.DB.prepare(`UPDATE notes SET body=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?`).bind(JSON.stringify(pack),JSON.stringify(meta),new Date().toISOString(),id,user.id).run();
+  return json({ok:true,id,pack,visual_status:status,model});
+}
+
+async function updateLibraryStudyPersonalizationV301(request,env,user){
+  const body=await readJson(request),id=cleanText(body.id,220);if(!id)return json({error:"Falta el material."},400);
+  const row=await env.DB.prepare(`SELECT body,metadata_json FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_study_pack%' LIMIT 1`).bind(id,user.id).first();if(!row)return json({error:"Material no encontrado."},404);
+  const pack=parseJsonLoose(row.body)||{},personal=libraryPersonalizationV301(pack);
+  if(body.section_edits&&typeof body.section_edits==="object"){
+    const out={};for(const [k,v] of Object.entries(body.section_edits).slice(0,30)){const idx=String(Number(k));if(idx!=="NaN")out[idx]=cleanText(v,6500)}personal.section_edits=out;
+  }
+  if(body.section_notes&&typeof body.section_notes==="object"){
+    const out={};for(const [k,v] of Object.entries(body.section_notes).slice(0,30)){const idx=String(Number(k));if(idx!=="NaN")out[idx]=cleanText(v,2400)}personal.section_notes=out;
+  }
+  if(Array.isArray(body.marks))personal.marks=body.marks.slice(0,120).map(x=>({type:["important","memorize","doubt","review"].includes(x?.type)?x.type:"important",text:cleanText(x?.text,1200),section_index:Number.isInteger(Number(x?.section_index))?Number(x.section_index):null,created_at:cleanText(x?.created_at,80)||new Date().toISOString()})).filter(x=>x.text);
+  personal.updated_at=new Date().toISOString();pack.user_personalization=personal;
+  const meta=parseJsonLoose(row.metadata_json)||{};meta.user_personalized_at=personal.updated_at;
+  await env.DB.prepare(`UPDATE notes SET body=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?`).bind(JSON.stringify(pack),JSON.stringify(meta),personal.updated_at,id,user.id).run();
+  return json({ok:true,id,pack,personalization:personal});
+}
+
 async function createLibraryStudyPackApi(request,env,user){
   ensureAI(env);
   const body=await readJson(request),fileId=cleanText(body.file_id,220),extracted=cleanText(body.extracted_text,90000);
@@ -4337,7 +4450,7 @@ async function analyzeHistoricalKeysApi(request,env,user){
   const subject=cleanText(body.subject,320),note=cleanText(body.note,2000);
   if(!fileIds.length||!subject)return json({error:"Agrega al menos un PDF y escribe la materia."},400);
 
-  const signature=await sha256(`historical-simple-v30.0.7|${smartNormalize(subject)}|${[...fileIds].sort().join("|")}`);
+  const signature=await sha256(`historical-simple-v30.1.0|${smartNormalize(subject)}|${[...fileIds].sort().join("|")}`);
   const existing=await env.DB.prepare(`SELECT id,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%' ORDER BY datetime(updated_at) DESC LIMIT 100`).bind(user.id).all();
   for(const row of (existing.results||[])){
     const m=parseJsonLoose(row.metadata_json)||{};
@@ -4409,7 +4522,7 @@ ${documents}`;
   let result;
   try{
     result=await callLibraryPartJson(env,{
-      task:"historical_keys_verified_v3007",
+      task:"historical_keys_verified_v3010",
       model:PREMIUM_FLASH_MODEL,
       system:"Analiza claves históricas con rigor. No inventes frecuencia ni temas. Devuelve exclusivamente JSON válido.",
       prompt,maxOutputTokens:5600,temperature:0.08,providerTimeout:42000,fallbackTimeout:22000
@@ -4448,7 +4561,7 @@ REGLAS:
 ${documents}`;
     try{
       const repair=await callLibraryPartJson(env,{
-        task:"historical_keys_practice_repair_v3007",
+        task:"historical_keys_practice_repair_v3010",
         model:PREMIUM_FLASH_LITE_MODEL,
         system:"Completa una práctica usando únicamente los temas históricos autorizados.",
         prompt:repairPrompt,maxOutputTokens:2600,temperature:0.05,providerTimeout:26000,fallbackTimeout:15000
