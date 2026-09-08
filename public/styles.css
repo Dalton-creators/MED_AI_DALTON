@@ -2297,3 +2297,332 @@ html[data-focus-mode="1"] .topbar:hover .sync-badge{opacity:1}
   .v302-paper-head,.v302-paper-body,.v302-paper-footer{padding-left:0;padding-right:0}
   .v302-paper-section,.v302-equation,.v302-compounds article,.v302-figure-note{break-inside:avoid}
 }
+
+
+/* ==========================================================
+   V30.2.2 · VISUAL RESPONSIVE POLISH
+   Visual-only layer:
+   - prevents text/card overflow
+   - keeps grids/flex children shrinkable
+   - balances headings
+   - normalizes buttons/tabs
+   - improves modal and mobile layout
+   No API, AI, course, Library or Historical Keys logic changed.
+   ========================================================== */
+
+/* 1) Universal containment */
+html,body{max-width:100%;overflow-x:hidden}
+img,svg,video,canvas,iframe{max-width:100%}
+pre,code{max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+
+:where(
+  .app-shell,.main,.view-root,.sidebar,.topbar,.page-head,.card,
+  .grid,.hero-grid,.command-grid,.quick-strip,.chat-layout,.messages,
+  .course-page-head,.course-overview,.course-track,.course-step,.course-step-body,
+  .lesson-course-grid,.lesson-main,.lesson-side,.science-layout,.language-course-grid,
+  .study-library-tabs,.study-library-overview,.library-grid,.library-folder-tile,.library-file-tile,
+  .university-study-head,.university-study-title,.university-study-content,
+  .historical-keys-shell,.historical-keys-hero,.historical-keys-layout,.historical-keys-output,
+  .historical-pack,.historical-pack-head,.historical-pack-tabs,.historical-topic-list,
+  .system-status-banner,.system-center-hero,.system-health-grid,.system-health-card,
+  .system-main-grid,.system-section-head,.v302-paper,.v302-paper-head,.v302-paper-body,
+  .v302-paper-section,.v302-paper-section-head,.v302-practice-intro,.v302-wrong-review
+){min-width:0}
+
+:where(
+  .page-head,.dashboard-intro,.resume-top,.today-head,.top-actions,.hero-actions,
+  .list-item,.composer,.course-intro,.course-free,.lesson-course-head,.lesson-actions,
+  .language-toolbar,.university-library-heading,.university-import-head,
+  .university-summary-next,.historical-keys-shell>header,.historical-pack-head,
+  .system-section-head,.v301-editor>header,.v301-editor>footer
+)>*{min-width:0}
+
+/* 2) Text remains inside its own component */
+:where(
+  h1,h2,h3,h4,h5,h6,p,li,label,strong,small,em,
+  .card,.list-item,.topic-btn,.quick-tile,.course-step,.course-free,
+  .study-library-tabs button,.library-file-copy,.university-study-title,
+  .historical-keys-hero,.historical-keys-warning,.historical-keys-output,
+  .historical-pack,.system-health-card,.system-status-banner,
+  .v302-paper,.v302-paper-section,.v302-practice-intro
+){
+  max-width:100%;
+  overflow-wrap:break-word;
+  word-break:normal;
+}
+
+/* Natural, polished title wrapping */
+:where(
+  .page-head h2,.dashboard-intro h1,.resume-card h1,.course-page-title h2,
+  .lesson-main h2,.masterclass-document-head h1,.master-summary header h1,
+  .university-study-title h2,.university-summary-hero h3,
+  .historical-keys-hero h2,.historical-pack-head h2,.system-center-hero h1,
+  .v302-paper-head h1,.v302-paper-section-head h2,.v302-paper-section>h2,
+  .v302-practice-intro h2
+){
+  text-wrap:balance;
+  hyphens:none;
+}
+
+/* Fluid heading sizes to avoid oversized wrapping */
+.page-head h2{font-size:clamp(26px,2.3vw,34px)}
+.resume-card h1{font-size:clamp(30px,3vw,42px)}
+.course-page-title h2{font-size:clamp(28px,2.5vw,36px)}
+.course-overview-main>strong{font-size:clamp(36px,3vw,48px)}
+.lesson-main h2{font-size:clamp(27px,2.4vw,34px)}
+.historical-keys-hero h2{font-size:clamp(21px,2vw,25px)}
+.historical-pack-head h2{font-size:clamp(21px,2.2vw,26px)}
+.system-center-hero h1{font-size:clamp(27px,2.6vw,34px)}
+.v302-paper-head h1{font-size:clamp(27px,2.5vw,34px)}
+.v302-paper-section-head h2,.v302-paper-section>h2{font-size:clamp(20px,2vw,24px)}
+
+/* 3) Interface names should not destroy layouts */
+.nav-item em,
+.brand-copy strong,
+.page-identity span,
+.library-folder-open strong,
+.library-file-copy strong,
+.library-viewer-shell>header strong,
+.historical-keys-draft-list strong,
+.system-queue-list strong{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* Two-line card titles: readable without stretching cards */
+:where(
+  .quick-tile strong,.subject-card h3,.mode-card h3,.topic-btn strong,
+  .course-step h3,.v30-course-card h3,.historical-topic-list strong,
+  .study-library-tabs b,.system-health-card strong
+){
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  overflow:hidden;
+}
+
+/* 4) Buttons and tabs: centered, contained and equal */
+.primary-btn,.secondary-btn,.ghost-btn,.danger-btn,.grade-btn,
+.sidebar-action,.nav-item,.exam-prep-stage-buttons button,
+.university-study-tabs button,.historical-pack-tabs button,
+.study-library-tabs button,.library-file-actions button,
+.library-file-actions-v23 button,.library-file-actions-v24 button,
+.library-file-actions-v25 button,.v302-notes-toolbar button{
+  min-width:0;
+  max-width:100%;
+  line-height:1.2;
+}
+
+.primary-btn,.secondary-btn,.ghost-btn,.danger-btn,.grade-btn,
+.v302-notes-toolbar button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+
+.exam-prep-stage-buttons button,
+.study-library-tabs button,
+.university-study-tabs button,
+.historical-pack-tabs button{
+  overflow:hidden;
+}
+
+.exam-prep-stage-buttons strong,
+.exam-prep-stage-buttons small,
+.study-library-tabs b,
+.study-library-tabs small,
+.historical-pack-tabs button{
+  min-width:0;
+}
+
+/* Compact tab labels: no ugly spill outside */
+.university-study-tabs button,
+.historical-pack-tabs button{
+  font-size:clamp(7px,.62vw,8px);
+  text-align:center;
+  text-wrap:balance;
+}
+
+/* 5) Safer grids: every column may shrink */
+.topic-grid,
+.quick-strip,
+.learning-pillar-grid,
+.language-pillars,
+.system-health-grid,
+.historical-review-grid,
+.historical-pack-tabs,
+.exam-prep-stage-buttons,
+.v302-keys-tabs,
+.v302-three-steps{
+  grid-template-columns:repeat(var(--visual-cols,3),minmax(0,1fr));
+}
+.quick-strip{--visual-cols:4}
+.learning-pillar-grid{--visual-cols:4}
+.language-pillars{--visual-cols:6}
+.system-health-grid{--visual-cols:3}
+.historical-review-grid{--visual-cols:2}
+.historical-pack-tabs{--visual-cols:4}
+.exam-prep-stage-buttons{--visual-cols:4}
+.v302-keys-tabs,.v302-three-steps{--visual-cols:3}
+
+/* 6) Top bar / banners */
+.topbar-start,.top-actions,.page-identity{min-width:0}
+.page-identity{overflow:hidden}
+.page-identity span,.page-identity small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.system-status-banner{
+  grid-template-columns:30px auto minmax(0,1fr) auto;
+}
+.system-status-banner>small{min-width:0}
+.system-status-banner>button{white-space:nowrap}
+@media(max-width:760px){
+  .system-status-banner{
+    grid-template-columns:28px minmax(0,1fr);
+    align-items:start
+  }
+  .system-status-banner>strong{grid-column:2;white-space:normal}
+  .system-status-banner>small{grid-column:1/-1}
+  .system-status-banner>button{grid-column:1/-1;width:100%}
+}
+
+/* 7) Historical Keys visual order */
+.historical-keys-shell>header>div,
+.historical-keys-hero>div,
+.historical-keys-draft-list article>div,
+.historical-keys-output>div>div,
+.historical-pack-head>div,
+.historical-topic-list button>div{min-width:0}
+
+.historical-keys-hero{
+  grid-template-columns:68px minmax(0,1fr) minmax(180px,auto);
+}
+.historical-keys-hero p,
+.historical-keys-warning p,
+.historical-keys-output small,
+.historical-pack-head p{
+  overflow-wrap:break-word;
+}
+.historical-keys-draft-list article{
+  grid-template-columns:38px minmax(0,1fr) 28px;
+}
+.historical-keys-output>div:not(.panel-code){
+  grid-template-columns:32px minmax(0,1fr);
+}
+.historical-topic-list button{
+  min-width:0;
+}
+.historical-topic-list button>b{
+  white-space:nowrap;
+}
+
+@media(max-width:950px){
+  .historical-keys-hero{grid-template-columns:60px minmax(0,1fr)}
+  .historical-keys-cost{grid-column:1/-1;width:100%}
+}
+@media(max-width:650px){
+  .historical-keys-hero{grid-template-columns:46px minmax(0,1fr);padding:14px}
+  .historical-keys-icon{width:44px;height:44px;border-radius:12px;font-size:20px}
+  .historical-pack-tabs,.v302-keys-tabs{--visual-cols:3}
+  .historical-pack-tabs button{padding:8px 4px}
+}
+
+/* 8) Library cards / confirmation */
+.study-library-overview>div,
+.library-search-wrap,
+.library-confirm-row>strong,
+.library-study-budget-card>div,
+.library-study-generated-list>div{min-width:0}
+
+.library-confirm-row{grid-template-columns:minmax(85px,105px) minmax(0,1fr)}
+.library-confirm-row>strong{overflow-wrap:break-word}
+.library-analyze-btn,.library-create-study-btn,.university-analyze-btn{
+  grid-template-columns:44px minmax(0,1fr);
+}
+.library-analyze-btn strong,.library-create-study-btn strong,
+.university-analyze-btn strong{
+  text-wrap:balance;
+}
+
+@media(max-width:820px){
+  .study-library-overview{
+    grid-template-columns:repeat(2,minmax(0,1fr))
+  }
+  .library-search-wrap{grid-column:1/-1}
+}
+@media(max-width:520px){
+  .study-library-overview{grid-template-columns:1fr}
+  .library-search-wrap{grid-column:auto}
+}
+
+/* 9) Paper-style notes: tidy and notebook-friendly */
+.v302-paper-head,.v302-paper-body,.v302-paper-footer{min-width:0}
+.v302-paper-source>span{min-width:0;overflow-wrap:break-word}
+.v302-paper-section-head{grid-template-columns:34px minmax(0,1fr)}
+.v302-paper-prose,
+.v302-paper-intro,
+.v302-paper-conclusion,
+.v302-paper-keypoints li,
+.v302-paper-data li,
+.v302-paper-review li{
+  overflow-wrap:break-word;
+  word-break:normal;
+}
+.v302-equation code{overflow-wrap:anywhere;word-break:break-word}
+.v302-table-wrap{
+  max-width:100%;
+  overscroll-behavior-inline:contain;
+}
+.v302-table-wrap th,.v302-table-wrap td{
+  min-width:110px;
+  max-width:360px;
+  overflow-wrap:break-word;
+}
+.v302-paper-footer>span{min-width:0}
+
+@media(max-width:760px){
+  .v302-paper{border-radius:7px}
+  .v302-paper-head{padding:24px 18px 19px}
+  .v302-paper-body{padding:6px 18px 24px}
+  .v302-paper-footer{padding:11px 18px}
+  .v302-paper-source{display:grid;grid-template-columns:1fr}
+  .v302-paper-section-head{grid-template-columns:28px minmax(0,1fr);gap:10px}
+  .v302-paper-keypoints,.v302-paper-data{padding:13px 14px}
+  .v302-paper-aids{padding:17px}
+}
+
+/* 10) Modals / editors */
+.v301-editor{width:min(920px,calc(100vw - 24px))}
+.v301-editor>header>div{min-width:0}
+.v301-editor>header strong,.v301-editor>header small{
+  overflow-wrap:break-word;
+}
+@media(max-width:560px){
+  .v301-modal{padding:0}
+  .v301-editor{width:100%;max-height:100vh;height:100vh;border-radius:0}
+  .v301-editor>footer{display:grid;grid-template-columns:1fr 1fr}
+  .v301-editor>footer button{width:100%}
+}
+
+/* 11) Mobile consistency */
+@media(max-width:900px){
+  .view-root{padding-left:18px;padding-right:18px}
+  .grid.three,.topic-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .quick-strip{--visual-cols:2}
+  .system-health-grid{--visual-cols:2}
+  .exam-prep-stage-buttons{--visual-cols:2}
+  .language-pillars,.learning-pillar-grid{--visual-cols:2}
+}
+@media(max-width:620px){
+  .view-root{padding-left:12px;padding-right:12px}
+  .page-head{align-items:flex-start;flex-direction:column}
+  .grid.two,.grid.three,.topic-grid{grid-template-columns:1fr}
+  .quick-strip,.system-health-grid,.exam-prep-stage-buttons,
+  .language-pillars,.learning-pillar-grid,.historical-review-grid,
+  .v302-three-steps{--visual-cols:1}
+  .hero-actions,.lesson-actions,.system-center-actions{display:grid;grid-template-columns:1fr;width:100%}
+  .hero-actions button,.lesson-actions button,.system-center-actions button{width:100%}
+  .course-step{grid-template-columns:42px minmax(0,1fr) 34px}
+  .course-step-body{min-width:0}
+}

@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v30-2-0-focused-notes-keys-practice";
+const CACHE = "med-ai-dalton-v30-2-2-visual-responsive-polish";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=30.2.0",
-  "/app.js?v=30.2.0",
+  "/styles.css?v=30.2.2",
+  "/app.js?v=30.2.2",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];

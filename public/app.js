@@ -1,4 +1,4 @@
-const APP_VERSION="30.2.0";
+const APP_VERSION="30.2.2";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -4319,6 +4319,7 @@ async function extractAndCreateLibraryStudyPack(info){
     const exactPdf=info.type==="pdf"&&state.libraryStudyDoc?.exact_pages,scope=info.total>1?(exactPdf?`Páginas ${start}–${end}`:info.label==="bloques"?`Bloques ${start}–${end}`:`Diapositivas ${start}–${end}`):"Documento";
     btn.innerHTML=`<span class="university-spin">✦</span><div><strong>DETECTANDO EL CONTENIDO REAL…</strong><small>MED AI verificará qué aparece en ${escapeHtml(scope)}</small></div>`;
     const map=await api("/api/library/source-map",{method:"POST",body:{file_id:state.libraryStudyFile.id,extracted_text:text,study_scope:scope}});
+    if(map.fallback)toast("Contenido reconocido directamente desde el PDF. Continuamos sin esperar otra IA.");
     if(!map.source_topics?.length)throw new Error("No pude identificar temas claros en este rango.");
     renderLibraryStudyConfirm({info,start,end,text,focus,instruction,ocrPages,sourceMap:map.source_map,sourceTopics:map.source_topics,sourceSummary:map.source_map?.source_summary||""});
   }catch(err){toast(err.message,true);const btn=$("#library-study-extract");if(btn){btn.disabled=false;btn.innerHTML=`<span>→</span><div><strong>CONTINUAR Y PREPARAR SESIÓN</strong><small>${info.type==="pdf"?"Leeremos solo las páginas seleccionadas":"Extraeremos solo el fragmento seleccionado"}</small></div>`}}
@@ -4354,7 +4355,7 @@ function renderLibraryStudyConfirm(ctx){
         <button id="library-study-create" class="library-create-study-btn"><div><strong>CREAR RESUMEN / APUNTES</strong><small>Una sola generación · después queda guardado</small></div></button>
       </section>
       <aside class="library-study-generated-list">
-        <div class="panel-code">ENFOQUE V30.2</div>
+        <div class="panel-code">ENFOQUE V30.2.1</div>
         <div><b>1</b><span><strong>Tema identificable</strong><small>Desde el título sabrás qué estás estudiando</small></span></div>
         <div><b>2</b><span><strong>Texto coherente</strong><small>Explicación normal, no fragmentos sueltos</small></span></div>
         <div><b>3</b><span><strong>Más corto que la fuente</strong><small>Conserva lo esencial sin copiar todo el PDF</small></span></div>
@@ -5577,7 +5578,7 @@ async function hardRefreshApplication(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.2.0",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.2.2",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
