@@ -449,7 +449,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.1.0";
+const SYSTEM_VERSION="30.2.0";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -1170,47 +1170,95 @@ async function academicDiagnosticStartApi(request,env,user){
   if(!subjectId)return json({error:"Selecciona una materia."},400);
   const subject=await env.DB.prepare(`SELECT id,code,name FROM subjects WHERE id=? AND active=1`).bind(subjectId).first();
   if(!subject)return json({error:"Materia no encontrada."},404);
+
   const diagnosticLanguage=normalizeCourseLanguage(body.language||"en-US");
   const diagnosticLanguageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
   const subjectLabel=subject.code==="LANG"?`Idiomas · ${diagnosticLanguageNames[diagnosticLanguage]||"Inglés"}`:subject.name;
-  const topics=await env.DB.prepare(`
-    SELECT id,name,description FROM topics
-    WHERE subject_id=? AND active=1
-    ORDER BY sort_order,name LIMIT 40
-  `).bind(subjectId).all();
-  const topicNames=(topics.results||[]).map(x=>x.name).slice(0,24);
-  const prompt=`Crea un diagnóstico académico de 20 preguntas para "${subjectLabel}".
-Distribuye las preguntas entre estos temas cuando sean pertinentes:
-${topicNames.map((x,i)=>`${i+1}. ${x}`).join("\n")}
+  const topics=await env.DB.prepare(`SELECT id,name,description FROM topics WHERE subject_id=? AND active=1 ORDER BY sort_order,name LIMIT 40`).bind(subjectId).all();
+  const topicNames=(topics.results||[]).map(x=>cleanAcademicTextV302(x.name,300)).filter(Boolean).slice(0,24);
 
-OBJETIVO:
-- Detectar conocimientos previos.
-- Mezclar fundamentos, comprensión y aplicación.
-- Evitar contenido excesivamente avanzado si la materia empieza desde fundamentos.
-- Cada pregunta debe tener 4 opciones, una correcta, explicación y una habilidad/tema evaluado.
+  const cleanQuestions=(arr)=>{
+    const out=[];const seen=new Set();
+    for(const q of (Array.isArray(arr)?arr:[])){
+      const stem=cleanAcademicTextV302(q?.stem||q?.question,1800),key=normalizeSourceLockText(stem);
+      const options=Array.isArray(q?.options)?q.options.slice(0,4).map(x=>cleanAcademicTextV302(x,1000)):[];
+      if(!stem||options.length!==4||seen.has(key))continue;
+      seen.add(key);
+      out.push({
+        stem,options,
+        correctIndex:clamp(Number(q?.correctIndex),0,3),
+        explanation:cleanAcademicTextV302(q?.explanation,2200),
+        skill:cleanAcademicTextV302(q?.skill||q?.topic,300)||"Fundamentos"
+      });
+    }
+    return out;
+  };
 
-Devuelve SOLO JSON:
-{"questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"...","skill":"nombre del tema evaluado"}]}`;
+  const topicBlock=topicNames.length?topicNames.map((x,i)=>`${i+1}. ${x}`).join("\n"):"Fundamentos generales de la materia.";
+  const makePrompt=(batch,count,avoid="")=>`Crea EXACTAMENTE ${count} preguntas para un diagnóstico académico de "${subjectLabel}".
+Esta es la tanda ${batch}. Deben ser distintas entre sí y cubrir fundamentos, comprensión y aplicación.
 
-  const response=await callCloudflareAI(env,{
-    model:DEFAULT_FAST_MODEL,task:"academic_diagnostic",
-    messages:[
-      {role:"system",content:"Eres un evaluador académico. Diseña diagnósticos equilibrados y válidos. Devuelve únicamente JSON válido."},
-      {role:"user",content:prompt}
-    ],
-    max_tokens:4800,temperature:0.15
+TEMAS DISPONIBLES:
+${topicBlock}
+
+${avoid?`NO REPITAS ESTAS PREGUNTAS:\n${avoid}`:""}
+
+Devuelve SOLO JSON válido:
+{"questions":[{"stem":"pregunta clara","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación breve y correcta","skill":"tema evaluado"}]}
+
+REGLAS:
+- Exactamente 4 opciones.
+- Una sola respuesta correcta.
+- Sin Markdown ni texto fuera del JSON.
+- Evita preguntas ambiguas.
+- No uses caracteres dañados ni símbolos decorativos.`;
+
+  const calls=[1,2,3,4].map(batch=>callLibraryPartJson(env,{
+    task:`academic_diagnostic_v302_${batch}`,
+    model:PREMIUM_FLASH_LITE_MODEL,
+    system:"Genera preguntas académicas válidas y devuelve exclusivamente JSON.",
+    prompt:makePrompt(batch,5),maxOutputTokens:1700,temperature:0.12,providerTimeout:18000,fallbackTimeout:10000
+  }));
+
+  const settled=await Promise.allSettled(calls);
+  let questions=[];const seen=new Set();const models=[];
+  for(const r of settled){
+    if(r.status!=="fulfilled")continue;
+    models.push(r.value.model);
+    for(const q of cleanQuestions(r.value.parsed?.questions)){
+      const k=normalizeSourceLockText(q.stem);if(seen.has(k))continue;seen.add(k);questions.push(q);
+    }
+  }
+
+  for(let attempt=0;attempt<2&&questions.length<20;attempt++){
+    const missing=20-questions.length;
+    const avoid=questions.map((q,i)=>`${i+1}. ${q.stem}`).join("\n").slice(0,9000);
+    try{
+      const r=await callLibraryPartJson(env,{
+        task:`academic_diagnostic_repair_v302_${attempt+1}`,
+        model:PREMIUM_FLASH_LITE_MODEL,
+        system:"Completa un diagnóstico sin repetir preguntas. Devuelve solo JSON válido.",
+        prompt:makePrompt(`reparación ${attempt+1}`,Math.min(10,missing),avoid),
+        maxOutputTokens:2200,temperature:0.1,providerTimeout:18000,fallbackTimeout:10000
+      });
+      models.push(r.model);
+      for(const q of cleanQuestions(r.parsed?.questions)){
+        const k=normalizeSourceLockText(q.stem);if(seen.has(k))continue;seen.add(k);questions.push(q);
+        if(questions.length>=20)break;
+      }
+    }catch(err){console.error("ACADEMIC_DIAGNOSTIC_REPAIR_V302",err?.stack||err)}
+  }
+
+  questions=questions.slice(0,20).map((q,i)=>({id:`diag_${Date.now()}_${i}`,...q}));
+  if(questions.length<8)return json({error:`No pude construir un diagnóstico utilizable (${questions.length}/20). La IA está disponible, pero la generación estructurada no respondió correctamente.`,generated:questions.length,expected:20},502);
+
+  return json({
+    subject:{...subject,name:subjectLabel,language:subject.code==="LANG"?diagnosticLanguage:null},
+    questions,
+    partial:questions.length<20,
+    generated:questions.length,
+    model:[...new Set(models)].join(" + ")||PREMIUM_FLASH_LITE_MODEL
   });
-  const parsed=parseJsonLoose(extractCloudflareText(response));
-  const questions=(Array.isArray(parsed?.questions)?parsed.questions:[]).slice(0,20).map((q,i)=>({
-    id:`diag_${Date.now()}_${i}`,
-    stem:cleanText(q.stem,1800),
-    options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,1000)):[],
-    correctIndex:clamp(Number(q.correctIndex),0,3),
-    explanation:cleanText(q.explanation,2200),
-    skill:cleanText(q.skill,300)||"Fundamentos"
-  })).filter(q=>q.stem&&q.options.length===4);
-  if(questions.length<16)return json({error:`No pude construir un diagnóstico suficientemente completo (${questions.length}/20). Inténtalo de nuevo.`,generated:questions.length,expected:20},502);
-  return json({subject:{...subject,name:subjectLabel,language:subject.code==="LANG"?diagnosticLanguage:null},questions,model:response.__model||DEFAULT_FAST_MODEL});
 }
 
 async function academicDiagnosticApi(request,env,user,method){
@@ -3745,72 +3793,372 @@ function libraryPersonalizationV301(pack){
   };
 }
 
+
+function cleanAcademicTextV302(value,max=7000){
+  let s=cleanText(value,Math.max(max*2,1200));
+  try{s=s.normalize("NFC")}catch{}
+  const fixes=[
+    ["Ã¡","á"],["Ã©","é"],["Ã­","í"],["Ã³","ó"],["Ãº","ú"],["Ã±","ñ"],
+    ["Ã","Á"],["Ã‰","É"],["Ã","Í"],["Ã“","Ó"],["Ãš","Ú"],["Ã‘","Ñ"],
+    ["Â°","°"],["Âµ","µ"],["Â",""],["â€“","–"],["â€”","—"],["â€˜","‘"],["â€™","’"],
+    ["â€œ","“"],["â€","”"],["â†’","→"],["â†”","↔"],["â‰¥","≥"],["â‰¤","≤"],["â‰ ","≠"]
+  ];
+  for(const [bad,good] of fixes)s=s.split(bad).join(good);
+  s=s.replace(/\uFFFD/g,"").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g," ");
+  s=s.replace(/[ \t]{2,}/g," ").replace(/[ \t]+\n/g,"\n").replace(/\n[ \t]+/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+  return s.slice(0,max);
+}
+function academicPageRefsV302(v){
+  return Array.isArray(v)?[...new Set(v.map(Number).filter(n=>Number.isInteger(n)&&n>0))].slice(0,16):[];
+}
+function sanitizeAcademicStudyAidsV302(parsed){
+  const root=parsed?.study_aids||parsed?.academic_aids||{};
+  const equations=(Array.isArray(root.equations)?root.equations:Array.isArray(parsed?.equations)?parsed.equations:[]).slice(0,12).map(x=>({
+    expression:cleanAcademicTextV302(x?.expression||x?.formula,700),
+    meaning:cleanAcademicTextV302(x?.meaning||x?.explanation,1200),
+    page_refs:academicPageRefsV302(x?.page_refs)
+  })).filter(x=>x.expression);
+  const compounds=(Array.isArray(root.compounds)?root.compounds:Array.isArray(parsed?.compounds)?parsed.compounds:[]).slice(0,16).map(x=>({
+    formula:cleanAcademicTextV302(x?.formula,260),
+    name:cleanAcademicTextV302(x?.name,420),
+    importance:cleanAcademicTextV302(x?.importance||x?.relevance||x?.explanation,1100),
+    page_refs:academicPageRefsV302(x?.page_refs)
+  })).filter(x=>x.formula||x.name);
+  const tables=(Array.isArray(root.tables)?root.tables:Array.isArray(parsed?.tables)?parsed.tables:[]).slice(0,5).map(t=>({
+    title:cleanAcademicTextV302(t?.title,420)||"Tabla de repaso",
+    headers:Array.isArray(t?.headers)?t.headers.slice(0,6).map(x=>cleanAcademicTextV302(x,300)).filter(Boolean):[],
+    rows:Array.isArray(t?.rows)?t.rows.slice(0,12).map(r=>Array.isArray(r)?r.slice(0,6).map(x=>cleanAcademicTextV302(x,600)):[]).filter(r=>r.length):[],
+    page_refs:academicPageRefsV302(t?.page_refs)
+  })).filter(t=>t.headers.length&&t.rows.length);
+  const figures=(Array.isArray(root.figures)?root.figures:Array.isArray(parsed?.figures)?parsed.figures:[]).slice(0,8).map(f=>({
+    title:cleanAcademicTextV302(f?.title,420)||"Figura de apoyo",
+    description:cleanAcademicTextV302(f?.description||f?.caption,1500),
+    page_refs:academicPageRefsV302(f?.page_refs)
+  })).filter(f=>f.description);
+  return {equations,compounds,tables,figures};
+}
+function sanitizeLibraryNotesPackV302(parsed,{studyFocus,sourceName,sourceType,mimeType}={}){
+  const secRaw=Array.isArray(parsed?.summary?.sections)?parsed.summary.sections:Array.isArray(parsed?.sections)?parsed.sections:[];
+  const sections=secRaw.slice(0,16).map((s,i)=>({
+    title:cleanAcademicTextV302(s?.title,420)||`Apartado ${i+1}`,
+    page_refs:academicPageRefsV302(s?.page_refs),
+    summary:cleanAcademicTextV302(s?.summary||s?.content||s?.explanation,3600),
+    key_points:Array.isArray(s?.key_points)?s.key_points.slice(0,7).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
+    important_data:Array.isArray(s?.important_data)?s.important_data.slice(0,6).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[]
+  })).filter(s=>s.summary||s.key_points.length||s.important_data.length);
+  const summary={
+    overview:cleanAcademicTextV302(parsed?.summary?.overview||parsed?.overview,3800),
+    sections,
+    must_remember:Array.isArray(parsed?.summary?.must_remember)?parsed.summary.must_remember.slice(0,12).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
+    final_synthesis:cleanAcademicTextV302(parsed?.summary?.final_synthesis||parsed?.final_synthesis,2200)
+  };
+  if(!summary.overview||!sections.length)return null;
+  return {
+    version:30.20,
+    university_source:true,
+    library_study_pack:true,
+    library_notes_only_v302:true,
+    library_simple_v30:true,
+    title:cleanAcademicTextV302(parsed?.title,420)||cleanAcademicTextV302(studyFocus,420)||cleanAcademicTextV302(sourceName,420)||"Apuntes de estudio",
+    overview:cleanAcademicTextV302(parsed?.overview,2800)||summary.overview,
+    estimated_minutes:clamp(Number(parsed?.estimated_minutes||20),5,90),
+    source_digest:cleanAcademicTextV302(parsed?.source_digest,15000),
+    key_terms:Array.isArray(parsed?.key_terms)?parsed.key_terms.slice(0,22).map(x=>cleanAcademicTextV302(x,360)).filter(Boolean):[],
+    summary,
+    study_aids:sanitizeAcademicStudyAidsV302(parsed),
+    diagrams:[],diagram:null,concept_map:null,
+    sections:[],objectives:[],exam_focus:[],practice:[],exam:[],video_searches:[],
+    visual_status:"disabled",
+    source_reference:{type:cleanAcademicTextV302(sourceType,30),name:cleanAcademicTextV302(sourceName,300),mime_type:cleanAcademicTextV302(mimeType,120),imported_at:new Date().toISOString()}
+  };
+}
+function libraryNotesQualityV302(pack,sourceMap,sourceText){
+  const headings=(sourceMap?.headings||[]).map(x=>cleanAcademicTextV302(x?.title,420)).filter(Boolean);
+  const generated=[
+    pack?.title,pack?.overview,pack?.summary?.overview,pack?.summary?.final_synthesis,
+    ...(pack?.summary?.must_remember||[]),
+    ...(pack?.summary?.sections||[]).flatMap(s=>[s.title,s.summary,...(s.key_points||[]),...(s.important_data||[])]),
+    ...(pack?.study_aids?.equations||[]).flatMap(x=>[x.expression,x.meaning]),
+    ...(pack?.study_aids?.compounds||[]).flatMap(x=>[x.formula,x.name,x.importance])
+  ].filter(Boolean).join(" ");
+  const norm=normalizeSourceLockText(generated);
+  const hNorm=headings.map(normalizeSourceLockText).filter(Boolean);
+  const covered=hNorm.filter(h=>norm.includes(h)||sourceLockTopicSupported(h,[],norm));
+  const sourceWords=normalizeSourceLockText(sourceText).split(/\s+/).filter(Boolean).length;
+  const noteWords=normalizeSourceLockText(generated).split(/\s+/).filter(Boolean).length;
+  const coveragePercent=hNorm.length?Math.round(covered.length/hNorm.length*100):100;
+  const ratio=sourceWords?noteWords/sourceWords:0;
+  const weird=(generated.match(/\uFFFD|Ã.|â€|Â/g)||[]).length;
+  return {
+    ok:noteWords>=90 && weird===0 && (hNorm.length===0||coveragePercent>=Math.max(70,hNorm.length<=5?80:70)) && (sourceWords<500||ratio<=0.72),
+    coverage_percent:coveragePercent,
+    headings_total:hNorm.length,
+    headings_covered:covered.length,
+    missing_headings:hNorm.filter(h=>!covered.includes(h)).slice(0,10),
+    source_words:sourceWords,
+    notes_words:noteWords,
+    compression_percent:sourceWords?Math.round((1-Math.min(1,ratio))*100):null,
+    weird_characters:weird,
+    status:"checked_v302"
+  };
+}
+function buildDeterministicLibraryNotesV302({sourceText,sourceMap,title,scope}){
+  const headings=(sourceMap?.headings||[]).map(x=>x.title).filter(Boolean);
+  const topics=sourceLockNames(sourceMap);
+  const units=(headings.length?headings:topics).slice(0,10);
+  const allSent=libraryFallbackSentences(sourceText);
+  const sections=[];
+  for(let i=0;i<units.length;i++){
+    const unit=units[i],next=units[i+1];
+    let chunk=libraryFallbackSectionText(sourceText,unit,next);
+    if(chunk.length<100){
+      chunk=allSent.filter(s=>sourceLockTopicSupported(unit,[],normalizeSourceLockText(s))).slice(0,7).join(" ");
+    }
+    const sents=libraryFallbackSentences(chunk);
+    if(!sents.length)continue;
+    const body=cleanAcademicTextV302(sents.slice(0,6).join(" "),3000);
+    if(body.length<70)continue;
+    const src=(sourceMap?.headings||[]).find(h=>h.title===unit)||(sourceMap?.topics||[]).find(t=>t.name===unit);
+    sections.push({
+      title:cleanAcademicTextV302(unit,420),
+      page_refs:academicPageRefsV302(src?.page_refs),
+      summary:body,
+      key_points:sents.slice(0,4).map(x=>cleanAcademicTextV302(x,750)),
+      important_data:sents.filter(s=>/\d|%|=|→|↔|mol|mg|ml|mmhg|hz|ph\b/i.test(s)).slice(0,4).map(x=>cleanAcademicTextV302(x,750))
+    });
+  }
+  if(!sections.length){
+    const paras=libraryFallbackParagraphs(sourceText).slice(0,6);
+    sections.push({title:cleanAcademicTextV302(title,420)||"Contenido seleccionado",page_refs:[],summary:cleanAcademicTextV302(paras.join("\n\n"),5000),key_points:allSent.slice(0,5).map(x=>cleanAcademicTextV302(x,750)),important_data:[]});
+  }
+  const overview=cleanAcademicTextV302(sections.slice(0,4).map(s=>s.summary).join(" ").slice(0,2400),2400);
+  return {
+    version:30.20,university_source:true,library_study_pack:true,library_notes_only_v302:true,library_simple_v30:true,
+    title:cleanAcademicTextV302(title,420)||"Apuntes de estudio",
+    overview,estimated_minutes:20,source_digest:cleanAcademicTextV302(sections.map(s=>`${s.title}: ${s.summary}`).join("\n\n"),14000),
+    key_terms:libraryFallbackKeywords(sourceText,18).map(x=>cleanAcademicTextV302(x,240)),
+    summary:{
+      overview,
+      sections,
+      must_remember:sections.flatMap(s=>s.key_points||[]).slice(0,10),
+      final_synthesis:cleanAcademicTextV302(`Estos apuntes condensan ${scope||"el fragmento seleccionado"} y conservan únicamente información identificable en la fuente.`,900)
+    },
+    study_aids:{equations:[],compounds:[],tables:[],figures:[]},
+    diagrams:[],diagram:null,concept_map:null,sections:[],objectives:[],exam_focus:[],practice:[],exam:[],video_searches:[],
+    visual_status:"disabled",fallback_generated:true
+  };
+}
+
 async function createLibraryStudySummaryV301(request,env,user){
   ensureAI(env);
-  const body=await readJson(request),fileId=cleanText(body.file_id,220),extracted=cleanText(body.extracted_text,90000);
+  const body=await readJson(request),fileId=cleanText(body.file_id,220),extractedRaw=cleanText(body.extracted_text,90000);
+  const extracted=cleanAcademicTextV302(extractedRaw,90000);
   if(!fileId||extracted.length<120)return json({error:"Falta el archivo o el fragmento tiene muy poco contenido."},400);
+
   const file=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1`).bind(fileId,user.id).first();
   if(!file)return json({error:"No encontré el archivo original en tu Biblioteca."},404);
-  const fileMeta=parseJsonLoose(file.metadata_json)||{},studyFocus=cleanText(body.study_focus,500)||file.title,studyScope=cleanText(body.study_scope,240)||"Fragmento seleccionado",instruction=cleanText(body.instruction,2500);
-  const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0),exactPageRange=pageStart>0&&pageEnd>=pageStart;
+
+  const fileMeta=parseJsonLoose(file.metadata_json)||{};
+  const studyFocus=cleanAcademicTextV302(body.study_focus,500)||cleanAcademicTextV302(file.title,500);
+  const studyScope=cleanAcademicTextV302(body.study_scope,240)||"Fragmento seleccionado";
+  const instruction=cleanAcademicTextV302(body.instruction,1800);
+  const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0);
+  const exactPageRange=pageStart>0&&pageEnd>=pageStart;
   const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
-  const sourceSignature=await sha256(["library-quality-v30.1.0",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
+
+  const sourceSignature=await sha256(["library-notes-v30.2.0",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
   const existing=await env.DB.prepare(`SELECT id,title,body,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 180`).bind(user.id).all();
   for(const row of (existing.results||[])){
     const m=parseJsonLoose(row.metadata_json)||{};
     if(m.source_signature===sourceSignature){
       const p=parseJsonLoose(row.body)||{};
-      return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,visual_status:p.visual_status||"ready",quality:p.quality||null,source_topics:m.source_topics||[]},200);
+      return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,visual_status:"disabled",quality:p.quality||null,source_topics:m.source_topics||[]},200);
     }
   }
+
   const started=Date.now();
   let sourceMap=sanitizeSourceMapAgainstText(body.source_map,extracted),sourceMapModel="preview";
   if(!sourceLockMapValid(sourceMap)){
-    try{const built=await buildLibrarySourceMap(env,{material:extracted,studyScope,fileTitle:file.title});sourceMap=built.parsed;sourceMapModel=built.model||PREMIUM_FLASH_LITE_MODEL}
-    catch(err){const keywords=libraryFallbackKeywords(extracted,12);sourceMap={domain:"General",material_type:"Material académico",language:null,headings:[],topics:keywords.slice(0,8).map(k=>({name:k,aliases:[],page_refs:[],evidence:[],subtopics:[]})),excluded:[],source_summary:libraryFallbackSentences(extracted).slice(0,5).join(" ")}}
+    try{
+      const built=await buildLibrarySourceMap(env,{material:extracted,studyScope,fileTitle:file.title});
+      sourceMap=built.parsed;
+      sourceMapModel=built.model||PREMIUM_FLASH_LITE_MODEL;
+    }catch(err){
+      const keywords=libraryFallbackKeywords(extracted,12);
+      sourceMap={
+        domain:"General",material_type:"Material académico",language:null,headings:[],
+        topics:keywords.slice(0,8).map(k=>({name:k,aliases:[],page_refs:[],evidence:[],subtopics:[]})),
+        excluded:[],source_summary:libraryFallbackSentences(extracted).slice(0,5).join(" ")
+      };
+    }
   }
-  const topicNames=sourceLockNames(sourceMap),headingNames=(sourceMap.headings||[]).map(h=>h.title).filter(Boolean),headingBlock=(headingNames.length?headingNames:topicNames).map((x,i)=>`${i+1}. ${x}`).join("\n");
-  const material=[`Archivo: ${file.title}`,`Selección: ${studyScope}`,exactPageRange?`Páginas exactas: ${pageStart}-${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}`:"",`Enfoque: ${studyFocus}`,instruction?`Indicación: ${instruction}`:"",`SUBTÍTULOS REALES:\n${headingBlock}`,"REGLA: usa únicamente estas páginas.",`===== MATERIAL =====\n${extracted}\n===== FIN =====`].filter(Boolean).join("\n\n");
-  const prompt=`Crea apuntes universitarios claros y completos basados EXCLUSIVAMENTE en las páginas seleccionadas. Usa título, subtítulos y explicaciones fáciles de copiar al cuaderno. Cubre cada subtítulo real. No agregues conocimiento externo.\nDevuelve SOLO JSON:\n{"title":"...","overview":"...","estimated_minutes":25,"source_digest":"...","key_terms":["..."],"summary":{"overview":"...","sections":[{"title":"subtítulo real","page_refs":[1],"summary":"explicación sustancial","key_points":["4 a 8"],"important_data":["solo datos presentes"]}],"must_remember":["8 a 18"],"final_synthesis":"..."}}\nSUBTÍTULOS A CUBRIR:\n${headingBlock}\n\n${material}`;
+
+  const topicNames=sourceLockNames(sourceMap);
+  const headingNames=(sourceMap.headings||[]).map(h=>cleanAcademicTextV302(h.title,420)).filter(Boolean);
+  const units=(headingNames.length?headingNames:topicNames).slice(0,14);
+  const unitBlock=units.map((x,i)=>`${i+1}. ${x}`).join("\n");
+  const selectedPageCount=exactPageRange?(pageEnd-pageStart+1):null;
+
+  const material=[
+    `Archivo: ${cleanAcademicTextV302(file.title,420)}`,
+    `Fragmento: ${studyScope}`,
+    exactPageRange?`Páginas exactas: ${pageStart}-${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}`:"",
+    `Tema o enfoque: ${studyFocus}`,
+    instruction?`Indicación del estudiante: ${instruction}`:"",
+    `TÍTULOS O UNIDADES DETECTADAS:\n${unitBlock}`,
+    "FUENTE ÚNICA: trabaja solamente con el texto incluido entre MATERIAL y FIN DEL MATERIAL.",
+    `===== MATERIAL =====\n${extracted}\n===== FIN DEL MATERIAL =====`
+  ].filter(Boolean).join("\n\n");
+
+  const prompt=`Convierte estas páginas en APUNTES DE ESTUDIO claros, coherentes y agradables de leer.
+
+OBJETIVO:
+- Debe parecer un resumen académico normal de un tema, como un PDF de apuntes bien redactado.
+- El lector debe entender desde el título qué tema está estudiando.
+- Usa un título natural y subtítulos lógicos.
+- Explica con prosa continua y clara; no hagas frases cortadas ni listas sin contexto.
+- Resume: NO copies todo el PDF. Idealmente conserva aproximadamente 25% a 45% de la extensión conceptual del fragmento, sin perder ideas esenciales.
+- Cada apartado debe explicar qué es, cómo funciona o por qué importa cuando esa información esté en la fuente.
+- Los puntos clave son complementarios; la explicación principal debe poder leerse sola y tener sentido.
+- Si hay ecuaciones, fórmulas, reacciones químicas, compuestos, tablas o figuras relevantes en la fuente, inclúyelos en study_aids.
+- Si no existen, devuelve listas vacías. No inventes fórmulas, compuestos ni figuras.
+- Conserva las fórmulas científicas tal como aparecen. No uses símbolos decorativos, emojis, Markdown ni caracteres extraños.
+- No mezcles información de otras páginas ni conocimiento externo.
+- Español natural, ortografía correcta, acentos correctos y texto limpio.
+
+${selectedPageCount?`LONGITUD: son ${selectedPageCount} páginas. Prioriza entre 4 y 10 apartados realmente necesarios; no crees un subtítulo artificial por cada párrafo.`:""}
+
+Devuelve SOLO JSON válido:
+{
+ "title":"tema principal, claro y específico",
+ "overview":"introducción de 1 a 3 párrafos breves que ubique el tema",
+ "estimated_minutes":20,
+ "source_digest":"síntesis compacta de la fuente",
+ "key_terms":["términos realmente importantes"],
+ "summary":{
+   "overview":"introducción congruente",
+   "sections":[
+     {
+       "title":"subtítulo claro",
+       "page_refs":[34],
+       "summary":"explicación coherente de aproximadamente 80 a 220 palabras según importancia",
+       "key_points":["solo 2 a 6 ideas que valga la pena memorizar"],
+       "important_data":["datos, valores o reglas concretas presentes en la fuente"]
+     }
+   ],
+   "must_remember":["6 a 12 ideas finales"],
+   "final_synthesis":"cierre breve que conecte el tema"
+ },
+ "study_aids":{
+   "equations":[{"expression":"ecuación exacta","meaning":"qué representa según la fuente","page_refs":[34]}],
+   "compounds":[{"formula":"fórmula","name":"nombre","importance":"por qué aparece aquí","page_refs":[34]}],
+   "tables":[{"title":"tabla útil","headers":["columna 1","columna 2"],"rows":[["dato","dato"]],"page_refs":[34]}],
+   "figures":[{"title":"figura o esquema que conviene revisar","description":"qué muestra y cómo interpretarla","page_refs":[34]}]
+ }
+}
+
+UNIDADES REALES DETECTADAS:
+${unitBlock}
+
+${material}`;
+
   let parsed=null,summaryModel=null,fallbackGenerated=false;
   try{
-    const r=await callLibraryPartJson(env,{task:"library_summary_progressive_v301",model:PREMIUM_FLASH_MODEL,system:"Redacta apuntes académicos completos, ordenados y estrictamente fieles a la fuente.",prompt,maxOutputTokens:3900,temperature:0.03,providerTimeout:24000,fallbackTimeout:10000});parsed=r.parsed;summaryModel=r.model;
-  }catch{}
-  if(parsed){parsed=await libraryRepairMissingHeadingsV301(env,parsed,sourceMap,material);parsed=libraryAttachSourcePagesV301(parsed,sourceMap)}
-  let quality=parsed?librarySummaryQualityV301(parsed,sourceMap,extracted):null;
-  const deterministic=deterministicLibraryVisuals(sourceMap,studyFocus);
-  let pack=null;
+    const r=await callLibraryPartJson(env,{
+      task:"library_notes_only_v302",
+      model:PREMIUM_FLASH_MODEL,
+      system:"Redacta apuntes universitarios limpios, coherentes, resumidos y estrictamente fieles a la fuente. Devuelve solo JSON válido.",
+      prompt,maxOutputTokens:3200,temperature:0.02,providerTimeout:26000,fallbackTimeout:12000
+    });
+    parsed=r.parsed;summaryModel=r.model;
+  }catch(err){
+    console.error("LIBRARY_NOTES_V302_PRIMARY_FAILED",err?.stack||err);
+  }
+
   if(parsed){
-    const combined={...parsed,...deterministic};
-    pack=sanitizeLibrarySimplePack(combined,{subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"},{source_type:fileMeta.mime_type==="application/pdf"?"pdf":"text",source_name:file.title,mime_type:fileMeta.mime_type||""});
-    quality=librarySummaryQualityV301(parsed,sourceMap,extracted);
+    parsed=libraryAttachSourcePagesV301(parsed,sourceMap);
+    const missing=libraryMissingSummaryHeadings(parsed,sourceMap);
+    if(missing.length && missing.length<=6){
+      try{
+        parsed=await libraryRepairMissingHeadingsV301(env,parsed,sourceMap,material);
+        parsed=libraryAttachSourcePagesV301(parsed,sourceMap);
+      }catch{}
+    }
   }
+
+  let pack=parsed?sanitizeLibraryNotesPackV302(parsed,{
+    studyFocus,sourceName:file.title,
+    sourceType:fileMeta.mime_type==="application/pdf"?"pdf":"text",
+    mimeType:fileMeta.mime_type||""
+  }):null;
+
+  let quality=pack?libraryNotesQualityV302(pack,sourceMap,extracted):null;
   if(!pack||!quality?.ok){
-    pack=buildDeterministicLibraryPack({sourceText:extracted,sourceMap,title:studyFocus,scope:studyScope});fallbackGenerated=true;
-    quality=librarySummaryQualityV301(pack,sourceMap,extracted);quality.status="source_direct_fallback";
+    pack=buildDeterministicLibraryNotesV302({sourceText:extracted,sourceMap,title:studyFocus,scope:studyScope});
+    fallbackGenerated=true;
+    quality=libraryNotesQualityV302(pack,sourceMap,extracted);
+    quality.status="source_direct_fallback";
   }
-  pack.version=30.10;pack.library_study_pack=true;pack.library_simple_v30=true;pack.library_rich_summary_v30=true;pack.fallback_generated=fallbackGenerated;pack.visual_status=fallbackGenerated?"fallback":"preparing";pack.quality=quality;pack.user_personalization=libraryPersonalizationV301(pack);
-  pack.source_lock={enabled:true,version:"30.1.0",domain:sourceMap.domain||"General",material_type:sourceMap.material_type||"Material académico",topics:sourceMap.topics||[],headings:sourceMap.headings||[],excluded:sourceMap.excluded||[],source_summary:sourceMap.source_summary||""};
-  pack.source_reference={type:"library",source_file_id:fileId,name:file.title,mime_type:fileMeta.mime_type||"",study_scope:studyScope,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,imported_at:new Date().toISOString()};
-  const id=crypto.randomUUID(),now=new Date().toISOString(),metadata={university_source:true,library_study_pack:true,library_simple_v30:true,library_rich_summary_v30:true,version:30.10,source_type:"library",source_file_id:fileId,source_name:file.title,study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,source_signature:sourceSignature,source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,source_domain:sourceMap.domain||"General",fallback_generated:fallbackGenerated,generation_version:"30.1.0",generation_models:{summary:summaryModel,visuals:fallbackGenerated?"deterministic_source_only":"pending",source_map:sourceMapModel},generation_ms:Date.now()-started,imported_once:true,quality};
-  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`).bind(id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,JSON.stringify(pack),JSON.stringify(["university_source","study_pack","library_study_pack","library_simple_v30","library_rich_summary_v30","source_locked","v30_1_0"]),JSON.stringify(metadata),now,now).run();
-  return json({ok:true,id,title:pack.title,reused:false,visual_status:pack.visual_status,quality,source_topics:topicNames,generation_ms:Date.now()-started,fallback_generated:fallbackGenerated},201);
+
+  pack.version=30.20;
+  pack.library_study_pack=true;
+  pack.library_notes_only_v302=true;
+  pack.library_simple_v30=true;
+  pack.library_rich_summary_v30=true;
+  pack.fallback_generated=fallbackGenerated;
+  pack.visual_status="disabled";
+  pack.quality=quality;
+  pack.user_personalization=libraryPersonalizationV301(pack);
+  pack.source_lock={
+    enabled:true,version:"30.2.0",
+    domain:sourceMap.domain||"General",
+    material_type:sourceMap.material_type||"Material académico",
+    topics:sourceMap.topics||[],
+    headings:sourceMap.headings||[],
+    excluded:sourceMap.excluded||[],
+    source_summary:sourceMap.source_summary||""
+  };
+  pack.source_reference={
+    type:"library",source_file_id:fileId,name:cleanAcademicTextV302(file.title,420),mime_type:fileMeta.mime_type||"",
+    study_scope:studyScope,page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,
+    pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,imported_at:new Date().toISOString()
+  };
+
+  const id=crypto.randomUUID(),now=new Date().toISOString();
+  const metadata={
+    university_source:true,library_study_pack:true,library_notes_only_v302:true,library_simple_v30:true,
+    version:30.20,source_type:"library",source_file_id:fileId,source_name:file.title,
+    study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,
+    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,
+    source_signature:sourceSignature,source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,
+    source_domain:sourceMap.domain||"General",fallback_generated:fallbackGenerated,generation_version:"30.2.0",
+    generation_models:{summary:summaryModel,visuals:"disabled",source_map:sourceMapModel,fallback:fallbackGenerated?"deterministic_source_only":null},
+    generation_ms:Date.now()-started,imported_once:true,quality
+  };
+
+  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`)
+    .bind(
+      id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,
+      JSON.stringify(pack),
+      JSON.stringify(["university_source","study_pack","library_study_pack","library_notes_only_v302","source_locked","v30_2_0"]),
+      JSON.stringify(metadata),now,now
+    ).run();
+
+  return json({
+    ok:true,id,title:pack.title,reused:false,visual_status:"disabled",quality,
+    source_topics:topicNames,generation_ms:Date.now()-started,fallback_generated:fallbackGenerated
+  },201);
 }
 
 async function completeLibraryStudyVisualsV301(request,env,user){
-  ensureAI(env);const body=await readJson(request),id=cleanText(body.id,220);if(!id)return json({error:"Falta el material."},400);
-  const row=await env.DB.prepare(`SELECT id,body,metadata_json FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_study_pack%' LIMIT 1`).bind(id,user.id).first();if(!row)return json({error:"Resumen no encontrado."},404);
-  const pack=parseJsonLoose(row.body)||{};if(pack.visual_status==="ready")return json({ok:true,id,pack,cached:true,visual_status:"ready"});
-  const sourceMap={domain:pack?.source_lock?.domain,material_type:pack?.source_lock?.material_type,topics:pack?.source_lock?.topics||[],headings:pack?.source_lock?.headings||[]};
-  const base=libraryStudyMaterialFromPackV301(pack);
-  const prompt=`Convierte estos apuntes YA VERIFICADOS en un mapa mental jerárquico limpio y 1 a 3 diagramas útiles. No agregues hechos nuevos. Elige el tipo correcto: proceso, ciclo, comparación, jerarquía, causa-efecto, estructura o procedimiento. Devuelve SOLO JSON: {"concept_map":{"center":"...","overview":"...","branches":[{"label":"...","summary":"...","children":[{"label":"...","detail":"..."}]}]},"diagrams":[{"title":"...","type":"...","caption":"...","steps":[{"label":"...","detail":"...","relation":"..."}]}]}\n\nAPUNTES VERIFICADOS:\n${base}`;
-  let visual=null,model=null,status="ready";
-  try{const r=await callLibraryPartJson(env,{task:"library_visual_progressive_v301",model:PREMIUM_FLASH_LITE_MODEL,system:"Diseña recursos visuales académicos claros y fieles a los apuntes verificados.",prompt,maxOutputTokens:2300,temperature:0.04,providerTimeout:18000,fallbackTimeout:9000});visual=completeLibraryVisualsWithSourceMap(r.parsed||{},sourceMap,pack.title);model=r.model}
-  catch{visual=deterministicLibraryVisuals(sourceMap,pack.title);model="deterministic_source_only";status="fallback"}
-  pack.concept_map=visual.concept_map||pack.concept_map;pack.diagrams=visual.diagrams||pack.diagrams;pack.diagram=pack.diagrams?.[0]||pack.diagram;pack.visual_status=status;pack.visual_updated_at=new Date().toISOString();
-  const meta=parseJsonLoose(row.metadata_json)||{};meta.generation_version="30.1.0";meta.generation_models={...(meta.generation_models||{}),visuals:model};meta.visual_status=status;meta.updated_at=new Date().toISOString();
-  await env.DB.prepare(`UPDATE notes SET body=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?`).bind(JSON.stringify(pack),JSON.stringify(meta),new Date().toISOString(),id,user.id).run();
-  return json({ok:true,id,pack,visual_status:status,model});
+  const body=await readJson(request),id=cleanText(body.id,220);
+  if(!id)return json({error:"Falta el material."},400);
+  const row=await env.DB.prepare(`SELECT id,body FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_study_pack%' LIMIT 1`).bind(id,user.id).first();
+  if(!row)return json({error:"Resumen no encontrado."},404);
+  const pack=parseJsonLoose(row.body)||{};
+  pack.visual_status="disabled";
+  pack.diagrams=[];pack.diagram=null;pack.concept_map=null;
+  return json({ok:true,id,pack,cached:true,visual_status:"disabled"});
 }
 
 async function updateLibraryStudyPersonalizationV301(request,env,user){
@@ -3831,192 +4179,8 @@ async function updateLibraryStudyPersonalizationV301(request,env,user){
 }
 
 async function createLibraryStudyPackApi(request,env,user){
-  ensureAI(env);
-  const body=await readJson(request),fileId=cleanText(body.file_id,220),extracted=cleanText(body.extracted_text,90000);
-  if(!fileId||extracted.length<120)return json({error:"Falta el archivo o el fragmento tiene muy poco contenido."},400);
-
-  const file=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE id=? AND user_id=? AND tags_json LIKE '%library_file%' LIMIT 1`).bind(fileId,user.id).first();
-  if(!file)return json({error:"No encontré el archivo original en tu Biblioteca."},404);
-
-  const fileMeta=parseJsonLoose(file.metadata_json)||{};
-  const studyFocus=cleanText(body.study_focus,500)||file.title;
-  const studyScope=cleanText(body.study_scope,240)||"Fragmento seleccionado";
-  const instruction=cleanText(body.instruction,2500);
-  const pageStart=Number(body.page_start||0),pageEnd=Number(body.page_end||0),pdfPageCount=Number(body.pdf_page_count||0);
-  const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
-  const exactPageRange=pageStart>0&&pageEnd>=pageStart;
-
-  const sourceSignature=await sha256(["library-never-stuck-v30.0.8",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
-
-  const existing=await env.DB.prepare(`SELECT id,title,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 180`).bind(user.id).all();
-  for(const row of (existing.results||[])){
-    const m=parseJsonLoose(row.metadata_json)||{};
-    if(m.source_signature===sourceSignature){
-      return json({ok:true,id:row.id,title:m.study_title||row.title,reused:true,generation_ms:0,source_topics:m.source_topics||[],fallback_generated:!!m.fallback_generated},200);
-    }
-  }
-
-  const started=Date.now();
-  let sourceMap=sanitizeSourceMapAgainstText(body.source_map,extracted),sourceMapModel="preview";
-  if(!sourceLockMapValid(sourceMap)){
-    try{
-      const built=await buildLibrarySourceMap(env,{material:extracted,studyScope,fileTitle:file.title});
-      sourceMap=built.parsed;
-      sourceMapModel=built.model||PREMIUM_FLASH_LITE_MODEL;
-    }catch(err){
-      // If source-map AI fails, derive a minimal safe source map from explicit headings/topics already visible in text.
-      const keywords=libraryFallbackKeywords(extracted,12);
-      sourceMap={
-        domain:"General",material_type:"Material académico",language:null,
-        headings:[],
-        topics:keywords.slice(0,8).map(k=>({name:k,aliases:[],page_refs:[],evidence:[],subtopics:[]})),
-        excluded:[],source_summary:libraryFallbackSentences(extracted).slice(0,5).join(" ")
-      };
-    }
-  }
-
-  const topicNames=sourceLockNames(sourceMap);
-  const headingNames=(sourceMap.headings||[]).map(h=>h.title).filter(Boolean);
-  const headingBlock=(headingNames.length?headingNames:topicNames).map((x,i)=>`${i+1}. ${x}`).join("\n");
-  const topicBlock=topicNames.map((x,i)=>`${i+1}. ${x}`).join("\n");
-
-  const material=[
-    `Archivo: ${file.title}`,
-    `Selección: ${studyScope}`,
-    exactPageRange?`Páginas exactas: ${pageStart}-${pageEnd}${pdfPageCount?` de ${pdfPageCount}`:""}`:"",
-    `Enfoque del estudiante: ${studyFocus}`,
-    instruction?`Indicación adicional: ${instruction}`:"",
-    `ENCABEZADOS/SUBTÍTULOS DETECTADOS:\n${headingBlock}`,
-    `TEMAS EXPLÍCITOS:\n${topicBlock}`,
-    "REGLA ABSOLUTA: usa únicamente estas páginas.",
-    `===== MATERIAL =====\n${extracted}\n===== FIN =====`
-  ].filter(Boolean).join("\n\n");
-
-  const summaryPrompt=`Crea un RESUMEN DE ESTUDIO COMPLETO y fiel a las páginas seleccionadas.
-Debe cubrir los encabezados/subtítulos reales. Dedica una sección a cada subtítulo importante cuando el texto lo permita.
-No añadas datos externos.
-
-Devuelve SOLO JSON:
-{
- "title":"título fiel",
- "overview":"introducción general",
- "estimated_minutes":30,
- "source_digest":"síntesis densa",
- "key_terms":["conceptos importantes"],
- "summary":{
-   "overview":"visión general completa",
-   "sections":[{"title":"subtítulo/unidad","page_refs":[7],"summary":"explicación sustancial","key_points":["4 a 8"],"important_data":["solo datos presentes"]}],
-   "must_remember":["8 a 18"],
-   "final_synthesis":"conexión entre secciones"
- }
-}
-UNIDADES QUE DEBES CUBRIR:
-${headingBlock}
-
-${material}`;
-
-  const visualPrompt=`Construye SOLO un MAPA MENTAL JERÁRQUICO y 1 a 3 DIAGRAMAS fieles al fragmento.
-Devuelve SOLO JSON:
-{
- "concept_map":{"center":"tema central","overview":"cómo leerlo","branches":[{"label":"rama","summary":"qué representa","children":[{"label":"subidea","detail":"relación/dato"}]}]},
- "diagrams":[{"title":"...","type":"proceso|ciclo|comparación|jerarquía|causa-efecto|estructura|procedimiento","caption":"...","steps":[{"label":"elemento","detail":"...","relation":"..."}]}]
-}
-Todo debe salir de estas páginas.
-${material}`;
-
-  let summaryResult=null,visualResult=null;
-  const results=await Promise.allSettled([
-    callLibraryPartJson(env,{task:"library_summary_v3008",model:PREMIUM_FLASH_MODEL,system:"Resume de forma completa y fiel. Solo fuente seleccionada.",prompt:summaryPrompt,maxOutputTokens:4300,temperature:0.03,providerTimeout:30000,fallbackTimeout:14000}),
-    callLibraryPartJson(env,{task:"library_visual_v3008",model:PREMIUM_FLASH_LITE_MODEL,system:"Genera mapa mental y diagramas fieles a la fuente.",prompt:visualPrompt,maxOutputTokens:2600,temperature:0.03,providerTimeout:22000,fallbackTimeout:12000})
-  ]);
-  if(results[0].status==="fulfilled")summaryResult=results[0].value;
-  if(results[1].status==="fulfilled")visualResult=results[1].value;
-
-  // One short targeted backup only.
-  if(!summaryResult){
-    const retry=await retryLibraryPartFast(env,{task:"library_summary_v3008",system:"Resumen completo por subtítulos, solo con esta fuente.",prompt:summaryPrompt,maxOutputTokens:3400});
-    if(retry)summaryResult=retry;
-  }
-  if(!visualResult){
-    const retry=await retryLibraryPartFast(env,{task:"library_visual_v3008",system:"Mapa mental y diagramas fieles, solo con esta fuente.",prompt:visualPrompt,maxOutputTokens:2200});
-    if(retry)visualResult=retry;
-  }
-
-  let pack=null,fallbackGenerated=false;
-  if(summaryResult){
-    const visualParsed=typeof completeLibraryVisualsWithSourceMap==="function"
-      ? completeLibraryVisualsWithSourceMap(visualResult?.parsed||{},sourceMap,studyFocus)
-      : (visualResult?.parsed||deterministicLibraryVisuals(sourceMap,studyFocus));
-    const combined={...summaryResult.parsed,...visualParsed};
-    const pseudoRow={subject_name:"Biblioteca personal",topic_name:studyFocus,subject_code:"LIBRARY"};
-    const promptBody={source_type:fileMeta.mime_type==="application/pdf"?"pdf":"text",source_name:file.title,mime_type:fileMeta.mime_type||""};
-    pack=sanitizeLibrarySimplePack(combined,pseudoRow,promptBody);
-  }
-
-  // HARD RELIABILITY GUARANTEE: if remote AI cannot deliver a valid pack,
-  // create a source-only pack directly from the extracted pages.
-  if(!pack){
-    pack=buildDeterministicLibraryPack({sourceText:extracted,sourceMap,title:studyFocus,scope:studyScope});
-    fallbackGenerated=true;
-  }
-
-  pack.version=30.08;
-  pack.library_study_pack=true;
-  pack.library_simple_v30=true;
-  pack.library_rich_summary_v30=true;
-  pack.fallback_generated=fallbackGenerated;
-  pack.source_lock={
-    enabled:true,version:"30.0.8",
-    domain:sourceMap.domain||"General",
-    material_type:sourceMap.material_type||"Material académico",
-    topics:sourceMap.topics||[],
-    headings:sourceMap.headings||[],
-    excluded:sourceMap.excluded||[],
-    source_summary:sourceMap.source_summary||""
-  };
-  pack.source_reference={
-    type:"library",source_file_id:fileId,name:file.title,mime_type:fileMeta.mime_type||"",
-    study_scope:studyScope,
-    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,
-    pdf_page_count:pdfPageCount||null,ocr_pages:ocrPages,
-    imported_at:new Date().toISOString()
-  };
-
-  const id=crypto.randomUUID(),now=new Date().toISOString();
-  const metadata={
-    university_source:true,library_study_pack:true,library_simple_v30:true,library_rich_summary_v30:true,
-    version:30.08,source_type:"library",source_file_id:fileId,source_name:file.title,
-    study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,
-    page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,
-    pdf_page_count:pdfPageCount||null,source_signature:sourceSignature,
-    source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,
-    source_domain:sourceMap.domain||"General",
-    fallback_generated:fallbackGenerated,
-    generation_version:"30.0.9",
-    generation_models:{
-      summary:summaryResult?.model||null,
-      visuals:visualResult?.model||null,
-      source_map:sourceMapModel,
-      fallback:fallbackGenerated?"deterministic_source_only":null
-    },
-    generation_ms:Date.now()-started,imported_once:true
-  };
-
-  await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`)
-    .bind(
-      id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,
-      JSON.stringify(pack),
-      JSON.stringify(["university_source","study_pack","library_study_pack","library_simple_v30","library_rich_summary_v30","source_locked","v30_0_8"]),
-      JSON.stringify(metadata),now,now
-    ).run();
-
-  return json({
-    ok:true,id,title:pack.title,reused:false,
-    source_topics:topicNames,source_headings:headingNames,
-    fallback_generated:fallbackGenerated,
-    generation_ms:Date.now()-started,
-    models:metadata.generation_models
-  },201);
+  // Compatibility route for older cached clients. V30.2 uses notes only.
+  return createLibraryStudySummaryV301(request,env,user);
 }
 
 async function listNotes(env, user) {
@@ -4327,51 +4491,67 @@ function sanitizeHistoricalQuiz(arr,limit){
   })).filter(q=>q.stem&&q.options.length===4);
 }
 function sanitizeHistoricalKeysPack(parsed,subject,sourceFiles){
-  const topics=(Array.isArray(parsed?.recurring_topics)?parsed.recurring_topics:[]).slice(0,18).map(t=>({
-    name:cleanText(t.name,300),
-    occurrence_count:clamp(Number(t.occurrence_count||1),1,Math.max(1,sourceFiles.length)),
-    historical_weight:clamp(Number(t.historical_weight||10),1,100),
-    source_files:Array.isArray(t.source_files)?t.source_files.slice(0,12).map(x=>cleanText(x,320)).filter(Boolean):[],
-    concepts:Array.isArray(t.concepts)?t.concepts.slice(0,10).map(x=>cleanText(x,500)).filter(Boolean):[],
-    why_priority:cleanText(t.why_priority,1300)
+  const topics=(Array.isArray(parsed?.recurring_topics)?parsed.recurring_topics:Array.isArray(parsed?.topics)?parsed.topics:[]).slice(0,18).map(t=>({
+    name:cleanAcademicTextV302(t?.name,300),
+    occurrence_count:clamp(Number(t?.occurrence_count||1),1,Math.max(1,sourceFiles.length)),
+    historical_weight:clamp(Number(t?.historical_weight||10),1,100),
+    source_files:Array.isArray(t?.source_files)?t.source_files.slice(0,12).map(x=>cleanAcademicTextV302(x,320)).filter(Boolean):[],
+    concepts:Array.isArray(t?.concepts)?t.concepts.slice(0,10).map(x=>cleanAcademicTextV302(x,500)).filter(Boolean):[],
+    why_priority:cleanAcademicTextV302(t?.why_priority||t?.explanation||t?.evidence_notes,1300)
   })).filter(t=>t.name);
 
-  const practice=sanitizeHistoricalQuiz(parsed?.practice_questions,12);
   if(topics.length<1)return null;
 
-  let branches=Array.isArray(parsed?.concept_map?.branches)?parsed.concept_map.branches.slice(0,8).map(b=>({
-    label:cleanText(b.label,320),
-    children:Array.isArray(b.children)?b.children.slice(0,6).map(x=>cleanText(typeof x==="string"?x:x?.label,600)).filter(Boolean):[]
-  })).filter(b=>b.label):[];
-  if(!branches.length)branches=topics.slice(0,8).map(t=>({label:t.name,children:(t.concepts||[]).slice(0,5)}));
+  const practice=sanitizeHistoricalQuiz(parsed?.practice_questions,12).map(q=>({
+    ...q,
+    stem:cleanAcademicTextV302(q.stem,1800),
+    options:q.options.map(x=>cleanAcademicTextV302(x,900)),
+    explanation:cleanAcademicTextV302(q.explanation,2200),
+    topic:cleanAcademicTextV302(q.topic,300)
+  }));
 
-  let diagrams=Array.isArray(parsed?.diagrams)?parsed.diagrams.slice(0,3).map((d,i)=>({
-    title:cleanText(d.title,320)||`Diagrama ${i+1}`,
-    caption:cleanText(d.caption,900),
-    steps:Array.isArray(d.steps)?d.steps.slice(0,10).map(s=>({
-      label:cleanText(s.label,320),
-      detail:cleanText(s.detail,1000)
-    })).filter(s=>s.label):[]
-  })).filter(d=>d.steps.length>=2):[];
+  const rawSections=Array.isArray(parsed?.notes?.sections)?parsed.notes.sections:
+    Array.isArray(parsed?.summary?.sections)?parsed.summary.sections:[];
+  let noteSections=rawSections.slice(0,14).map((s,i)=>({
+    title:cleanAcademicTextV302(s?.title,420)||`Tema ${i+1}`,
+    summary:cleanAcademicTextV302(s?.summary||s?.content||s?.explanation,3600),
+    key_points:Array.isArray(s?.key_points)?s.key_points.slice(0,7).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
+    source_files:Array.isArray(s?.source_files)?s.source_files.slice(0,12).map(x=>cleanAcademicTextV302(x,320)).filter(Boolean):[]
+  })).filter(s=>s.summary||s.key_points.length);
 
-  const important=Array.isArray(parsed?.important_points)?parsed.important_points.slice(0,24).map(x=>cleanText(x,1100)).filter(Boolean):[];
-  const remember=Array.isArray(parsed?.must_remember)?parsed.must_remember.slice(0,20).map(x=>cleanText(x,1100)).filter(Boolean):important.slice(0,14);
+  if(!noteSections.length){
+    noteSections=topics.slice(0,12).map(t=>({
+      title:t.name,
+      summary:t.why_priority||`Este tema aparece en ${t.occurrence_count} de ${sourceFiles.length} clave(s) analizada(s).`,
+      key_points:t.concepts||[],
+      source_files:t.source_files||[]
+    }));
+  }
+
+  const important=Array.isArray(parsed?.important_points)?parsed.important_points.slice(0,20).map(x=>cleanAcademicTextV302(x,1000)).filter(Boolean):[];
+  const remember=Array.isArray(parsed?.must_remember)?parsed.must_remember.slice(0,16).map(x=>cleanAcademicTextV302(x,1000)).filter(Boolean):important.slice(0,12);
+  const overview=cleanAcademicTextV302(parsed?.overview||parsed?.notes?.overview,4400);
 
   return {
-    version:30.07,historical_keys_pack:true,historical_simple_v30:true,
-    title:cleanText(parsed?.title,380)||`${subject} · Repaso desde claves`,
-    subject,source_count:sourceFiles.length,source_files:sourceFiles,
-    overview:cleanText(parsed?.overview,5200),
-    source_quality:cleanText(parsed?.source_quality,1800),
-    limitations:Array.isArray(parsed?.limitations)?parsed.limitations.slice(0,12).map(x=>cleanText(x,1100)).filter(Boolean):[],
+    version:30.20,historical_keys_pack:true,historical_simple_v30:true,historical_notes_v302:true,
+    title:cleanAcademicTextV302(parsed?.title,380)||`${cleanAcademicTextV302(subject,300)} · Repaso desde claves`,
+    subject:cleanAcademicTextV302(subject,320),source_count:sourceFiles.length,source_files:sourceFiles,
+    overview,
+    source_quality:cleanAcademicTextV302(parsed?.source_quality,1800),
+    limitations:Array.isArray(parsed?.limitations)?parsed.limitations.slice(0,10).map(x=>cleanAcademicTextV302(x,1000)).filter(Boolean):[],
     recurring_topics:topics,
-    historical_patterns:Array.isArray(parsed?.historical_patterns)?parsed.historical_patterns.slice(0,18).map(x=>cleanText(x,1100)).filter(Boolean):[],
+    notes:{
+      overview:cleanAcademicTextV302(parsed?.notes?.overview||overview,3600),
+      sections:noteSections,
+      final_review:cleanAcademicTextV302(parsed?.notes?.final_review||parsed?.final_synthesis,2200)
+    },
+    historical_patterns:Array.isArray(parsed?.historical_patterns)?parsed.historical_patterns.slice(0,14).map(x=>cleanAcademicTextV302(x,900)).filter(Boolean):[],
     important_points:important,must_remember:remember,
-    common_traps:Array.isArray(parsed?.common_traps)?parsed.common_traps.slice(0,16).map(x=>cleanText(x,1100)).filter(Boolean):[],
-    concept_map:{center:cleanText(parsed?.concept_map?.center,320)||subject,branches},
-    diagrams,
+    common_traps:Array.isArray(parsed?.common_traps)?parsed.common_traps.slice(0,12).map(x=>cleanAcademicTextV302(x,900)).filter(Boolean):[],
+    study_aids:sanitizeAcademicStudyAidsV302(parsed),
+    concept_map:null,diagrams:[],
     practice_questions:practice,
-    source_digest:cleanText(parsed?.source_digest,18000),
+    source_digest:cleanAcademicTextV302(parsed?.source_digest,15000),
     lessons:[],study_plan:[],final_exam:[],created_from_history:true
   };
 }
@@ -4397,36 +4577,34 @@ function groundHistoricalTopicsToDocuments(pack,documents){
   if(grounded.length&&weightSum!==100)grounded[0].historical_weight=Math.max(1,grounded[0].historical_weight+(100-weightSum));
 
   const allowed=grounded.map(t=>normalizeSourceLockText(t.name)).filter(Boolean);
-  const practice=[];
-  const seen=new Set();
+  const practice=[];const seen=new Set();
   for(const q of (pack.practice_questions||[])){
-    const stemKey=normalizeSourceLockText(q.stem);
-    if(!stemKey||seen.has(stemKey))continue;
-    const topicNorm=normalizeSourceLockText(q.topic);
-    const qNorm=normalizeSourceLockText(`${q.stem} ${q.explanation||""}`);
-    const aligned=(topicNorm&&allowed.some(a=>topicNorm.includes(a)||a.includes(topicNorm)))||
-      allowed.some(a=>qNorm.includes(a));
+    const stemKey=normalizeSourceLockText(q.stem);if(!stemKey||seen.has(stemKey))continue;
+    const topicNorm=normalizeSourceLockText(q.topic),qNorm=normalizeSourceLockText(`${q.stem} ${q.explanation||""}`);
+    const aligned=(topicNorm&&allowed.some(a=>topicNorm.includes(a)||a.includes(topicNorm)))||allowed.some(a=>qNorm.includes(a));
     if(!aligned)continue;
     seen.add(stemKey);practice.push(q);
   }
 
-  const branches=(pack.concept_map?.branches||[]).filter(b=>{
-    const n=normalizeSourceLockText(b.label);
-    return allowed.some(a=>n.includes(a)||a.includes(n));
+  const groundedNames=new Set(grounded.map(t=>normalizeSourceLockText(t.name)));
+  const notes=pack.notes||{overview:pack.overview,sections:[],final_review:""};
+  let noteSections=(notes.sections||[]).filter(s=>{
+    const key=normalizeSourceLockText(s.title);
+    return !key||[...groundedNames].some(a=>key.includes(a)||a.includes(key))||sourceLockCoverage(documents.map(d=>d.text).join("\n"),`${s.title} ${s.summary}`)>=0.06;
   });
+  if(!noteSections.length){
+    noteSections=grounded.slice(0,12).map(t=>({
+      title:t.name,
+      summary:t.why_priority||`Tema presente en ${t.occurrence_count} de ${documents.length} clave(s).`,
+      key_points:t.concepts||[],
+      source_files:t.source_files||[]
+    }));
+  }
+
   pack.recurring_topics=grounded;
   pack.practice_questions=practice.slice(0,12);
-  pack.concept_map={
-    center:pack.concept_map?.center||pack.subject,
-    branches:branches.length?branches:grounded.slice(0,8).map(t=>({label:t.name,children:(t.concepts||[]).slice(0,5)}))
-  };
-  if(!pack.diagrams?.length){
-    pack.diagrams=[{
-      title:"Frecuencia histórica verificada",
-      caption:"Conteo calculado a partir de los PDF cargados.",
-      steps:grounded.slice(0,10).map(t=>({label:t.name,detail:`Aparece en ${t.occurrence_count} de ${documents.length} archivo(s).`}))
-    }];
-  }
+  pack.notes={...notes,sections:noteSections};
+  pack.concept_map=null;pack.diagrams=[];
   return pack;
 }
 function historicalPracticeMissing(pack){return Math.max(0,12-(pack?.practice_questions?.length||0))}
@@ -4443,170 +4621,361 @@ function mergeHistoricalPractice(pack,questions){
   return pack;
 }
 
+
+function historicalCompactTextV302(text,limit=9000){
+  const s=cleanAcademicTextV302(text,90000);
+  if(s.length<=limit)return s;
+  const third=Math.floor(limit/3),mid=Math.max(0,Math.floor(s.length/2-third/2));
+  return `${s.slice(0,third)}\n\n[...fragmento intermedio...]\n\n${s.slice(mid,mid+third)}\n\n[...fragmento final...]\n\n${s.slice(-third)}`;
+}
+function historicalBuildBatchesV302(documents,maxChars=30000){
+  const items=documents.map(d=>({name:d.name,text:historicalCompactTextV302(d.text,9000)}));
+  const batches=[];let current=[],chars=0;
+  for(const item of items){
+    const add=item.text.length+item.name.length+80;
+    if(current.length&&chars+add>maxChars){batches.push(current);current=[];chars=0}
+    current.push(item);chars+=add;
+  }
+  if(current.length)batches.push(current);
+  return batches.slice(0,6);
+}
+function historicalEvidencePackV302(evidence,subject,sourceFiles){
+  const topicMap=new Map(),important=[],practice=[],equations=[],compounds=[],tables=[],figures=[];
+  const seenPractice=new Set();
+  for(const e of evidence){
+    for(const t of (e?.topics||e?.recurring_topics||[])){
+      const name=cleanAcademicTextV302(t?.name,300),key=normalizeSourceLockText(name);if(!key)continue;
+      if(!topicMap.has(key))topicMap.set(key,{name,source_files:new Set(),concepts:new Set(),notes:[]});
+      const row=topicMap.get(key);
+      for(const f of (Array.isArray(t?.source_files)?t.source_files:[]))row.source_files.add(cleanAcademicTextV302(f,320));
+      for(const c of (Array.isArray(t?.concepts)?t.concepts:[]))row.concepts.add(cleanAcademicTextV302(c,500));
+      const note=cleanAcademicTextV302(t?.evidence_notes||t?.why_priority||t?.explanation,1200);if(note)row.notes.push(note);
+    }
+    for(const x of (e?.important_points||[])){const v=cleanAcademicTextV302(x,1000);if(v&&!important.includes(v))important.push(v)}
+    const aids=sanitizeAcademicStudyAidsV302(e||{});
+    equations.push(...aids.equations);compounds.push(...aids.compounds);tables.push(...aids.tables);figures.push(...aids.figures);
+    for(const q of sanitizeHistoricalQuiz(e?.practice_questions,12)){
+      const k=normalizeSourceLockText(q.stem);if(!k||seenPractice.has(k))continue;seenPractice.add(k);practice.push(q);
+    }
+  }
+  const topics=[...topicMap.values()].map(t=>({
+    name:t.name,
+    occurrence_count:Math.max(1,t.source_files.size||1),
+    historical_weight:10,
+    source_files:[...t.source_files],
+    concepts:[...t.concepts].filter(Boolean).slice(0,8),
+    why_priority:cleanAcademicTextV302(t.notes.join(" "),1300)
+  })).slice(0,18);
+  if(!topics.length)return null;
+  return sanitizeHistoricalKeysPack({
+    title:`${subject} · Repaso de claves`,
+    overview:`Resumen preparado a partir de ${sourceFiles.length} clave(s) histórica(s). Se priorizan únicamente temas con evidencia en los archivos analizados.`,
+    source_quality:"Se utilizaron fragmentos representativos y evidencia verificable de los PDF cargados.",
+    recurring_topics:topics,
+    notes:{overview:"",sections:topics.slice(0,12).map(t=>({title:t.name,summary:t.why_priority||`Tema encontrado en las claves analizadas.`,key_points:t.concepts,source_files:t.source_files})),final_review:""},
+    important_points:important.slice(0,20),
+    must_remember:important.slice(0,12),
+    study_aids:{equations:equations.slice(0,12),compounds:compounds.slice(0,16),tables:tables.slice(0,5),figures:figures.slice(0,8)},
+    practice_questions:practice.slice(0,12),
+    source_digest:important.join("\n")
+  },subject,sourceFiles);
+}
+function historicalDeterministicFallbackV302(documents,subject){
+  const noise=new Set(["pregunta","preguntas","respuesta","respuestas","correcta","correctas","incorrecta","opcion","opciones","archivo","archivos","modulo","módulo","examen","examenes","exámenes","parcial","parciales","clave","claves","siguiente","anteriores","anterior","seleccione","indique","respecto","siguientes","puede","deben","forma","parte"]);
+  const stats=new Map();
+  for(const doc of documents){
+    const words=normalizeSourceLockText(doc.text).split(/\s+/).filter(w=>w.length>=5&&w.length<=28&&!SMART_STOPWORDS.has(w)&&!noise.has(w)&&!/^\d+$/.test(w));
+    const local=new Set();
+    for(const w of words){
+      if(!stats.has(w))stats.set(w,{count:0,files:new Set()});
+      stats.get(w).count++;local.add(w);
+    }
+    for(const w of local)stats.get(w).files.add(doc.name);
+  }
+  let ranked=[...stats.entries()].sort((a,b)=>{
+    const ad=a[1].files.size,bd=b[1].files.size;
+    return bd-ad||b[1].count-a[1].count;
+  });
+  if(documents.length>1){
+    const repeated=ranked.filter(x=>x[1].files.size>=2);
+    if(repeated.length>=4)ranked=repeated;
+  }
+  ranked=ranked.slice(0,12);
+  if(!ranked.length)return null;
+  const topics=ranked.map(([word,st])=>{
+    const display=word.charAt(0).toUpperCase()+word.slice(1);
+    let sample="";
+    for(const doc of documents){
+      const hit=libraryFallbackSentences(doc.text).find(s=>normalizeSourceLockText(s).split(/\s+/).includes(word));
+      if(hit){sample=cleanAcademicTextV302(hit,900);break}
+    }
+    return {name:display,occurrence_count:Math.max(1,st.files.size),historical_weight:10,source_files:[...st.files],concepts:[],why_priority:sample};
+  });
+  const total=topics.reduce((s,t)=>s+t.occurrence_count,0)||1;
+  topics.forEach(t=>t.historical_weight=Math.max(1,Math.round(t.occurrence_count/total*100)));
+
+  const practice=[];
+  const names=topics.map(t=>t.name);
+  for(let i=0;i<topics.length&&practice.length<10;i++){
+    const t=topics[i],token=normalizeSourceLockText(t.name);
+    let sentence="";
+    for(const doc of documents){
+      sentence=libraryFallbackSentences(doc.text).find(s=>normalizeSourceLockText(s).includes(token))||"";
+      if(sentence)break;
+    }
+    if(!sentence||names.length<4)continue;
+    const esc=token.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    let stem=cleanAcademicTextV302(sentence,900);
+    try{stem=stem.replace(new RegExp(`\\b${esc}\\b`,"i"),"_____")}catch{}
+    if(!stem.includes("_____"))stem=`¿Qué concepto completa correctamente esta idea tomada de las claves? ${stem}`;
+    const distractors=names.filter(x=>normalizeSourceLockText(x)!==token).slice(i%Math.max(1,names.length-1)).concat(names.filter(x=>normalizeSourceLockText(x)!==token)).slice(0,3);
+    if(distractors.length<3)continue;
+    let options=[t.name,...distractors.slice(0,3)],correctIndex=i%4;
+    [options[0],options[correctIndex]]=[options[correctIndex],options[0]];
+    practice.push({stem,options,correctIndex,explanation:cleanAcademicTextV302(sentence,1200),topic:t.name});
+  }
+
+  const sections=topics.slice(0,10).map(t=>({
+    title:t.name,
+    summary:t.why_priority||`Tema identificado directamente en las claves.`,
+    key_points:[],
+    source_files:t.source_files
+  }));
+  return sanitizeHistoricalKeysPack({
+    title:`${subject} · Repaso directo de claves`,
+    overview:`MED AI creó este repaso directamente desde el texto disponible de ${documents.length} clave(s). Se muestran los conceptos repetidos que pudieron verificarse sin depender de una respuesta remota larga.`,
+    source_quality:"Modo de respaldo directo desde la fuente.",
+    limitations:["El servicio remoto no completó el análisis avanzado; este repaso usa extracción directa y puede ser menos detallado."],
+    recurring_topics:topics,
+    notes:{overview:"Repaso de los conceptos que aparecen con mayor frecuencia en las claves cargadas.",sections,final_review:"Prioriza los temas repetidos y utiliza la práctica para detectar qué necesitas reforzar."},
+    important_points:sections.map(s=>s.summary).slice(0,12),
+    must_remember:sections.map(s=>s.title).slice(0,10),
+    practice_questions:practice,
+    study_aids:{equations:[],compounds:[],tables:[],figures:[]},
+    source_digest:sections.map(s=>`${s.title}: ${s.summary}`).join("\n")
+  },subject,documents.map(d=>d.name));
+}
 async function analyzeHistoricalKeysApi(request,env,user){
   ensureAI(env);requireLibraryR2(env);
   const body=await readJson(request);
   const fileIds=Array.isArray(body.file_ids)?[...new Set(body.file_ids.map(x=>cleanText(x,220)).filter(Boolean))].slice(0,12):[];
-  const subject=cleanText(body.subject,320),note=cleanText(body.note,2000);
+  const subject=cleanAcademicTextV302(body.subject,320),note=cleanAcademicTextV302(body.note,1600);
   if(!fileIds.length||!subject)return json({error:"Agrega al menos un PDF y escribe la materia."},400);
 
-  const signature=await sha256(`historical-simple-v30.1.0|${smartNormalize(subject)}|${[...fileIds].sort().join("|")}`);
+  const signature=await sha256(`historical-notes-v30.2.0|${smartNormalize(subject)}|${[...fileIds].sort().join("|")}`);
   const existing=await env.DB.prepare(`SELECT id,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%historical_keys_pack%' ORDER BY datetime(updated_at) DESC LIMIT 100`).bind(user.id).all();
   for(const row of (existing.results||[])){
     const m=parseJsonLoose(row.metadata_json)||{};
-    if(m.source_signature===signature&&m.historical_simple_v30===true&&m.evidence_verified_v30===true){
+    if(m.source_signature===signature&&m.historical_notes_v302===true&&m.evidence_verified_v30===true){
       return json({ok:true,id:row.id,cached:true});
     }
   }
 
   const extracted=[];
   for(const id of fileIds){
-    const src=await getLibraryExtractedText(env,user,id);
-    extracted.push({
-      id,
-      name:src.row.title||src.meta?.original_name||"Clave histórica",
-      text:String(src.text||"")
+    try{
+      const src=await getLibraryExtractedText(env,user,id);
+      extracted.push({id,name:cleanAcademicTextV302(src.row.title||src.meta?.original_name||"Clave histórica",320),text:cleanAcademicTextV302(src.text||"",90000)});
+    }catch(err){console.error("HISTORICAL_SOURCE_READ_V302",id,err?.stack||err)}
+  }
+  const usable=extracted.filter(x=>normalizeSourceLockText(x.text).length>=80);
+  if(!usable.length)return json({error:"Los PDF no contienen suficiente texto legible. Si son escaneados, primero usa OCR en Biblioteca."},422);
+
+  const sourceFiles=usable.map(x=>x.name);
+  const batches=historicalBuildBatchesV302(usable,30000);
+  const evidenceResults=await Promise.allSettled(batches.map((batch,batchIndex)=>{
+    const docs=batch.map((x,i)=>`===== ARCHIVO ${i+1}: ${x.name} =====\n${x.text}\n===== FIN ${x.name} =====`).join("\n\n");
+    const prompt=`Analiza este grupo de CLAVES DE AÑOS ANTERIORES de "${subject}".
+${note?`Objetivo del estudiante: ${note}`:""}
+
+NO predigas el siguiente examen. Solo extrae evidencia real de los archivos.
+
+Necesito una salida PEQUEÑA Y ESTRUCTURADA:
+- temas que realmente aparecen;
+- conceptos que se evalúan;
+- puntos importantes;
+- ecuaciones, fórmulas o compuestos solamente si están presentes;
+- 2 a 4 preguntas nuevas de práctica basadas en esos temas.
+
+Devuelve SOLO JSON:
+{
+ "topics":[{"name":"tema","source_files":["nombre exacto.pdf"],"concepts":["concepto"],"evidence_notes":"qué muestran las claves sobre este tema"}],
+ "important_points":["idea importante"],
+ "study_aids":{
+   "equations":[{"expression":"...","meaning":"...","page_refs":[]}],
+   "compounds":[{"formula":"...","name":"...","importance":"...","page_refs":[]}],
+   "tables":[],
+   "figures":[{"title":"figura relevante","description":"qué conviene reconocer","page_refs":[]}]
+ },
+ "practice_questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"...","topic":"tema"}]
+}
+
+REGLAS:
+- No inventes temas típicos de la materia si no aparecen.
+- Si una clave contiene solo letras de respuestas sin preguntas, no deduzcas el tema a partir de las letras.
+- Mantén nombres de archivo exactamente como aparecen.
+- Texto limpio, sin Markdown, sin emojis y sin caracteres dañados.
+
+${docs}`;
+    return callLibraryPartJson(env,{
+      task:`historical_keys_extract_v302_${batchIndex+1}`,
+      model:PREMIUM_FLASH_LITE_MODEL,
+      system:"Extrae evidencia académica de claves históricas. No predigas ni inventes. Devuelve solo JSON válido.",
+      prompt,maxOutputTokens:1900,temperature:0.03,providerTimeout:19000,fallbackTimeout:10000
     });
+  }));
+
+  const evidence=[],batchModels=[];
+  for(const r of evidenceResults){
+    if(r.status==="fulfilled"&&r.value?.parsed){evidence.push(r.value.parsed);batchModels.push(r.value.model)}
   }
 
-  const usable=extracted.filter(x=>normalizeSourceLockText(x.text).length>=80);
-  if(!usable.length)return json({error:"Los PDF no contienen suficiente texto o contexto para identificar temas. Si son escaneados, primero usa OCR en Biblioteca."},422);
+  let pack=null,mainModel=null,fallbackMode=null;
+  if(evidence.length){
+    const evidenceText=cleanAcademicTextV302(JSON.stringify(evidence),30000);
+    const synthesisPrompt=`Prepara un REPASO PARA ESTUDIAR de claves históricas de "${subject}" usando EXCLUSIVAMENTE la evidencia estructurada siguiente.
 
-  const perFile=Math.max(6500,Math.min(28000,Math.floor(100000/usable.length)));
-  const documents=usable.map((x,i)=>`===== ARCHIVO ${i+1}: ${x.name} =====
-${x.text.slice(0,perFile)}
-===== FIN ARCHIVO ${i+1} =====`).join("\n\n");
+Quiero apuntes que se lean como un resumen académico normal:
+- título claro del tema;
+- introducción breve;
+- subtítulos por los temas más importantes;
+- explicación congruente y suficientemente completa, pero mucho más corta que los PDF originales;
+- prioridad según repetición histórica, sin afirmar que un tema vendrá seguro;
+- ecuaciones, fórmulas, compuestos, tablas o figuras solo cuando la evidencia las incluya;
+- ejercicios de práctica con 4 opciones y explicación.
 
-  const prompt=`Eres MED AI DALTON. Analiza CLAVES/PARCIALES DE AÑOS ANTERIORES de "${subject}".
-${note?`Indicación del estudiante: ${note}`:""}
-
-OBJETIVO: preparar un repaso de alto rendimiento, pero SIN adivinar el próximo examen.
-
-GENERA ÚNICAMENTE:
-1) Resumen suficientemente completo de lo que realmente muestran las claves.
-2) Temas/puntos importantes y los que más se repiten.
-3) Mapa mental.
-4) 1 a 3 diagramas útiles.
-5) Hasta 12 ejercicios nuevos de práctica, todos sobre temas con evidencia en las claves.
-
-REGLAS DE EVIDENCIA:
-- recurring_topics solo puede incluir temas cuyo nombre/conceptos estén apoyados por el texto de al menos un PDF.
-- source_files debe listar únicamente archivos donde el tema realmente aparezca.
-- occurrence_count debe corresponder a la cantidad de esos archivos; MED AI lo volverá a verificar por código.
-- Si un PDF solo tiene letras A/B/C sin la pregunta o contexto, NO asignes un tema a esas letras.
-- No predigas qué vendrá en el siguiente parcial.
-- No introduzcas un tema nuevo solo porque sea típico de la materia.
-- Los ejercicios pueden usar conocimiento correcto para EXPLICAR un tema identificado, pero no evaluar un tema distinto.
+NO generes mapa mental. NO generes diagramas como apartados separados.
+NO uses Markdown, emojis, símbolos decorativos ni caracteres dañados.
+No mezcles temas externos.
 
 Devuelve SOLO JSON:
 {
  "title":"...",
- "overview":"resumen claro y sustancial",
- "source_quality":"qué tan interpretables son las claves",
+ "overview":"introducción clara",
+ "source_quality":"...",
  "limitations":["..."],
  "recurring_topics":[
-   {"name":"tema","occurrence_count":3,"historical_weight":25,"source_files":["archivo.pdf"],"concepts":["..."],"why_priority":"por qué conviene repasarlo"}
+   {"name":"tema","occurrence_count":2,"historical_weight":20,"source_files":["archivo.pdf"],"concepts":["..."],"why_priority":"explicación breve"}
  ],
- "historical_patterns":["patrones observados sin predecir"],
- "important_points":["puntos esenciales"],
- "must_remember":["ideas de máxima prioridad"],
- "common_traps":["errores/confusiones relevantes"],
- "concept_map":{"center":"${subject}","branches":[{"label":"tema","children":["concepto"]}]},
- "diagrams":[{"title":"...","caption":"...","steps":[{"label":"...","detail":"..."}]}],
- "practice_questions":[{"stem":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","topic":"tema de recurring_topics"}],
+ "notes":{
+   "overview":"introducción de los apuntes",
+   "sections":[{"title":"subtítulo","summary":"explicación de 80 a 220 palabras","key_points":["2 a 6 puntos"],"source_files":["archivo.pdf"]}],
+   "final_review":"cierre breve"
+ },
+ "historical_patterns":["patrones reales sin predecir"],
+ "important_points":["..."],
+ "must_remember":["..."],
+ "common_traps":["..."],
+ "study_aids":{
+   "equations":[{"expression":"...","meaning":"...","page_refs":[]}],
+   "compounds":[{"formula":"...","name":"...","importance":"...","page_refs":[]}],
+   "tables":[{"title":"...","headers":["..."],"rows":[["..."]],"page_refs":[]}],
+   "figures":[{"title":"...","description":"...","page_refs":[]}]
+ },
+ "practice_questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"...","topic":"tema"}],
  "source_digest":"síntesis compacta"
 }
 
-${documents}`;
-
-  let result;
-  try{
-    result=await callLibraryPartJson(env,{
-      task:"historical_keys_verified_v3010",
-      model:PREMIUM_FLASH_MODEL,
-      system:"Analiza claves históricas con rigor. No inventes frecuencia ni temas. Devuelve exclusivamente JSON válido.",
-      prompt,maxOutputTokens:5600,temperature:0.08,providerTimeout:42000,fallbackTimeout:22000
-    });
-  }catch(err){
-    return json({error:workersAIUserMessage(err),component:"Claves · análisis histórico"},503);
+EVIDENCIA EXTRAÍDA:
+${evidenceText}`;
+    try{
+      const r=await callLibraryPartJson(env,{
+        task:"historical_keys_synthesis_v302",
+        model:PREMIUM_FLASH_MODEL,
+        system:"Crea apuntes coherentes y práctica a partir de evidencia histórica verificada. No predigas el examen. Devuelve solo JSON.",
+        prompt:synthesisPrompt,maxOutputTokens:4200,temperature:0.04,providerTimeout:26000,fallbackTimeout:13000
+      });
+      mainModel=r.model;
+      pack=sanitizeHistoricalKeysPack(r.parsed,subject,sourceFiles);
+    }catch(err){
+      console.error("HISTORICAL_SYNTHESIS_V302",err?.stack||err);
+      fallbackMode="evidence_merge";
+      pack=historicalEvidencePackV302(evidence,subject,sourceFiles);
+    }
   }
 
-  const sourceFiles=usable.map(x=>x.name);
-  let pack=sanitizeHistoricalKeysPack(result?.parsed,subject,sourceFiles);
-  pack=groundHistoricalTopicsToDocuments(pack,usable);
-  if(!pack)return json({error:"No pude confirmar ningún tema con evidencia suficiente dentro de las claves. Prefiero no inventar un repaso."},422);
+  if(!pack){
+    fallbackMode="source_direct";
+    pack=historicalDeterministicFallbackV302(usable,subject);
+  }
+  if(!pack)return json({error:"No pude identificar temas con evidencia suficiente en estas claves. Revisa que los PDF contengan preguntas, texto o conceptos legibles."},422);
 
-  const missing=historicalPracticeMissing(pack);
+  pack=groundHistoricalTopicsToDocuments(pack,usable)||pack;
+  if(!(pack.recurring_topics||[]).length)return json({error:"No pude confirmar temas contra el texto real de las claves. Prefiero no inventar un repaso."},422);
+
+  let missing=Math.max(0,10-(pack.practice_questions?.length||0));
   if(missing>0){
-    const allowed=pack.recurring_topics.map(t=>`${t.name} (${t.occurrence_count}/${usable.length} archivos)`).join("\n");
-    const existingStems=(pack.practice_questions||[]).map((q,i)=>`${i+1}. ${q.stem}`).join("\n");
-    const repairPrompt=`Genera EXACTAMENTE ${missing} preguntas NUEVAS para completar la práctica.
+    const allowed=pack.recurring_topics.map(t=>`${t.name} · aparece en ${t.occurrence_count}/${usable.length} archivo(s)`).join("\n");
+    const notes=(pack.notes?.sections||[]).map(s=>`${s.title}: ${s.summary}`).join("\n").slice(0,12000);
+    const existingStems=(pack.practice_questions||[]).map((q,i)=>`${i+1}. ${q.stem}`).join("\n").slice(0,7000);
+    const repairPrompt=`Genera ${Math.min(10,missing)} preguntas NUEVAS de opción múltiple para este repaso histórico.
 
 TEMAS AUTORIZADOS:
 ${allowed}
 
-PREGUNTAS YA EXISTENTES (NO REPETIR):
+APUNTES VERIFICADOS:
+${notes}
+
+NO REPETIR:
 ${existingStems||"Ninguna"}
 
-Devuelve SOLO:
-{"practice_questions":[{"stem":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","topic":"tema autorizado"}]}
+Devuelve SOLO JSON:
+{"practice_questions":[{"stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"explica por qué","topic":"tema autorizado"}]}
 
-REGLAS:
-- Solo temas autorizados.
-- 4 opciones y una correcta.
-- No copies una pregunta existente.
-- No inventes un tema nuevo.
-- Usa las claves como evidencia del alcance.
-
-${documents}`;
+Solo usa temas autorizados. Cuatro opciones. Una correcta. Sin Markdown ni temas nuevos.`;
     try{
       const repair=await callLibraryPartJson(env,{
-        task:"historical_keys_practice_repair_v3010",
+        task:"historical_keys_practice_v302",
         model:PREMIUM_FLASH_LITE_MODEL,
-        system:"Completa una práctica usando únicamente los temas históricos autorizados.",
-        prompt:repairPrompt,maxOutputTokens:2600,temperature:0.05,providerTimeout:26000,fallbackTimeout:15000
+        system:"Genera práctica breve y fiel a temas ya verificados. Devuelve solo JSON válido.",
+        prompt:repairPrompt,maxOutputTokens:2400,temperature:0.05,providerTimeout:19000,fallbackTimeout:10000
       });
       pack=mergeHistoricalPractice(pack,repair?.parsed?.practice_questions||[]);
       pack=groundHistoricalTopicsToDocuments(pack,usable)||pack;
-    }catch(err){
-      console.error("HISTORICAL_PRACTICE_REPAIR_ERROR",err?.stack||err);
-    }
+    }catch(err){console.error("HISTORICAL_PRACTICE_V302",err?.stack||err)}
   }
 
   if((pack.practice_questions||[]).length<6){
-    return json({error:"Identifiqué temas históricos, pero no pude construir suficientes ejercicios fieles sin introducir contenido externo. Revisa que las claves tengan preguntas o contexto legible."},422);
+    const direct=historicalDeterministicFallbackV302(usable,subject);
+    if(direct?.practice_questions?.length)pack=mergeHistoricalPractice(pack,direct.practice_questions);
   }
-  if(pack.practice_questions.length<12){
-    pack.limitations=[...(pack.limitations||[]),`Se generaron ${pack.practice_questions.length} ejercicios fiables de 12 solicitados; no se inventaron preguntas adicionales.`];
+
+  pack.version=30.20;
+  pack.historical_notes_v302=true;
+  pack.concept_map=null;pack.diagrams=[];
+  pack.fallback_mode=fallbackMode;
+  if((pack.practice_questions||[]).length<6){
+    pack.limitations=[...(pack.limitations||[]),`Se pudieron construir ${pack.practice_questions.length} ejercicios fiables. MED AI no añadió preguntas sin suficiente base.`];
   }
 
   const id=crypto.randomUUID(),now=new Date().toISOString();
   const meta={
-    historical_keys_pack:true,historical_simple_v30:true,version:30.07,
+    historical_keys_pack:true,historical_simple_v30:true,historical_notes_v302:true,version:30.20,
     subject,study_title:pack.title,source_file_ids:fileIds,source_files:sourceFiles,
-    source_count:fileIds.length,source_signature:signature,
-    evidence_verified_v30:true,
-    verified_topic_count:pack.recurring_topics.length,
-    practice_count:pack.practice_questions.length,
-    generation_version:"30.0.9",
-    generation_model:result.model||PREMIUM_FLASH_MODEL
+    source_count:fileIds.length,source_signature:signature,evidence_verified_v30:true,
+    verified_topic_count:pack.recurring_topics.length,practice_count:pack.practice_questions.length,
+    generation_version:"30.2.0",
+    generation_model:mainModel||[...new Set(batchModels)].join(" + ")||fallbackMode||"source_direct",
+    fallback_mode:fallbackMode
   };
 
   await env.DB.prepare(`INSERT INTO notes (id,user_id,subject_id,topic_id,title,body,tags_json,pinned,metadata_json,sync_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)`)
     .bind(
       id,user.id,null,null,`CLAVES HISTÓRICAS · ${subject}`,JSON.stringify(pack),
-      JSON.stringify(["historical_keys_pack","historical_simple_v30","evidence_verified","smart_study","study_pack","v30_0_7"]),
+      JSON.stringify(["historical_keys_pack","historical_simple_v30","historical_notes_v302","evidence_verified","smart_study","study_pack","v30_2_0"]),
       JSON.stringify(meta),now,now
     ).run();
 
-  await questionBankUpsertQuestions(env,user,pack.practice_questions||[],{
-    source_type:"historical_keys",source_ref:id,subject,source_name:pack.title
-  });
+  if(pack.practice_questions?.length){
+    await questionBankUpsertQuestions(env,user,pack.practice_questions,{
+      source_type:"historical_keys",source_ref:id,subject,source_name:pack.title
+    });
+  }
 
   return json({
-    ok:true,id,cached:false,model:result.model||PREMIUM_FLASH_MODEL,
-    verified_topics:pack.recurring_topics.length,
-    practice_count:pack.practice_questions.length
+    ok:true,id,cached:false,model:meta.generation_model,
+    verified_topics:pack.recurring_topics.length,practice_count:pack.practice_questions.length,
+    fallback_mode:fallbackMode
   },201);
 }
 
