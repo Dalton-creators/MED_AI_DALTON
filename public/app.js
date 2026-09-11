@@ -1,4 +1,4 @@
-const APP_VERSION="30.2.5";
+const APP_VERSION="30.3.0";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -142,7 +142,6 @@ async function offlineVaultSummary(){
   return {
     files,
     coursePacks:jsonRows.filter(x=>x.key.startsWith("coursepack:")),
-    exams:jsonRows.filter(x=>x.key.startsWith("courseexam:")),
     languagePacks:jsonRows.filter(x=>x.key.startsWith("languagepack:")),
     preparedBundles:jsonRows.filter(x=>x.key.startsWith("offlinebundle:")),
     apiRows:jsonRows.filter(x=>x.key.startsWith("api:"))
@@ -323,7 +322,7 @@ async function renderSystemCenter(){
 
       <article class="card system-offline-course">
         <div class="system-section-head"><div><span>PREPARACIÓN OFFLINE</span><h2>Preparar materia para salir</h2></div><span>US$0 IA</span></div>
-        <p class="system-help">Guarda en este dispositivo clases ya creadas, flashcards y preguntas del banco. Los PDF/libros se incluyen cuando tú los marcaste OFFLINE en Biblioteca.</p>
+        <p class="system-help">Guarda en este dispositivo las clases académicas que ya fueron creadas. Los PDF/libros se conservan aparte cuando tú los marcas OFFLINE en Biblioteca.</p>
         <div class="field"><label>Materia</label><select id="system-offline-subject"><option value="">Selecciona…</option>${state.subjects.map(s=>`<option value="${escapeAttr(s.id)}">${escapeHtml(s.name)}</option>`).join("")}</select></div>
         <button id="system-download-course" class="secondary-btn">↓ PREPARAR ESTA MATERIA OFFLINE</button>
         <div id="system-offline-course-result"></div>
@@ -352,7 +351,7 @@ async function renderSystemCenter(){
         </div>
         <p class="system-help">${resetStatus.used
           ?"Este reinicio ya fue utilizado y no puede ejecutarse otra vez."
-          :"Úsalo únicamente cuando termines las pruebas. Borra tus PDF de Biblioteca, resúmenes, ejercicios, banco generado, progreso, calendario de prueba, errores locales y contenido offline. Conserva MED AI, tu cuenta personal, materias base y toda la configuración de Cloudflare."}</p>
+          :"Úsalo únicamente cuando termines las pruebas. Borra tus PDF de Biblioteca, apuntes, progreso, calendario de prueba, errores locales y contenido offline. Conserva MED AI, tu cuenta personal, materias base y toda la configuración de Cloudflare."}</p>
         ${resetStatus.used
           ?`<div class="system-reset-used">✓ MED AI ya inició su etapa de estudio real.</div>`
           :`<button id="system-reset-once" class="system-reset-danger">REINICIAR MED AI · EMPEZAR DE CERO</button>
@@ -480,7 +479,7 @@ async function downloadExistingCourseOffline(){
   const subjectId=$("#system-offline-subject").value,box=$("#system-offline-course-result");
   if(!subjectId)return toast("Selecciona una materia.",true);
   if(!navigator.onLine)return toast("Conéctate una vez para preparar esta materia.",true);
-  box.innerHTML=`<div class="system-inline-loading">Reuniendo clases, flashcards y preguntas ya guardadas…</div>`;
+  box.innerHTML=`<div class="system-inline-loading">Reuniendo clases académicas ya guardadas…</div>`;
   try{
     const d=await api(`/api/system/offline-course?subject_id=${encodeURIComponent(subjectId)}`);
     let classes=0;
@@ -490,9 +489,9 @@ async function downloadExistingCourseOffline(){
       const key=`coursepack:${row.subject_id||subjectId}:${row.topic_id||""}:${row.lesson_id||""}:${languageKey}`;
       await offlinePutJson(key,row.material);classes++;
     }
-    const bundle={version:30.25,subject:d.subject,flashcards:d.flashcards||[],question_bank:d.question_bank||[],prepared_at:new Date().toISOString()};
+    const bundle={version:30.3,subject:d.subject,classes,prepared_at:new Date().toISOString()};
     await offlinePutJson(`offlinebundle:${subjectId}`,bundle);
-    box.innerHTML=`<div class="system-offline-success"><span>✓</span><strong>${escapeHtml(d.subject?.name||"Materia")} preparada en este dispositivo.</strong><small>${classes} clases · ${bundle.flashcards.length} flashcards · ${bundle.question_bank.length} preguntas. ${escapeHtml(d.note||"")}</small></div>`;
+    box.innerHTML=`<div class="system-offline-success"><span>✓</span><strong>${escapeHtml(d.subject?.name||"Materia")} preparada en este dispositivo.</strong><small>${classes} clases académicas guardadas. ${escapeHtml(d.note||"")}</small></div>`;
   }catch(err){logSystemError("offline_course_download",err);box.innerHTML=`<div class="notice">${escapeHtml(err.message)}</div>`}
 }
 async function copySystemDiagnostic(){
@@ -615,7 +614,7 @@ async function navigate(view){
   try{
     const renderers={
       dashboard:renderDashboard,study:renderStudy,tutor:()=>renderAIStudio("tutor"),
-      exams:renderExams,question_bank:renderQuestionBank,flashcards:renderFlashcards,patient:renderPatientVirtual,
+      patient:renderPatientVirtual,
       case_solver:renderCaseSolver,
       grand_rounds:()=>renderAIStudio("grand_rounds"),emergency:()=>renderAIStudio("emergency"),
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
@@ -679,7 +678,6 @@ async function renderDashboard(){
       <article><span>◷</span><div><strong>${Number(a.today_minutes||0)}</strong><small>min hoy</small></div></article>
       <article><span>▥</span><div><strong>${Number(a.week_minutes||0)}</strong><small>min esta semana</small></div></article>
       <article><span>↻</span><div><strong>${Number(a.due_mistakes||0)}</strong><small>errores por repasar</small></div></article>
-      <article><span>▱</span><div><strong>${Number(a.due_flashcards||0)}</strong><small>flashcards pendientes</small></div></article>
     </section>
 
     <section class="v30-semester-strip card">
@@ -688,13 +686,11 @@ async function renderDashboard(){
     </section>
 
     <div class="institution-section-head"><div><span>ACCESOS ACADÉMICOS</span><h3>Aprender · practicar · avanzar</h3></div><small>Tu flujo principal</small></div>
-    <section class="v30-academic-launcher">
-      <button data-view="study"><span>01</span><b>CURSOS</b><small>Mapa curricular y diagnóstico</small></button>
-      <button data-view="library"><span>02</span><b>BIBLIOTECA</b><small>PDF por páginas y fuentes</small></button>
+    <section class="v30-academic-launcher v303-focused-launcher">
+      <button data-view="study"><span>01</span><b>CURSOS</b><small>Ruta académica completa por temas</small></button>
+      <button data-view="library"><span>02</span><b>BIBLIOTECA</b><small>Apuntes académicos desde tus PDF</small></button>
       <button data-view="smart"><span>03</span><b>REPASO INTELIGENTE</b><small>Errores y búsqueda en tus fuentes</small></button>
-      <button data-view="exams"><span>04</span><b>EXÁMENES</b><small>Evaluación y práctica activa</small></button>
-      <button data-view="question_bank"><span>05</span><b>BANCO</b><small>Preguntas permanentes</small></button>
-      <button data-view="tutor"><span>06</span><b>TUTOR IA</b><small>Aprender de otra manera</small></button>
+      <button data-view="tutor"><span>04</span><b>TUTOR IA</b><small>Resolver dudas y profundizar conceptos</small></button>
     </section>
 
     <section class="institution-lower-grid v30-home-lower">
@@ -757,8 +753,8 @@ async function renderStudy(){
     <div class="hybrid-progress-note fixed-progress-note v30-course-flow">
       <div><b>01</b><span><strong>Diagnóstico</strong><small>Detecta conocimientos previos.</small></span></div>
       <div><b>02</b><span><strong>Clase + práctica</strong><small>Aprende y recupera activamente.</small></span></div>
-      <div><b>03</b><span><strong>Examen</strong><small>Aprueba el tema para avanzar.</small></span></div>
-      <div><b>04</b><span><strong>Dominio</strong><small>Se consolida con evidencia repetida.</small></span></div>
+      <div><b>03</b><span><strong>Síntesis</strong><small>Integra lo esencial con sentido académico.</small></span></div>
+      <div><b>04</b><span><strong>Dominio</strong><small>Se consolida con práctica y repaso posterior.</small></span></div>
     </div>
 
     <div class="institution-section-head"><div><span>RUTA ACADÉMICA</span><h3>Mis cursos</h3></div><small>${state.subjects.length} materias disponibles</small></div>
@@ -811,14 +807,14 @@ async function renderCourse(){
   root.innerHTML=`
     <div class="course-page-head">
       <button id="back-courses" class="ghost-btn">← CURSOS</button>
-      <div class="course-page-title"><div class="eyebrow">RUTA ACADÉMICA FIJA</div><h2>${escapeHtml(s.name)}</h2><p>Avanza tema por tema. Los temas futuros se desbloquean al aprobar el examen del tema actual.</p></div>
+      <div class="course-page-title"><div class="eyebrow">RUTA ACADÉMICA FIJA</div><h2>${escapeHtml(s.name)}</h2><p>Avanza tema por tema. Cada tema se desbloquea al completar la clase, la práctica y la síntesis del tema actual.</p></div>
       ${languagePicker}
     </div>
     <section class="course-overview card">
       <div class="course-overview-main"><span>PROGRESO OFICIAL DEL CURSO</span><strong>${data.progress_percent}%</strong><div class="progress"><i style="width:${data.progress_percent}%"></i></div><small>${data.completed} de ${data.total} temas aprobados</small></div>
-      <div class="course-next"><span>TEMA ACTUAL</span><strong>${escapeHtml(next?.topic_name||"Curso completado")}</strong><small>${next?`Tema ${currentIndex+1} de ${data.total} · debes aprobar su examen para continuar`:"Has aprobado toda la ruta."}</small>${next?`<button id="continue-course" class="primary-btn">CONTINUAR CURSO</button>`:""}</div>
+      <div class="course-next"><span>TEMA ACTUAL</span><strong>${escapeHtml(next?.topic_name||"Curso completado")}</strong><small>${next?`Tema ${currentIndex+1} de ${data.total} · completa sus tres etapas para continuar`:"Has aprobado toda la ruta."}</small>${next?`<button id="continue-course" class="primary-btn">CONTINUAR CURSO</button>`:""}</div>
     </section>
-    <div class="course-legend"><span><i class="legend recommended"></i> Tema actual</span><span><i class="legend done"></i> Aprobado</span><span><i class="legend locked"></i> Bloqueado</span></div>
+    <div class="course-legend"><span><i class="legend recommended"></i> Tema actual</span><span><i class="legend done"></i> Completado</span><span><i class="legend locked"></i> Bloqueado</span></div>
     <div class="course-track" id="course-track">
       ${data.items.map((item,i)=>courseStep(item,i,data)).join("")}
     </div>
@@ -826,7 +822,7 @@ async function renderCourse(){
   $("#back-courses").onclick=()=>navigate("study");
   $("#continue-course")?.addEventListener("click",()=>openCourseLesson(currentIndex));
   $$(".course-step[data-open='1']").forEach(el=>el.onclick=()=>openCourseLesson(Number(el.dataset.index)));
-  $$(".course-step[data-open='0']").forEach(el=>el.onclick=()=>toast("Primero aprueba el tema anterior para desbloquear este tema.",true));
+  $$(".course-step[data-open='0']").forEach(el=>el.onclick=()=>toast("Primero completa el tema anterior para desbloquear este tema.",true));
   $("#free-study-course").onclick=()=>navigate("tutor");
   $("#course-language")?.addEventListener("change",async e=>{state.courseLanguage=e.target.value;localStorage.setItem("medai_course_language",state.courseLanguage);state.currentCourse=null;await renderCourse()});
 }
@@ -840,7 +836,7 @@ function courseStep(item,index,data){
   const stateClass=completed?"completed":current?"active":"locked";
   return `<article class="course-step ${stateClass}" data-index="${index}" data-open="${unlocked?1:0}">
     <div class="course-step-number">${String(index+1).padStart(2,"0")}</div>
-    <div class="course-step-body"><div class="course-step-meta"><span>${status}</span><small>${Number(item.estimated_minutes||35)} min · Nivel ${Number(item.difficulty||1)}</small></div><h3>${escapeHtml(item.topic_name)}</h3><p>${escapeHtml(item.summary||item.description||"")}</p><div class="course-step-progress"><i style="width:${completed?100:progress}%"></i></div><small class="topic-progress-label">${completed?"Examen aprobado":current?`${Math.round(progress)}% del tema estudiado`:"Completa el tema anterior"}</small></div>
+    <div class="course-step-body"><div class="course-step-meta"><span>${status}</span><small>${Number(item.estimated_minutes||35)} min · Nivel ${Number(item.difficulty||1)}</small></div><h3>${escapeHtml(item.topic_name)}</h3><p>${escapeHtml(item.summary||item.description||"")}</p><div class="course-step-progress"><i style="width:${completed?100:progress}%"></i></div><small class="topic-progress-label">${completed?"Tema estudiado":current?`${Math.round(progress)}% del tema estudiado`:"Completa el tema anterior"}</small></div>
     <div class="course-step-state">${completed?"✓":current?"→":"🔒"}</div>
   </article>`;
 }
@@ -850,7 +846,7 @@ function openCourseLesson(index){
   const item=course?.items?.[index];
   if(!item)return;
   const unlocked=Number(item.completed)===1 || index===Number(course.next_index);
-  if(!unlocked){toast("Este tema todavía está bloqueado. Aprueba primero el tema actual.",true);return}
+  if(!unlocked){toast("Este tema todavía está bloqueado. Completa primero la clase, práctica y síntesis del tema actual.",true);return}
   state.currentLesson={...item,index};state.currentTopic={id:item.topic_id,name:item.topic_name,subject_id:state.currentSubject.id};state.courseConversation=null;state.courseExam=null;state.courseLearningPack=null;state.coursePractice=null;state.coursePhase="lesson";navigate("course_lesson");
 }
 
@@ -864,16 +860,15 @@ async function renderCourseLesson(){
   state.coursePhase=completed?"summary":normalizeSavedCoursePhase(savedPos.stage,Number(item.progress_percent||0));
   root.innerHTML=`
     <div class="lesson-course-head"><button id="back-course" class="ghost-btn">← ${escapeHtml(s.name.toUpperCase())}</button><div><span>LECCIÓN ${String(item.index+1).padStart(2,"0")} / ${course.total}</span><strong>${escapeHtml(item.topic_name)}</strong></div><div class="lesson-course-percent">${completed?"100":Math.round(Number(item.progress_percent||0))}%</div></div>
-    <div class="course-master-flow">
-      <button class="course-flow-step active" data-phase="lesson"><b>01</b><span>CLASE</span><small>Aprender</small></button>
+    <div class="course-master-flow v303-course-flow">
+      <button class="course-flow-step active" data-phase="lesson"><b>01</b><span>CLASE</span><small>Comprender</small></button>
       <button class="course-flow-step" data-phase="practice"><b>02</b><span>PRÁCTICA</span><small>Aplicar</small></button>
-      <button class="course-flow-step" data-phase="summary"><b>03</b><span>RESUMEN</span><small>Recordar</small></button>
-      <button class="course-flow-step" data-phase="exam"><b>04</b><span>EXAMEN</span><small>10 preguntas</small></button>
+      <button class="course-flow-step" data-phase="summary"><b>03</b><span>SÍNTESIS</span><small>Integrar</small></button>
     </div>
     <div class="lesson-course-grid masterclass-grid">
       <main class="card lesson-main masterclass-main">
         <div id="course-learning-body" class="course-learning-body">
-          <div class="masterclass-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu clase</strong><span>${escapeHtml(item.topic_name)}</span><small>Organizando teoría, diagramas, mapa conceptual, videos, práctica y resumen…</small></div>
+          <div class="masterclass-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu clase</strong><span>${escapeHtml(item.topic_name)}</span><small>Organizando fundamentos, desarrollo, ejemplos, práctica y síntesis académica…</small></div>
         </div>
         <section class="course-question-box">
           <div><div class="panel-code">¿TE QUEDÓ UNA DUDA?</div><strong>Pregunta sobre esta clase</strong><small>MED AI responderá sin sacarte del tema que estás estudiando.</small></div>
@@ -882,7 +877,7 @@ async function renderCourseLesson(){
         </section>
       </main>
       <aside class="lesson-side">
-        <section class="card lesson-progress-card"><div class="panel-code">PROGRESO DEL TEMA</div><div class="lesson-progress-number" id="lesson-progress-number">${completed?100:Math.round(Number(item.progress_percent||0))}%</div><div class="progress"><i id="lesson-progress-bar" style="width:${completed?100:Number(item.progress_percent||0)}%"></i></div><div class="master-progress-stages"><span class="${Number(item.progress_percent||0)>=35||completed?'done':''}">✓ Clase</span><span class="${Number(item.progress_percent||0)>=65||completed?'done':''}">✓ Práctica</span><span class="${Number(item.progress_percent||0)>=80||completed?'done':''}">✓ Resumen</span><span class="${completed?'done':''}">✓ Examen</span></div><p>${completed?"Tema aprobado. Puedes volver a estudiar cualquier sección.":"El tema se completa únicamente después de aprobar 8 de 10 preguntas en el examen final."}</p><div class="course-pass-status ${completed?"passed":""}" id="course-pass-status">${completed?"TEMA APROBADO ✓":"RUTA EN PROGRESO"}</div><button id="next-course-topic" class="secondary-btn wide ${completed?"":"hidden"}" style="margin-top:8px">SIGUIENTE TEMA →</button></section>
+        <section class="card lesson-progress-card"><div class="panel-code">PROGRESO DEL TEMA</div><div class="lesson-progress-number" id="lesson-progress-number">${completed?100:Math.round(Number(item.progress_percent||0))}%</div><div class="progress"><i id="lesson-progress-bar" style="width:${completed?100:Number(item.progress_percent||0)}%"></i></div><div class="master-progress-stages"><span class="${Number(item.progress_percent||0)>=35||completed?'done':''}">✓ Clase</span><span class="${Number(item.progress_percent||0)>=65||completed?'done':''}">✓ Práctica</span><span class="${completed?'done':''}">✓ Síntesis</span></div><p>${completed?"Tema estudiado. Puedes volver a cualquier sección cuando quieras.":"El tema se completa al estudiar la clase, realizar la práctica y cerrar con la síntesis académica."}</p><div class="course-pass-status ${completed?"passed":""}" id="course-pass-status">${completed?"TEMA COMPLETADO ✓":"RUTA EN PROGRESO"}</div><button id="next-course-topic" class="secondary-btn wide ${completed?"":"hidden"}" style="margin-top:8px">SIGUIENTE TEMA →</button></section>
         <section class="card masterclass-info-card"><div class="panel-code">MATERIAL DE CLASE</div><strong>Tu clase queda guardada</strong><p>El contenido generado para este tema se conserva en tu cuenta. También puedes abrirlo como documento y guardarlo en PDF.</p><button id="course-pdf-side" class="secondary-btn wide" disabled>GUARDAR / IMPRIMIR PDF</button><small id="course-material-status">Cargando material…</small></section>
         <section class="card university-source-card">
           <div class="panel-code">MI MATERIAL DE LA UNIVERSIDAD</div>
@@ -908,14 +903,14 @@ async function renderCourseLesson(){
 }
 
 function phaseFromCourseProgress(progress){
-  if(progress>=80)return"summary";
-  if(progress>=65)return"practice";
+  if(progress>=65)return"summary";
+  if(progress>=35)return"practice";
   return"lesson";
 }
 
 function normalizeSavedCoursePhase(stage,progress){
-  if(["lesson","practice","summary","exam"].includes(stage))return stage;
-  if(stage==="exam_retry"||stage==="exam_passed")return"summary";
+  if(["lesson","practice","summary"].includes(stage))return stage;
+  if(stage==="exam_retry"||stage==="exam_passed"||stage==="completed")return"summary";
   if(stage==="practice_ready")return"practice";
   return phaseFromCourseProgress(progress);
 }
@@ -928,14 +923,13 @@ function coursePhaseAllowed(phase){
   if(phase==="lesson")return true;
   if(phase==="practice")return progress>=35;
   if(phase==="summary")return progress>=65;
-  if(phase==="exam")return progress>=80;
   return false;
 }
 
 async function openCoursePhase(phase){
   if(!state.courseLearningPack)return;
   if(!coursePhaseAllowed(phase)){
-    const msg={practice:"Primero estudia la clase.",summary:"Primero completa los ejercicios de práctica.",exam:"Primero revisa el resumen de la lección."}[phase]||"Completa la etapa anterior.";
+    const msg={practice:"Primero estudia la clase.",summary:"Primero completa los ejercicios de práctica."}[phase]||"Completa la etapa anterior.";
     toast(msg,true);return;
   }
   state.coursePhase=phase;
@@ -943,7 +937,6 @@ async function openCoursePhase(phase){
   if(phase==="lesson")renderCourseMasterclassMaterial();
   if(phase==="practice")renderCoursePracticeStart();
   if(phase==="summary")renderCourseMasterclassSummary();
-  if(phase==="exam")startCourseFinalExam();
 }
 
 async function loadCourseMasterclass(){
@@ -1000,7 +993,6 @@ function openExplainDifferentlyV30({subject,topic,pack}){
       <button data-mode="steps"><span>01</span><b>Paso a paso</b><small>Sin saltos</small></button>
       <button data-mode="analogy"><span>≈</span><b>Con analogía</b><small>Idea familiar → concepto</small></button>
       <button data-mode="clinical"><span>✚</span><b>Ejemplo clínico</b><small>Aplicación educativa</small></button>
-      <button data-mode="visual"><span>◈</span><b>Con diagrama</b><small>Proceso visual textual</small></button>
       <button data-mode="university"><span>◆</span><b>Nivel universitario</b><small>Más profundidad</small></button>
       <button data-mode="socratic"><span>?</span><b>Pregúntame</b><small>Modo socrático</small></button>
     </div>
@@ -1027,34 +1019,43 @@ function renderCourseMasterclassMaterial(){
   const p=state.courseLearningPack,item=state.currentLesson,s=state.currentSubject;
   if(!p)return;
   const body=$("#course-learning-body");
+  const coverage=(p.coverage||p.scope_coverage||[]).filter(Boolean);
   body.innerHTML=`
-    <article class="masterclass-document multimedia-masterclass" id="masterclass-document">
-      <header class="masterclass-document-head multimedia-doc-head">
-        <div><div class="eyebrow">CLASE MULTIMEDIA · ${escapeHtml(s.name.toUpperCase())}</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><p>${escapeHtml(p.overview||item.summary||"")}</p></div>
-        <div class="masterclass-doc-actions"><span>${Number(p.estimated_minutes||35)} MIN</span><button id="course-pdf-main" class="secondary-btn">▣ GUARDAR PDF</button></div>
+    <article class="masterclass-document v303-academic-class" id="masterclass-document">
+      <header class="masterclass-document-head v303-class-head">
+        <div>
+          <div class="eyebrow">CLASE ACADÉMICA · ${escapeHtml(s.name.toUpperCase())}</div>
+          <h1>${escapeHtml(p.title||item.topic_name)}</h1>
+          <p>${escapeHtml(p.overview||item.summary||"")}</p>
+        </div>
+        <div class="masterclass-doc-actions"><span>${Number(p.estimated_minutes||40)} MIN</span><button id="course-pdf-main" class="secondary-btn">▣ GUARDAR PDF</button></div>
       </header>
 
-      <section class="masterclass-objectives">
-        <div class="panel-code">AL TERMINAR PODRÁS</div>
+      <section class="masterclass-objectives v303-objectives">
+        <div class="panel-code">OBJETIVOS DE APRENDIZAJE</div>
         <ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>
       </section>
 
-      <div class="academy-learning-tabs" role="tablist" aria-label="Recursos de la clase">
-        <button class="academy-learning-tab active" data-academy-view="read"><span>📖</span><b>LECCIÓN</b><small>Texto completo</small></button>
-        <button class="academy-learning-tab" data-academy-view="diagram"><span>◈</span><b>DIAGRAMA</b><small>Ver el proceso</small></button>
-        <button class="academy-learning-tab" data-academy-view="map"><span>⌘</span><b>MAPA</b><small>Conectar ideas</small></button>
-        <button class="academy-learning-tab" data-academy-view="videos"><span>▶</span><b>VIDEOS</b><small>Recursos web</small></button>
+      ${coverage.length?`<section class="v303-coverage-card">
+        <div class="panel-code">ALCANCE DE ESTA CLASE</div>
+        <p>La lección está organizada para cubrir los subtemas esenciales de <strong>${escapeHtml(item.topic_name)}</strong> antes de avanzar.</p>
+        <div>${coverage.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</div>
+      </section>`:""}
+
+      <div class="academy-learning-tabs v303-learning-tabs" role="tablist" aria-label="Recursos de la clase">
+        <button class="academy-learning-tab active" data-academy-view="read"><span>▤</span><b>CLASE</b><small>Desarrollo completo</small></button>
+        <button class="academy-learning-tab" data-academy-view="videos"><span>▶</span><b>VIDEOS</b><small>Complemento opcional</small></button>
       </div>
 
       <div id="academy-learning-view" class="academy-learning-view"></div>
 
       <section class="v30-didnt-understand">
-        <div><span>¿ALGO NO QUEDÓ CLARO?</span><strong>No lo memorices sin entenderlo.</strong><small>MED AI puede cambiar la explicación sin modificar tu progreso.</small></div>
-        <button id="course-explain-differently" class="secondary-btn">✦ EXPLÍCAMelo DE OTRA MANERA</button>
+        <div><span>¿ALGO NO QUEDÓ CLARO?</span><strong>Vuelve a explicarlo con otra profundidad.</strong><small>MED AI usa la clase actual como contexto y mantiene el tema.</small></div>
+        <button id="course-explain-differently" class="secondary-btn">✦ EXPLÍCAMELO DE OTRA MANERA</button>
       </section>
 
-      <footer class="masterclass-next">
-        <div><strong>¿Terminaste de estudiar y explorar los recursos?</strong><span>Ahora aplica lo aprendido con ejercicios antes del resumen y el examen.</span></div>
+      <footer class="masterclass-next v303-class-next">
+        <div><strong>¿Terminaste la lectura académica?</strong><span>Continúa con ejercicios de aplicación y después cierra el tema con una síntesis integrada.</span></div>
         <button id="go-course-practice" class="primary-btn">IR A PRÁCTICA →</button>
       </footer>
     </article>`;
@@ -1074,28 +1075,6 @@ function renderAcademyLearningView(view){
   const p=state.courseLearningPack,item=state.currentLesson,s=state.currentSubject;
   const box=$("#academy-learning-view");if(!p||!box)return;
 
-  if(view==="diagram"){
-    box.innerHTML=renderCourseDiagram(p.diagram,p.sections||[]);
-    $$(".academy-diagram-step",box).forEach(step=>step.onclick=()=>{
-      const detail=step.querySelector(".academy-diagram-detail");
-      if(detail)detail.classList.toggle("open");
-      step.classList.toggle("selected");
-    });
-    return;
-  }
-
-  if(view==="map"){
-    box.innerHTML=renderCourseConceptMap(p.concept_map,p);
-    $$(".academy-map-branch",box).forEach(branch=>branch.onclick=()=>{
-      if(branch.classList.contains("expanded"))branch.classList.remove("expanded");
-      else{
-        $$(".academy-map-branch",box).forEach(x=>x.classList.remove("expanded"));
-        branch.classList.add("expanded");
-      }
-    });
-    return;
-  }
-
   if(view==="videos"){
     box.innerHTML=renderCourseVideoHub(s,item);
     $$(".academy-video-search",box).forEach(btn=>btn.onclick=()=>{
@@ -1108,29 +1087,30 @@ function renderAcademyLearningView(view){
   }
 
   box.innerHTML=`
-    <div class="academy-reading-layout">
+    <div class="academy-reading-layout v303-reading-layout">
       <aside class="academy-reading-nav">
-        <span>CONTENIDO</span>
+        <span>CONTENIDO DE LA CLASE</span>
         ${(p.sections||[]).map((x,i)=>`<button data-section="${i}"><b>${String(i+1).padStart(2,"0")}</b><small>${escapeHtml(x.title)}</small></button>`).join("")}
-        ${p.key_terms?.length?`<button data-section="terms"><b>◆</b><small>Conceptos clave</small></button>`:""}
+        ${p.key_terms?.length?`<button data-section="terms"><b>◆</b><small>Conceptos esenciales</small></button>`:""}
       </aside>
       <div class="masterclass-sections academy-reading-content">
         ${(p.sections||[]).map((sec,i)=>`
-          <section class="masterclass-section academy-study-section" id="mc-section-${i}">
+          <section class="masterclass-section academy-study-section v303-academic-section" id="mc-section-${i}">
             <div class="masterclass-section-number">${String(i+1).padStart(2,"0")}</div>
             <div class="masterclass-section-content">
               <div class="academy-section-heading">
-                <h2>${escapeHtml(sec.title||`Parte ${i+1}`)}</h2>
+                <div><span class="v303-section-kicker">SECCIÓN ${String(i+1).padStart(2,"0")}</span><h2>${escapeHtml(sec.title||`Parte ${i+1}`)}</h2></div>
                 <button class="academy-listen-section secondary-btn" data-section="${i}">🔊 ESCUCHAR</button>
               </div>
-              <div class="masterclass-prose">${renderStudyParagraphs(sec.content||"")}</div>
-              ${sec.key_points?.length?`<div class="masterclass-keypoints"><strong>Puntos clave</strong><ul>${sec.key_points.map(k=>`<li>${escapeHtml(k)}</li>`).join("")}</ul></div>`:""}
-              ${sec.example?`<div class="masterclass-example"><span>EJEMPLO</span>${renderStudyParagraphs(sec.example)}</div>`:""}
-              ${sec.application?`<div class="masterclass-application"><span>APLICACIÓN</span>${renderStudyParagraphs(sec.application)}</div>`:""}
-              <button class="academy-understood-btn" data-understood="${i}">✓ MARCAR COMO REVISADO</button>
+              ${sec.subtopics?.length?`<div class="v303-subtopics"><span>SUBTEMAS</span>${sec.subtopics.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div>`:""}
+              <div class="masterclass-prose v303-academic-prose">${renderStudyParagraphs(sec.content||"")}</div>
+              ${sec.key_points?.length?`<div class="masterclass-keypoints"><strong>Ideas esenciales</strong><ul>${sec.key_points.map(k=>`<li>${escapeHtml(k)}</li>`).join("")}</ul></div>`:""}
+              ${sec.example?`<div class="masterclass-example"><span>EJEMPLO TRABAJADO</span>${renderStudyParagraphs(sec.example)}</div>`:""}
+              ${sec.application?`<div class="masterclass-application"><span>APLICACIÓN / RELACIÓN</span>${renderStudyParagraphs(sec.application)}</div>`:""}
+              <button class="academy-understood-btn" data-understood="${i}">✓ MARCAR SECCIÓN COMO REVISADA</button>
             </div>
           </section>`).join("")}
-        ${p.key_terms?.length?`<section class="masterclass-terms academy-keyterms" id="mc-terms"><div class="panel-code">CONCEPTOS QUE DEBES DOMINAR</div><div>${p.key_terms.map(t=>`<span>${escapeHtml(t)}</span>`).join("")}</div></section>`:""}
+        ${p.key_terms?.length?`<section class="masterclass-terms academy-keyterms" id="mc-terms"><div class="panel-code">CONCEPTOS QUE DEBES PODER EXPLICAR</div><div>${p.key_terms.map(t=>`<span>${escapeHtml(t)}</span>`).join("")}</div></section>`:""}
       </div>
     </div>`;
 
@@ -1146,56 +1126,12 @@ function renderAcademyLearningView(view){
   });
   $$(".academy-understood-btn",box).forEach(btn=>btn.onclick=()=>{
     btn.classList.toggle("done");
-    btn.textContent=btn.classList.contains("done")?"✓ REVISADO":"✓ MARCAR COMO REVISADO";
+    btn.textContent=btn.classList.contains("done")?"✓ SECCIÓN REVISADA":"✓ MARCAR SECCIÓN COMO REVISADA";
   });
 }
 
 function renderStudyParagraphs(text){
   return String(text||"").split(/\n{2,}|\n/).map(x=>x.trim()).filter(Boolean).map(x=>`<p>${formatInline(x)}</p>`).join("");
-}
-
-function renderCourseDiagram(diagram,sections=[]){
-  const fallback={
-    title:"Secuencia esencial del tema",
-    caption:"Toca cada bloque para ampliar la idea.",
-    steps:(sections||[]).slice(0,6).map((s,i)=>({label:s.title||`Paso ${i+1}`,detail:(s.key_points||[]).slice(0,2).join(" · ")||String(s.content||"").slice(0,180)}))
-  };
-  const d=diagram&&Array.isArray(diagram.steps)&&diagram.steps.length?diagram:fallback;
-  return `<section class="academy-visual-panel">
-    <header class="academy-resource-head"><div><span>DIAGRAMA INTERACTIVO</span><h2>${escapeHtml(d.title||"Diagrama del tema")}</h2><p>${escapeHtml(d.caption||"Selecciona un bloque para ver su explicación.")}</p></div><div class="academy-resource-icon">◈</div></header>
-    <div class="academy-diagram-flow">
-      ${(d.steps||[]).slice(0,8).map((step,i)=>`
-        <div class="academy-diagram-step" tabindex="0">
-          <div class="academy-diagram-index">${String(i+1).padStart(2,"0")}</div>
-          <strong>${escapeHtml(step.label||`Paso ${i+1}`)}</strong>
-          <div class="academy-diagram-detail">${escapeHtml(step.detail||"")}</div>
-        </div>
-        ${i<(d.steps||[]).slice(0,8).length-1?`<div class="academy-diagram-arrow">→</div>`:""}`).join("")}
-    </div>
-    <div class="academy-resource-note">Este diagrama resume relaciones del material generado para esta clase. Úsalo para recordar el orden o la lógica general; vuelve al texto para estudiar los detalles.</div>
-  </section>`;
-}
-
-function renderCourseConceptMap(map,p){
-  const fallback={
-    center:p.title||state.currentLesson?.topic_name||"Tema",
-    branches:(p.sections||[]).slice(0,6).map(s=>({label:s.title,children:(s.key_points||[]).slice(0,3)}))
-  };
-  const m=map&&Array.isArray(map.branches)&&map.branches.length?map:fallback;
-  return `<section class="academy-visual-panel">
-    <header class="academy-resource-head"><div><span>MAPA CONCEPTUAL</span><h2>Cómo se conectan las ideas</h2><p>Toca una rama para desplegar sus conceptos relacionados.</p></div><div class="academy-resource-icon map">⌘</div></header>
-    <div class="academy-concept-map">
-      <div class="academy-map-center"><span>TEMA CENTRAL</span><strong>${escapeHtml(m.center||p.title||"Tema")}</strong></div>
-      <div class="academy-map-branches">
-        ${(m.branches||[]).slice(0,7).map((branch,i)=>`
-          <button class="academy-map-branch branch-${i%5}">
-            <span>${String(i+1).padStart(2,"0")}</span>
-            <strong>${escapeHtml(branch.label||"Concepto")}</strong>
-            <div>${(branch.children||[]).slice(0,4).map(x=>`<small>${escapeHtml(x)}</small>`).join("")}</div>
-          </button>`).join("")}
-      </div>
-    </div>
-  </section>`;
 }
 
 function courseVideoRecommendations(subject,item){
@@ -1230,7 +1166,7 @@ function courseVideoRecommendations(subject,item){
     ];
   }else sources=[
     ["Khan Academy","Khan Academy",`${topic} medicina Khan Academy`,"Fundamentos visuales de ciencias de la salud."],
-    ["Ninja Nerd","Ninja Nerd",`${topic} Ninja Nerd`,"Clases extensas con razonamiento y diagramas."],
+    ["Ninja Nerd","Ninja Nerd",`${topic} Ninja Nerd`,"Clases extensas con razonamiento paso a paso."],
     ["Osmosis","Osmosis",`${topic} Osmosis`,"Repaso visual y clínico del tema."]
   ];
   return sources.map(([source,channel,query,description])=>({
@@ -1312,7 +1248,7 @@ async function finishCoursePractice(){
   const st=state.coursePractice,item=state.currentLesson;
   const pct=st?.questions?.length?Math.round(st.score/st.questions.length*100):0;
   if(!Number(item.completed))await updateCourseLessonProgress(65,false,{stage:"practice",practice_score:pct});
-  $("#course-learning-body").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">✓</div><div class="eyebrow">PRÁCTICA COMPLETADA</div><h2>${st.score} de ${st.questions.length} correctas</h2><p>${pct>=75?"Buen dominio inicial. Ahora condensa la información antes del examen.":"La práctica detectó puntos que conviene repasar. Lee el resumen y vuelve a la clase si algo no está claro."}</p><div class="master-result-meter"><i style="width:${pct}%"></i></div><div class="master-stage-actions"><button id="practice-review-class" class="secondary-btn">REPASAR CLASE</button><button id="practice-go-summary" class="primary-btn">VER RESUMEN →</button></div></section>`;
+  $("#course-learning-body").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">✓</div><div class="eyebrow">PRÁCTICA COMPLETADA</div><h2>${st.score} de ${st.questions.length} correctas</h2><p>${pct>=75?"Buen dominio inicial. Ahora integra las ideas principales en la síntesis académica.":"La práctica detectó puntos que conviene repasar. Lee la síntesis y vuelve a la clase si algo no está claro."}</p><div class="master-result-meter"><i style="width:${pct}%"></i></div><div class="master-stage-actions"><button id="practice-review-class" class="secondary-btn">REPASAR CLASE</button><button id="practice-go-summary" class="primary-btn">VER SÍNTESIS →</button></div></section>`;
   $("#practice-review-class").onclick=()=>openCoursePhase("lesson");
   $("#practice-go-summary").onclick=()=>openCoursePhase("summary");
 }
@@ -1321,9 +1257,30 @@ async function renderCourseMasterclassSummary(){
   const p=state.courseLearningPack,item=state.currentLesson;
   if(!p)return;
   if(!Number(item.completed)&&Number(item.progress_percent||0)<80)await updateCourseLessonProgress(80,false,{stage:"summary"});
-  const sm=p.summary||{};
-  $("#course-learning-body").innerHTML=`<article class="master-summary"><header><div class="eyebrow">RESUMEN DE LA LECCIÓN</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><p>${escapeHtml(sm.overview||p.overview||"")}</p></header><section class="master-summary-grid"><div class="master-summary-box remember"><span>01</span><strong>Lo que debes recordar</strong><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div><div class="master-summary-box errors"><span>02</span><strong>Errores frecuentes</strong><ul>${(sm.common_errors||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div></section>${sm.connection?`<section class="master-summary-connection"><span>CONEXIÓN</span><p>${escapeHtml(sm.connection)}</p></section>`:""}${p.key_terms?.length?`<section class="master-summary-terms"><span>PALABRAS / IDEAS CLAVE</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}<footer class="master-summary-footer"><div><strong>¿Listo para comprobar que lo dominas?</strong><span>El examen tiene 10 preguntas y necesitas 8 correctas.</span></div><button id="summary-go-exam" class="primary-btn">INICIAR EXAMEN DE 10 PREGUNTAS →</button></footer></article>`;
-  $("#summary-go-exam").onclick=()=>openCoursePhase("exam");
+  const sm=p.summary||{},isDone=Number(item.completed)===1;
+  $("#course-learning-body").innerHTML=`<article class="master-summary v303-academic-summary">
+    <header><div class="eyebrow">SÍNTESIS ACADÉMICA</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><p>${escapeHtml(sm.overview||p.overview||"")}</p></header>
+    <section class="master-summary-grid">
+      <div class="master-summary-box remember"><span>01</span><strong>Ideas que integran el tema</strong><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>
+      <div class="master-summary-box errors"><span>02</span><strong>Confusiones que debes evitar</strong><ul>${(sm.common_errors||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>
+    </section>
+    ${sm.connection?`<section class="master-summary-connection"><span>CONEXIÓN ACADÉMICA</span><p>${escapeHtml(sm.connection)}</p></section>`:""}
+    ${p.key_terms?.length?`<section class="master-summary-terms"><span>CONCEPTOS ESENCIALES</span><div>${p.key_terms.map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>`:""}
+    <footer class="master-summary-footer">
+      <div><strong>${isDone?"Tema completado":"Cierra este tema cuando la clase ya tenga sentido para ti."}</strong><span>${isDone?"El siguiente tema de la ruta ya está disponible.":"Al finalizar se guardará el progreso y se desbloqueará el siguiente tema. No hay examen obligatorio."}</span></div>
+      <button id="summary-finish-topic" class="primary-btn">${isDone?"SIGUIENTE TEMA →":"FINALIZAR TEMA →"}</button>
+    </footer>
+  </article>`;
+  $("#summary-finish-topic").onclick=async()=>{
+    if(!Number(item.completed)){
+      await updateCourseLessonProgress(100,true,{stage:"completed",completed_at:new Date().toISOString()});
+      toast("Tema marcado como estudiado.");
+      const nextSide=$("#next-course-topic");if(nextSide)nextSide.classList.remove("hidden");
+    }
+    const ni=item.index+1;
+    if(ni<state.currentCourse.items.length)openCourseLesson(ni);
+    else navigate("course");
+  };
 }
 
 async function sendCourseLessonMessage(){
@@ -1333,7 +1290,7 @@ async function sendCourseLessonMessage(){
   const target=appendMessageTo("#course-messages","ai","Pensando...");target.classList.add("loading");
   const mode=["MATH","PHYS","ASTRO"].includes(s.code)?"science":s.code==="LANG"?"language":"tutor";
   const lang=s.code==="LANG"?` Idioma objetivo: ${LANGUAGE_OPTIONS.find(x=>x[0]===state.courseLanguage)?.[1]||"Inglés"}.`:"";
-  const message=`Duda dentro de un curso oficial. Materia: ${s.name}. Tema: ${item.topic_name}.${lang}\n\nPregunta del estudiante: ${raw}\n\nResponde únicamente sobre este tema. Explica con claridad y ejemplos, pero no adelantes el examen ni reveles sus respuestas.`;
+  const message=`Duda dentro de un curso oficial. Materia: ${s.name}. Tema: ${item.topic_name}.${lang}\n\nPregunta del estudiante: ${raw}\n\nResponde únicamente sobre este tema. Explica con claridad, rigor académico y ejemplos congruentes con la clase.`;
   try{const r=await streamSpecialAI({mode,message,conversationId:state.courseConversation,subjectId:s.id,title:`Dudas — ${item.topic_name}`,context:{course:true,topic:item.topic_name},target});state.courseConversation=r.conversationId}catch(err){target.classList.remove("loading");setMessageContent(target,"ai",`Error: ${err.message}`)}
 }
 
@@ -1349,69 +1306,17 @@ async function updateCourseLessonProgress(progress,completed=false,lastPosition=
 function updateMasterProgressStages(){
   const p=Number(state.currentLesson?.progress_percent||0),done=Number(state.currentLesson?.completed)===1;
   const nodes=$$(".master-progress-stages span");
-  const checks=[p>=35||done,p>=65||done,p>=80||done,done];
-  nodes.forEach((n,i)=>n.classList.toggle("done",checks[i]));
-}
-
-async function startCourseFinalExam(){
-  if(!coursePhaseAllowed("exam")){toast("Primero completa clase, práctica y resumen.",true);return}
-  const item=state.currentLesson,s=state.currentSubject;
-  const area=$("#course-learning-body"),key=courseOfflineExamKey(item,s);
-  area.innerHTML=`<div class="course-exam-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando examen final</strong><span>${escapeHtml(item.topic_name)}</span><small>10 preguntas · necesitas 8 correctas para aprobar</small></div>`;
-  try{
-    let d=await offlineGetJson(key);
-    if(!d){
-      if(!navigator.onLine)throw new Error("Este examen todavía no se ha preparado. Conéctate una vez para generarlo; después podrás repetirlo sin internet.");
-      d=await api("/api/ai/exam",{method:"POST",body:{subject:s.name,topic:item.topic_name,count:10,difficulty:Number(item.difficulty||item.difficulty_min||5),language:s.code==="LANG"?state.courseLanguage:null}});
-      if((d.questions||[]).length>=10)await offlinePutJson(key,d);
-    }
-    state.courseExam={questions:(d.questions||[]).slice(0,10),answers:{},started_at:new Date().toISOString(),subject:s.name,topic:item.topic_name,current:0};
-    if(state.courseExam.questions.length<10)throw new Error("El examen no contiene las 10 preguntas completas.");
-    renderCourseFinalExam();
-  }catch(err){area.innerHTML=`<div class="masterclass-error"><strong>No pude preparar el examen completo.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-exam" class="primary-btn">INTENTAR DE NUEVO</button></div>`;$("#retry-course-exam").onclick=startCourseFinalExam}
-}
-
-function renderCourseFinalExam(){
-  const e=state.courseExam;if(!e)return;
-  const i=e.current,q=e.questions[i],selected=e.answers[`cq${i}`];
-  $("#course-learning-body").innerHTML=`<section class="master-exam-shell"><div class="master-exam-head"><div><div class="eyebrow">EXAMEN FINAL · ${escapeHtml(e.subject.toUpperCase())}</div><strong>${escapeHtml(e.topic)}</strong></div><span>${i+1} / 10</span></div><div class="master-exam-progress"><i style="width:${i*10}%"></i></div><article class="master-exam-question"><div class="master-exam-number">${String(i+1).padStart(2,"0")}</div><h2>${escapeHtml(q.stem)}</h2><div class="master-exam-options">${q.options.map((op,j)=>`<button class="master-exam-option ${selected===j?'selected':''}" data-i="${j}"><span>${String.fromCharCode(65+j)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div></article><footer class="master-exam-footer"><button id="exam-back-summary" class="ghost-btn">← RESUMEN</button><button id="exam-next-question" class="primary-btn" ${selected===undefined?'disabled':''}>${i===9?'CALIFICAR EXAMEN':'SIGUIENTE →'}</button></footer></section>`;
-  $$(".master-exam-option").forEach(btn=>btn.onclick=()=>{e.answers[`cq${i}`]=Number(btn.dataset.i);renderCourseFinalExam()});
-  $("#exam-back-summary").onclick=()=>openCoursePhase("summary");
-  $("#exam-next-question").onclick=()=>{if(e.answers[`cq${i}`]===undefined)return;if(i<9){e.current++;renderCourseFinalExam()}else finishCourseFinalExam()};
-}
-
-async function finishCourseFinalExam(){
-  const e=state.courseExam;if(!e)return;
-  let score=0;
-  e.questions.forEach((q,i)=>{if(e.answers[`cq${i}`]===Number(q.correctIndex))score++});
-  const pct=Math.round(score/10*100),passed=score>=8;
-  await api("/api/exams/record",{method:"POST",body:{title:`Curso · ${e.subject} · ${e.topic}`,settings:{course:true,topic_id:state.currentLesson.topic_id,lesson_id:state.currentLesson.lesson_id,pass_score:80,question_count:10},started_at:e.started_at,score,max_score:10,percentage:pct,questions:e.questions,answers:Object.fromEntries(Object.entries(e.answers).map(([k,v])=>[k.replace("cq","q"),v]))}}).catch(()=>{});
-  if(passed){
-    await updateCourseLessonProgress(100,true,{stage:"exam_passed",score,max_score:10,percentage:pct});
-    $("#course-pass-status").textContent=`APROBADO · ${score}/10 ✓`;$("#course-pass-status").classList.add("passed");$("#next-course-topic").classList.remove("hidden");
-  }else await updateCourseLessonProgress(80,false,{stage:"exam_retry",score,max_score:10,percentage:pct});
-  const review=e.questions.map((q,i)=>{const chosen=e.answers[`cq${i}`],ok=chosen===Number(q.correctIndex);return `<details class="master-exam-review ${ok?'correct':'wrong'}"><summary><span>${ok?'✓':'×'} Pregunta ${i+1}</span><strong>${escapeHtml(q.stem)}</strong></summary><div><p><b>Tu respuesta:</b> ${escapeHtml(q.options[chosen]||"Sin respuesta")}</p><p><b>Correcta:</b> ${escapeHtml(q.options[q.correctIndex]||"")}</p><p>${escapeHtml(q.explanation||"")}</p></div></details>`}).join("");
-  $("#course-learning-body").innerHTML=`<section class="master-exam-result"><div class="master-result-badge ${passed?'passed':'failed'}">${passed?'✓':'↻'}</div><div class="eyebrow">RESULTADO DEL EXAMEN</div><h1>${score} / 10 · ${pct}%</h1><p>${passed?'Aprobaste el tema. El siguiente ya está desbloqueado.':'Aún no alcanzas 8/10. Revisa tus errores, repasa la clase y vuelve a intentarlo.'}</p><div class="master-exam-review-list">${review}</div><div class="master-stage-actions"><button id="result-summary" class="secondary-btn">VOLVER AL RESUMEN</button>${passed?`<button id="result-next-topic" class="primary-btn">SIGUIENTE TEMA →</button>`:`<button id="result-retry-exam" class="primary-btn">REPETIR EXAMEN</button>`}</div></section>`;
-  $("#result-summary").onclick=()=>openCoursePhase("summary");
-  $("#result-next-topic")?.addEventListener("click",()=>{$("#next-course-topic").click()});
-  $("#result-retry-exam")?.addEventListener("click",startCourseFinalExam);
-  updateMasterProgressStages();
+  const checks=[p>=35||done,p>=65||done,done];
+  nodes.forEach((n,i)=>n.classList.toggle("done",!!checks[i]));
 }
 
 function printCourseMaterialPdf(){
   const p=state.courseLearningPack,item=state.currentLesson,s=state.currentSubject;if(!p)return toast("La clase todavía no está lista.",true);
   const win=window.open("","_blank");if(!win)return toast("El navegador bloqueó la ventana. Permite ventanas emergentes para guardar el PDF.",true);try{win.opener=null}catch{}
   const summary=p.summary||{};
-  const sections=(p.sections||[]).map((sec,i)=>`<section><h2>${i+1}. ${escapeHtml(sec.title||"")}</h2>${renderStudyParagraphs(sec.content||"")}${sec.key_points?.length?`<h3>Puntos clave</h3><ul>${sec.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${sec.example?`<div class="box"><b>Ejemplo</b>${renderStudyParagraphs(sec.example)}</div>`:""}${sec.application?`<div class="box"><b>Aplicación</b>${renderStudyParagraphs(sec.application)}</div>`:""}</section>`).join("");
-  const diagram=p.diagram&&p.diagram.steps?.length?p.diagram:{title:"Secuencia esencial del tema",steps:(p.sections||[]).slice(0,6).map(x=>({label:x.title,detail:(x.key_points||[]).slice(0,2).join(" · ")}))};
-  const map=p.concept_map&&p.concept_map.branches?.length?p.concept_map:{center:p.title,branches:(p.sections||[]).slice(0,6).map(x=>({label:x.title,children:(x.key_points||[]).slice(0,3)}))};
-  const videos=courseVideoRecommendations(s,item);
-
-  const diagramHtml=`<section class="visual"><h2>Diagrama del tema</h2><h3>${escapeHtml(diagram.title||"")}</h3><div class="flow">${(diagram.steps||[]).map((x,i)=>`<div><b>${i+1}. ${escapeHtml(x.label||"")}</b><span>${escapeHtml(x.detail||"")}</span></div>${i<(diagram.steps||[]).length-1?`<em>→</em>`:""}`).join("")}</div></section>`;
-  const mapHtml=`<section class="visual"><h2>Mapa conceptual</h2><div class="mapcenter">${escapeHtml(map.center||p.title||"")}</div><div class="mapbranches">${(map.branches||[]).map(b=>`<div><b>${escapeHtml(b.label||"")}</b><ul>${(b.children||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`).join("")}</div></section>`;
-  const videoHtml=`<section><h2>Videos complementarios</h2><p>Estos enlaces abren búsquedas del tema en YouTube. Requieren internet.</p><ul>${videos.map(v=>`<li><b>${escapeHtml(v.source)}:</b> ${escapeHtml(v.query)} — ${escapeHtml(v.url)}</li>`).join("")}</ul></section>`;
-
-  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||item.topic_name)}</title><style>@page{margin:18mm}body{font-family:Arial,'Noto Sans',sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:12px;margin-bottom:20px}.brand{font-size:9pt;letter-spacing:.12em;color:#168c75;font-weight:bold}h1{font-size:25pt;margin:6px 0}h2{font-size:16pt;margin-top:24px;color:#153f47}h3{font-size:11pt;color:#168c75}p{margin:7px 0}li{margin:4px 0}.objectives,.box,.summary,.visual{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 13px;margin:12px 0}.meta{color:#5c6872;font-size:9pt}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}.flow{display:flex;align-items:stretch;gap:5px;flex-wrap:wrap}.flow>div{border:1px solid #cad6da;background:white;padding:8px;min-width:110px;flex:1}.flow span,.flow b{display:block}.flow span{font-size:9pt;margin-top:4px;color:#52616b}.flow em{align-self:center;color:#168c75;font-weight:bold}.mapcenter{text-align:center;background:#153f47;color:white;padding:9px;font-weight:bold}.mapbranches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:7px}.mapbranches>div{background:white;border:1px solid #cad6da;padding:8px}footer{margin-top:24px;padding-top:10px;border-top:1px solid #ccd6da;color:#69767f;font-size:8pt}@media print{button{display:none}}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL MULTIMEDIA DE ESTUDIO</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><div class="meta">Materia: ${escapeHtml(s.name)} · Tema ${item.index+1} de ${state.currentCourse.total} · ${new Date().toLocaleDateString("es-GT")}</div><p>${escapeHtml(p.overview||"")}</p></header><div class="objectives"><h3>Objetivos</h3><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${sections}${diagramHtml}${mapHtml}${p.key_terms?.length?`<section class="terms"><h2>Conceptos clave</h2>${p.key_terms.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section>`:""}<section class="summary"><h2>Resumen de la lección</h2><p>${escapeHtml(summary.overview||"")}</p><h3>Debes recordar</h3><ul>${(summary.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${videoHtml}<footer>Material educativo generado en MED AI DALTON. Los videos son recursos web complementarios y su disponibilidad depende de terceros. Para guardar este documento selecciona “Guardar como PDF” en el cuadro de impresión.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  const coverage=(p.coverage||p.scope_coverage||[]).filter(Boolean);
+  const sections=(p.sections||[]).map((sec,i)=>`<section><h2>${i+1}. ${escapeHtml(sec.title||"")}</h2>${sec.subtopics?.length?`<p class="subtopics"><b>Subtemas:</b> ${sec.subtopics.map(escapeHtml).join(" · ")}</p>`:""}${renderStudyParagraphs(sec.content||"")}${sec.key_points?.length?`<h3>Ideas esenciales</h3><ul>${sec.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${sec.example?`<div class="box"><b>Ejemplo trabajado</b>${renderStudyParagraphs(sec.example)}</div>`:""}${sec.application?`<div class="box"><b>Aplicación / relación</b>${renderStudyParagraphs(sec.application)}</div>`:""}</section>`).join("");
+  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||item.topic_name)}</title><style>@page{margin:18mm}body{font-family:Arial,'Noto Sans',sans-serif;color:#17212b;line-height:1.62;font-size:11pt}header{border-bottom:2px solid #8b6f2f;padding-bottom:12px;margin-bottom:20px}.brand{font-size:9pt;letter-spacing:.12em;color:#6e5726;font-weight:bold}h1{font-size:25pt;margin:6px 0}h2{font-size:16pt;margin-top:24px;color:#263440}h3{font-size:11pt;color:#6e5726}p{margin:7px 0}li{margin:4px 0}.objectives,.box,.summary,.coverage{background:#f6f7f8;border-left:3px solid #8b6f2f;padding:10px 13px;margin:12px 0}.meta{color:#5c6872;font-size:9pt}.terms span{display:inline-block;border:1px solid #ccd6da;padding:4px 7px;margin:3px;font-size:9pt}.coverage ul{columns:2;column-gap:24px}.subtopics{font-size:9pt;color:#59656f}footer{margin-top:24px;padding-top:10px;border-top:1px solid #ccd6da;color:#69767f;font-size:8pt}@media print{button{display:none}}</style></head><body><header><div class="brand">MED AI DALTON · CLASE ACADÉMICA</div><h1>${escapeHtml(p.title||item.topic_name)}</h1><div class="meta">Materia: ${escapeHtml(s.name)} · Tema ${item.index+1} de ${state.currentCourse.total} · ${new Date().toLocaleDateString("es-GT")}</div><p>${escapeHtml(p.overview||"")}</p></header><div class="objectives"><h3>Objetivos de aprendizaje</h3><ul>${(p.objectives||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${coverage.length?`<section class="coverage"><h3>Alcance de la clase</h3><ul>${coverage.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>`:""}${sections}${p.key_terms?.length?`<section class="terms"><h2>Conceptos esenciales</h2>${p.key_terms.map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section>`:""}<section class="summary"><h2>Síntesis académica</h2><p>${escapeHtml(summary.overview||"")}</p><h3>Ideas que debes integrar</h3><ul>${(summary.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>${summary.connection?`<h3>Conexión académica</h3><p>${escapeHtml(summary.connection)}</p>`:""}</section><footer>Material académico generado en MED AI DALTON para estudio personal. Para guardarlo selecciona “Guardar como PDF” en el cuadro de impresión.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
   win.document.open();win.document.write(doc);win.document.close();
 }
 
@@ -1491,7 +1396,7 @@ function renderUniversitySourceLibrary(){
     </section>
     <section class="university-saving-strip">
       <div><span>⚡</span><strong>1 análisis inicial</strong><small>La IA procesa el material al importarlo.</small></div>
-      <div><span>☁</span><strong>Clase guardada</strong><small>Resumen, mapa, ejercicios y examen quedan en D1.</small></div>
+      <div><span>☁</span><strong>Clase guardada</strong><small>Clase, práctica y síntesis quedan guardadas en D1.</small></div>
       <div><span>↻</span><strong>Repaso sin regenerar</strong><small>Volver a abrir el material no gasta IA.</small></div>
     </section>
     <section class="university-library-section">
@@ -1582,9 +1487,9 @@ function renderUniversityImportForm(){
           <span>MED AI CREARÁ Y GUARDARÁ</span>
           <div><b>01</b><strong>Resumen fiel</strong><small>Qué dice realmente el material</small></div>
           <div><b>02</b><strong>Clase organizada</strong><small>Del concepto básico a la aplicación</small></div>
-          <div><b>03</b><strong>Diagrama + mapa</strong><small>Relaciones visuales</small></div>
+          <div><b>03</b><strong>Estructura académica</strong><small>Conceptos conectados con coherencia</small></div>
           <div><b>04</b><strong>8 ejercicios</strong><small>Práctica sin gastar IA después</small></div>
-          <div><b>05</b><strong>Examen de 10</strong><small>Autoevaluación reutilizable</small></div>
+          <div><b>05</b><strong>Síntesis final</strong><small>Integración para repasar</small></div>
           <div><b>06</b><strong>Videos para ampliar</strong><small>Búsquedas sugeridas por tema</small></div>
           <div class="university-import-preview-foot">La clase original de MED AI permanece intacta. Este material se agrega como una fuente adicional de estudio.</div>
         </aside>
@@ -1653,7 +1558,7 @@ async function importUniversitySource(type){
     }
 
     btn.disabled=true;
-    btn.innerHTML=`<span class="university-spin">✦</span><div><strong>ANALIZANDO TU MATERIAL…</strong><small>Resumen → clase → mapa → práctica → examen</small></div>`;
+    btn.innerHTML=`<span class="university-spin">✦</span><div><strong>ANALIZANDO TU MATERIAL…</strong><small>Clase académica → práctica → síntesis</small></div>`;
     const body=$("#university-source-body");
     const progress=document.createElement("div");
     progress.className="university-analysis-progress";
@@ -1807,47 +1712,56 @@ async function completeLibraryVisualsInBackgroundV301(id){
 function renderLibrarySimpleSummary(){
   const p=state.universitySourcePack,sm=p?.summary||{},sections=libraryEffectiveSectionsV301(),src=p?.source_reference||{},q=p?.quality||{};
   const range=src.page_start&&src.page_end?`Páginas ${src.page_start}-${src.page_end}`:(src.study_scope||"");
+  const covered=Number(q.coverage_percent||0);
   $("#university-study-content").innerHTML=`
-    <section class="v302-notes-toolbar">
-      <div><strong>Apuntes guardados</strong><span>${escapeHtml(academicTextV302(src.name||"Biblioteca"))}${range?` · ${escapeHtml(academicTextV302(range))}`:""}</span></div>
+    <section class="v302-notes-toolbar v303-notes-toolbar">
+      <div><strong>Apuntes académicos guardados</strong><span>${escapeHtml(academicTextV302(src.name||"Biblioteca"))}${range?` · ${escapeHtml(academicTextV302(range))}`:""}</span></div>
       <div><button id="v301-edit-notes" class="secondary-btn">EDITAR APUNTES</button><button id="v301-export-word" class="secondary-btn">EXPORTAR WORD</button><button id="v301-print-pdf" class="secondary-btn">GUARDAR PDF</button></div>
     </section>
-    <article class="v302-paper">
-      <header class="v302-paper-head">
-        <div class="v302-paper-label">MED AI DALTON · APUNTES DE ESTUDIO</div>
-        <h1>${escapeHtml(academicTextV302(p?.title||"Resumen de estudio"))}</h1>
+    <article class="v302-paper v303-academic-paper">
+      <header class="v302-paper-head v303-paper-head">
+        <div class="v302-paper-label">MED AI DALTON · APUNTES ACADÉMICOS</div>
+        <h1>${escapeHtml(academicTextV302(p?.title||"Apuntes académicos"))}</h1>
         <div class="v302-paper-source">
           <span><b>Fuente:</b> ${escapeHtml(academicTextV302(src.name||"Material seleccionado"))}</span>
           ${range?`<span><b>Fragmento:</b> ${escapeHtml(academicTextV302(range))}</span>`:""}
           ${p?.source_lock?.domain?`<span><b>Materia:</b> ${escapeHtml(academicTextV302(p.source_lock.domain))}</span>`:""}
+          <span><b>Tiempo estimado:</b> ${Number(p?.estimated_minutes||30)} min</span>
+          ${covered?`<span><b>Cobertura detectada:</b> ${Math.min(100,covered)}%</span>`:""}
         </div>
-        ${sm.overview||p?.overview?`<div class="v302-paper-intro">${academicParagraphsV302(sm.overview||p.overview)}</div>`:""}
+        ${sm.overview||p?.overview?`<div class="v302-paper-intro v303-paper-intro">${academicParagraphsV302(sm.overview||p.overview)}</div>`:""}
       </header>
 
-      <main class="v302-paper-body">
-        ${sections.map((s,i)=>`<section class="v302-paper-section" data-library-section="${i}">
-          <div class="v302-paper-section-head"><span>${i+1}</span><div><h2>${escapeHtml(academicTextV302(s.title))}</h2>${s.page_refs?.length?`<small>${escapeHtml(academicPageLabelV302(s.page_refs))}</small>`:""}</div></div>
-          <div class="v302-paper-prose">${academicParagraphsV302(s.summary||"")}</div>
-          ${s.key_points?.length?`<div class="v302-paper-keypoints"><h3>Ideas clave</h3><ul>${s.key_points.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></div>`:""}
-          ${s.important_data?.length?`<div class="v302-paper-data"><h3>Datos que conviene recordar</h3><ul>${s.important_data.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></div>`:""}
+      ${sections.length?`<nav class="v303-library-outline">
+        <div><span>ÍNDICE ACADÉMICO</span><strong>${sections.length} apartados</strong></div>
+        <ol>${sections.map((s,i)=>`<li><button data-library-jump="${i}"><span>${String(i+1).padStart(2,"0")}</span>${escapeHtml(academicTextV302(s.title))}</button></li>`).join("")}</ol>
+      </nav>`:""}
+
+      <main class="v302-paper-body v303-paper-body">
+        ${sections.map((s,i)=>`<section class="v302-paper-section v303-paper-section" data-library-section="${i}" id="library-section-${i}">
+          <div class="v302-paper-section-head"><span>${String(i+1).padStart(2,"0")}</span><div><h2>${escapeHtml(academicTextV302(s.title))}</h2>${s.page_refs?.length?`<small>${escapeHtml(academicPageLabelV302(s.page_refs))}</small>`:""}${s.source_headings?.length?`<small class="v303-source-headings">Cubre: ${s.source_headings.map(x=>escapeHtml(academicTextV302(x))).join(" · ")}</small>`:""}</div></div>
+          <div class="v302-paper-prose v303-paper-prose">${academicParagraphsV302(s.summary||"")}</div>
+          ${s.key_points?.length?`<div class="v302-paper-keypoints v303-paper-keypoints"><h3>Ideas esenciales</h3><ul>${s.key_points.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></div>`:""}
+          ${s.important_data?.length?`<div class="v302-paper-data v303-paper-data"><h3>Datos, criterios o relaciones importantes</h3><ul>${s.important_data.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></div>`:""}
           ${s.personal_note?`<div class="v302-paper-personal"><h3>Mi nota</h3><p>${escapeHtml(academicTextV302(s.personal_note))}</p></div>`:""}
         </section>`).join("")}
 
-        ${academicAidsHtmlV302(p?.study_aids||{},"Recursos de apoyo del tema")}
+        ${academicAidsHtmlV302(p?.study_aids||{},"Recursos académicos de apoyo")}
 
-        ${(sm.must_remember||[]).length?`<section class="v302-paper-review"><h2>Repaso final</h2><p>Estas son las ideas que conviene dominar después de leer el resumen.</p><ol>${sm.must_remember.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ol></section>`:""}
+        ${(sm.must_remember||[]).length?`<section class="v302-paper-review v303-paper-review"><div class="panel-code">INTEGRACIÓN FINAL</div><h2>Qué debes poder explicar después de estudiar</h2><ol>${sm.must_remember.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ol></section>`:""}
 
-        ${sm.final_synthesis?`<section class="v302-paper-conclusion"><h2>Síntesis del tema</h2>${academicParagraphsV302(sm.final_synthesis)}</section>`:""}
+        ${sm.final_synthesis?`<section class="v302-paper-conclusion v303-paper-conclusion"><div class="panel-code">CIERRE DEL TEMA</div><h2>Síntesis académica</h2>${academicParagraphsV302(sm.final_synthesis)}</section>`:""}
       </main>
 
-      <footer class="v302-paper-footer">
-        <span>Resumen creado únicamente con el fragmento seleccionado.</span>
-        ${q.compression_percent!==null&&q.compression_percent!==undefined?`<span>Reducción aproximada del contenido: ${Math.max(0,Number(q.compression_percent||0))}%</span>`:""}
+      <footer class="v302-paper-footer v303-paper-footer">
+        <span>Apuntes creados únicamente a partir del fragmento seleccionado y organizados para estudio académico.</span>
+        ${q.headings_total?`<span>${Number(q.headings_covered||0)} de ${Number(q.headings_total||0)} subtítulos detectados cubiertos.</span>`:""}
       </footer>
     </article>`;
   $("#v301-edit-notes")?.addEventListener("click",openLibraryEditorV301);
   $("#v301-export-word")?.addEventListener("click",exportLibraryWordV301);
   $("#v301-print-pdf")?.addEventListener("click",printLibraryNotesV301);
+  $$("[data-library-jump]").forEach(btn=>btn.onclick=()=>$("#library-section-"+btn.dataset.libraryJump)?.scrollIntoView({behavior:"smooth",block:"start"}));
 }
 function renderLibrarySimpleDiagrams(){
   state.librarySimpleTab="summary";
@@ -1861,7 +1775,7 @@ function renderLibrarySimpleStudyPack(tab="summary"){
   const p=state.universitySourcePack,src=state.universitySourceRecord;if(!p||!src)return;
   state.librarySimpleTab="summary";
   const body=$("#university-source-body");
-  body.innerHTML=`<section class="university-study-head v302-library-head"><button id="uni-study-back" class="ghost-btn">← MI BIBLIOTECA</button><div class="university-study-title"><div><span>BIBLIOTECA · RESUMEN GUARDADO</span><h2>${escapeHtml(academicTextV302(p.title||src.title||"Apuntes"))}</h2><p>Apuntes claros, resumidos y basados únicamente en las páginas que seleccionaste.</p></div></div><div class="university-study-actions"><span>Guardado · abrir de nuevo no usa IA</span></div></section><main id="university-study-content" class="university-study-content v302-library-content"></main>`;
+  body.innerHTML=`<section class="university-study-head v302-library-head"><button id="uni-study-back" class="ghost-btn">← MI BIBLIOTECA</button><div class="university-study-title"><div><span>BIBLIOTECA · APUNTES ACADÉMICOS</span><h2>${escapeHtml(academicTextV302(p.title||src.title||"Apuntes"))}</h2><p>Apuntes académicos, coherentes y basados únicamente en las páginas que seleccionaste, organizados para comprender y repasar.</p></div></div><div class="university-study-actions"><span>Guardado · abrir de nuevo no usa IA</span></div></section><main id="university-study-content" class="university-study-content v302-library-content"></main>`;
   $("#uni-study-back").onclick=renderUniversitySourceLibrary;
   renderLibrarySimpleSummary();
 }
@@ -1882,12 +1796,9 @@ function renderUniversityStudyPack(tab="summary"){
       <div class="university-study-actions"><button id="uni-print-source" class="secondary-btn">▣ GUARDAR PDF</button><span>☁ Guardada · abrir de nuevo no regenera</span></div>
     </section>
     <nav class="university-study-tabs">
-      <button data-tab="summary" class="${tab==="summary"?"active":""}"><span>◎</span>RESUMEN</button>
+      <button data-tab="summary" class="${tab==="summary"?"active":""}"><span>◎</span>SÍNTESIS</button>
       <button data-tab="lesson" class="${tab==="lesson"?"active":""}"><span>📖</span>CLASE</button>
-      <button data-tab="diagram" class="${tab==="diagram"?"active":""}"><span>◈</span>DIAGRAMA</button>
-      <button data-tab="map" class="${tab==="map"?"active":""}"><span>⌘</span>MAPA</button>
       <button data-tab="practice" class="${tab==="practice"?"active":""}"><span>✦</span>PRÁCTICA</button>
-      <button data-tab="exam" class="${tab==="exam"?"active":""}"><span>✓</span>EXAMEN</button>
       <button data-tab="videos" class="${tab==="videos"?"active":""}"><span>▶</span>VIDEOS</button>
       <button data-tab="ask" class="${tab==="ask"?"active":""}"><span>?</span>PREGUNTAR</button>
     </nav>
@@ -1898,10 +1809,7 @@ function renderUniversityStudyPack(tab="summary"){
 
   if(tab==="summary")renderUniversitySummary();
   if(tab==="lesson")renderUniversityLesson();
-  if(tab==="diagram")renderUniversityDiagram();
-  if(tab==="map")renderUniversityMap();
   if(tab==="practice")startUniversityPractice();
-  if(tab==="exam")startUniversityExam();
   if(tab==="videos")renderUniversityVideos();
   if(tab==="ask")renderUniversitySourceChat();
 }
@@ -1910,15 +1818,15 @@ function renderUniversitySummary(){
   const p=state.universitySourcePack,sm=p.summary||{};
   $("#university-study-content").innerHTML=`
     <article class="university-summary-view">
-      <div class="university-summary-hero"><div><span>RESUMEN DEL MATERIAL</span><h3>${escapeHtml(p.title||"")}</h3><p>${escapeHtml(sm.overview||p.overview||"")}</p></div><div class="university-summary-score"><b>${Number(p.estimated_minutes||30)}</b><small>min de estudio</small></div></div>
+      <div class="university-summary-hero"><div><span>SÍNTESIS ACADÉMICA DEL MATERIAL</span><h3>${escapeHtml(p.title||"")}</h3><p>${escapeHtml(sm.overview||p.overview||"")}</p></div><div class="university-summary-score"><b>${Number(p.estimated_minutes||30)}</b><small>min de estudio</small></div></div>
       <div class="university-summary-grid">
         <section class="remember"><span>01</span><strong>Lo indispensable</strong><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
-        <section class="exam"><span>02</span><strong>Probable evaluación</strong><ul>${(p.exam_focus||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
+        <section class="exam"><span>02</span><strong>Conceptos de alta prioridad</strong><ul>${(p.exam_focus||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
         <section class="errors"><span>03</span><strong>Confusiones frecuentes</strong><ul>${(sm.common_errors||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>
         <section class="connect"><span>04</span><strong>Conexión con el curso</strong><p>${escapeHtml(sm.connection||"Este material complementa el tema actual.")}</p></section>
       </div>
       <section class="university-keyterms"><span>CONCEPTOS QUE DEBES PODER EXPLICAR</span><div>${(p.key_terms||[]).map(x=>`<b>${escapeHtml(x)}</b>`).join("")}</div></section>
-      <footer class="university-summary-next"><div><strong>Ahora estudia la clase completa</strong><small>Después podrás practicar y examinarte sin volver a usar IA.</small></div><button id="uni-summary-to-lesson" class="primary-btn">IR A LA CLASE →</button></footer>
+      <footer class="university-summary-next"><div><strong>Ahora estudia la clase completa</strong><small>Después podrás practicar y volver a esta síntesis sin volver a usar IA.</small></div><button id="uni-summary-to-lesson" class="primary-btn">IR A LA CLASE →</button></footer>
     </article>`;
   $("#uni-summary-to-lesson").onclick=()=>renderUniversityStudyPack("lesson");
 }
@@ -1952,23 +1860,6 @@ function renderUniversityLesson(){
   });
 }
 
-function renderUniversityDiagram(){
-  const p=state.universitySourcePack;
-  $("#university-study-content").innerHTML=renderCourseDiagram(p.diagram,p.sections||[]);
-  $$(".academy-diagram-step",$("#university-study-content")).forEach(step=>step.onclick=()=>{
-    step.classList.toggle("selected");step.querySelector(".academy-diagram-detail")?.classList.toggle("open");
-  });
-}
-
-function renderUniversityMap(){
-  const p=state.universitySourcePack;
-  $("#university-study-content").innerHTML=renderCourseConceptMap(p.concept_map,p);
-  $$(".academy-map-branch",$("#university-study-content")).forEach(branch=>branch.onclick=()=>{
-    if(branch.classList.contains("expanded"))branch.classList.remove("expanded");
-    else{$$(".academy-map-branch",$("#university-study-content")).forEach(x=>x.classList.remove("expanded"));branch.classList.add("expanded")}
-  });
-}
-
 function startUniversityPractice(){
   const p=state.universitySourcePack;
   state.universityPractice={index:0,score:0,answers:{},questions:(p.practice||[]).slice(0,8)};
@@ -1991,35 +1882,9 @@ function answerUniversityPractice(choice){
 }
 function renderUniversityPracticeResult(){
   const st=state.universityPractice,pct=st.questions.length?Math.round(st.score/st.questions.length*100):0;
-  $("#university-study-content").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">✓</div><div class="eyebrow">PRÁCTICA TERMINADA · SIN IA ADICIONAL</div><h2>${st.score} de ${st.questions.length} correctas</h2><p>${pct>=75?"Buen dominio del material. Puedes ir al examen de repaso.":"Conviene volver al resumen o a la clase antes del examen."}</p><div class="master-result-meter"><i style="width:${pct}%"></i></div><div class="master-stage-actions"><button id="uni-practice-review" class="secondary-btn">REPASAR CLASE</button><button id="uni-practice-exam" class="primary-btn">EXAMEN DE 10 →</button></div></section>`;
+  $("#university-study-content").innerHTML=`<section class="master-stage-complete"><div class="master-stage-check">✓</div><div class="eyebrow">PRÁCTICA TERMINADA · SIN IA ADICIONAL</div><h2>${st.score} de ${st.questions.length} correctas</h2><p>${pct>=75?"Buen dominio del material. Vuelve a la síntesis para integrar lo aprendido.":"Conviene repasar la clase y luego revisar la síntesis para conectar las ideas."}</p><div class="master-result-meter"><i style="width:${pct}%"></i></div><div class="master-stage-actions"><button id="uni-practice-review" class="secondary-btn">REPASAR CLASE</button><button id="uni-practice-summary" class="primary-btn">VER SÍNTESIS →</button></div></section>`;
   $("#uni-practice-review").onclick=()=>renderUniversityStudyPack("lesson");
-  $("#uni-practice-exam").onclick=()=>renderUniversityStudyPack("exam");
-}
-
-function startUniversityExam(){
-  const p=state.universitySourcePack;
-  state.universityExam={questions:(p.exam||[]).slice(0,10),answers:{},current:0,started_at:new Date().toISOString()};
-  if(state.universityExam.questions.length<10){
-    $("#university-study-content").innerHTML=`<div class="masterclass-error"><strong>Esta clase guardada no contiene 10 preguntas completas.</strong><p>Puedes seguir usando resumen, clase y práctica.</p></div>`;return;
-  }
-  renderUniversityExamQuestion();
-}
-function renderUniversityExamQuestion(){
-  const e=state.universityExam,i=e.current,q=e.questions[i],selected=e.answers[`q${i}`],box=$("#university-study-content");
-  box.innerHTML=`<section class="master-exam-shell"><div class="master-exam-head"><div><div class="eyebrow">EXAMEN DE REPASO · MATERIAL UNIVERSITARIO</div><strong>${escapeHtml(state.universitySourcePack?.title||"")}</strong></div><span>${i+1} / 10</span></div><div class="master-exam-progress"><i style="width:${i*10}%"></i></div><article class="master-exam-question"><div class="master-exam-number">${String(i+1).padStart(2,"0")}</div><h2>${escapeHtml(q.stem||q.question||"")}</h2><div class="master-exam-options">${(q.options||[]).map((op,j)=>`<button class="master-exam-option ${selected===j?"selected":""}" data-i="${j}"><span>${String.fromCharCode(65+j)}</span><strong>${escapeHtml(op)}</strong></button>`).join("")}</div></article><footer class="master-exam-footer"><button id="uni-exam-review" class="ghost-btn">← RESUMEN</button><button id="uni-exam-next" class="primary-btn" ${selected===undefined?"disabled":""}>${i===9?"CALIFICAR":"SIGUIENTE →"}</button></footer></section>`;
-  $$(".master-exam-option",box).forEach(btn=>btn.onclick=()=>{e.answers[`q${i}`]=Number(btn.dataset.i);renderUniversityExamQuestion()});
-  $("#uni-exam-review").onclick=()=>renderUniversityStudyPack("summary");
-  $("#uni-exam-next").onclick=()=>{if(e.answers[`q${i}`]===undefined)return;if(i<9){e.current++;renderUniversityExamQuestion()}else finishUniversityExam()};
-}
-async function finishUniversityExam(){
-  const e=state.universityExam;let score=0;
-  e.questions.forEach((q,i)=>{if(e.answers[`q${i}`]===Number(q.correctIndex))score++});
-  const pct=score*10,passed=score>=8;
-  await api("/api/exams/record",{method:"POST",body:{title:`Repaso universitario · ${state.universitySourcePack?.title||state.currentLesson?.topic_name}`,settings:{university_source:true,source_id:state.universitySourceRecord?.id,topic_id:state.currentLesson?.topic_id,question_count:10},started_at:e.started_at,score,max_score:10,percentage:pct,questions:e.questions,answers:e.answers}}).catch(()=>{});
-  const review=e.questions.map((q,i)=>{const chosen=e.answers[`q${i}`],ok=chosen===Number(q.correctIndex);return `<details class="master-exam-review ${ok?"correct":"wrong"}"><summary><span>${ok?"✓":"×"} Pregunta ${i+1}</span><strong>${escapeHtml(q.stem||q.question||"")}</strong></summary><div><p><b>Tu respuesta:</b> ${escapeHtml(q.options?.[chosen]||"Sin respuesta")}</p><p><b>Correcta:</b> ${escapeHtml(q.options?.[q.correctIndex]||"")}</p><p>${escapeHtml(q.explanation||"")}</p></div></details>`}).join("");
-  $("#university-study-content").innerHTML=`<section class="master-exam-result"><div class="master-result-badge ${passed?"passed":"failed"}">${passed?"✓":"↻"}</div><div class="eyebrow">RESULTADO DEL REPASO</div><h1>${score} / 10 · ${pct}%</h1><p>${passed?"Dominaste bien este material universitario. Puedes repetirlo cuando quieras sin regenerarlo.":"Revisa las respuestas, vuelve a la clase y repite el examen cuando quieras."}</p><div class="master-exam-review-list">${review}</div><div class="master-stage-actions"><button id="uni-result-summary" class="secondary-btn">RESUMEN</button><button id="uni-result-repeat" class="primary-btn">REPETIR EXAMEN</button></div></section>`;
-  $("#uni-result-summary").onclick=()=>renderUniversityStudyPack("summary");
-  $("#uni-result-repeat").onclick=()=>renderUniversityStudyPack("exam");
+  $("#uni-practice-summary").onclick=()=>renderUniversityStudyPack("summary");
 }
 
 function renderUniversityVideos(){
@@ -2086,11 +1951,9 @@ function printUniversitySourcePdf(){
     win.document.open();win.document.write(doc);win.document.close();return;
   }
 
-  const sm=p.summary||{},diagram=p.diagram||{},cmap=p.concept_map||{};
+  const sm=p.summary||{};
   const sections=(p.sections||[]).map((s,i)=>`<section><h2>${i+1}. ${escapeHtml(s.title||"")}</h2>${renderStudyParagraphs(s.content||"")}${s.key_points?.length?`<h3>Puntos clave</h3><ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}${s.example?`<div class="box"><b>Ejemplo</b>${renderStudyParagraphs(s.example)}</div>`:""}</section>`).join("");
-  const diagramHtml=`<section class="visual"><h2>Diagrama</h2><h3>${escapeHtml(diagram.title||"")}</h3><div class="flow">${(diagram.steps||[]).map((x,i)=>`<div><b>${i+1}. ${escapeHtml(x.label||"")}</b><span>${escapeHtml(x.detail||"")}</span></div>`).join("")}</div></section>`;
-  const mapHtml=`<section class="visual"><h2>Mapa conceptual</h2><div class="center">${escapeHtml(cmap.center||p.title||"")}</div><div class="branches">${(cmap.branches||[]).map(b=>`<div><b>${escapeHtml(b.label||"")}</b><ul>${(b.children||[]).map(x=>`<li>${escapeHtml(typeof x==="string"?x:(x.label||""))}</li>`).join("")}</ul></div>`).join("")}</div></section>`;
-  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||"Clase universitaria")}</title><style>@page{margin:17mm}body{font-family:Arial,sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:11px}.brand{font-size:8pt;letter-spacing:.13em;color:#168c75;font-weight:bold}h1{font-size:24pt;margin:6px 0}h2{font-size:16pt;color:#173e47;margin-top:22px}h3{font-size:11pt;color:#168c75}.box,.visual,.summary{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 12px;margin:10px 0}.flow,.branches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.flow>div,.branches>div{background:white;border:1px solid #d5dfe2;padding:8px}.flow b,.flow span{display:block}.flow span{font-size:9pt;margin-top:4px}.center{text-align:center;background:#173e47;color:white;padding:9px;font-weight:bold;margin-bottom:7px}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:24px;border-top:1px solid #ccd6da;padding-top:8px;color:#64737c;font-size:8pt}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL UNIVERSITARIO GUARDADO</div><h1>${escapeHtml(p.title||"")}</h1><p>${escapeHtml(p.overview||"")}</p></header><section class="summary"><h2>Resumen</h2><p>${escapeHtml(sm.overview||"")}</p><h3>Lo indispensable</h3><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${sections}${diagramHtml}${mapHtml}<section class="terms"><h2>Conceptos clave</h2>${(p.key_terms||[]).map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section><footer>Clase preparada a partir de material proporcionado por el estudiante. Verifica detalles académicos con el material original y las indicaciones de tu docente.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  const doc=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(p.title||"Clase universitaria")}</title><style>@page{margin:17mm}body{font-family:Arial,sans-serif;color:#17212b;line-height:1.58;font-size:11pt}header{border-bottom:2px solid #168c75;padding-bottom:11px}.brand{font-size:8pt;letter-spacing:.13em;color:#168c75;font-weight:bold}h1{font-size:24pt;margin:6px 0}h2{font-size:16pt;color:#173e47;margin-top:22px}h3{font-size:11pt;color:#168c75}.box,.visual,.summary{background:#f5f8f8;border-left:3px solid #168c75;padding:10px 12px;margin:10px 0}.flow,.branches{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.flow>div,.branches>div{background:white;border:1px solid #d5dfe2;padding:8px}.flow b,.flow span{display:block}.flow span{font-size:9pt;margin-top:4px}.center{text-align:center;background:#173e47;color:white;padding:9px;font-weight:bold;margin-bottom:7px}.terms span{display:inline-block;border:1px solid #ccd6da;border-radius:12px;padding:4px 7px;margin:3px;font-size:9pt}footer{margin-top:24px;border-top:1px solid #ccd6da;padding-top:8px;color:#64737c;font-size:8pt}</style></head><body><header><div class="brand">MED AI DALTON · MATERIAL UNIVERSITARIO GUARDADO</div><h1>${escapeHtml(p.title||"")}</h1><p>${escapeHtml(p.overview||"")}</p></header><section class="summary"><h2>Síntesis académica</h2><p>${escapeHtml(sm.overview||"")}</p><h3>Lo indispensable</h3><ul>${(sm.must_remember||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></section>${sections}<section class="terms"><h2>Conceptos clave</h2>${(p.key_terms||[]).map(x=>`<span>${escapeHtml(x)}</span>`).join("")}</section><footer>Clase preparada a partir de material proporcionado por el estudiante. Verifica detalles académicos con el material original y las indicaciones de tu docente.</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
   win.document.open();win.document.write(doc);win.document.close();
 }
 
@@ -2136,7 +1999,7 @@ async function renderScienceStudio(code){
       <div class="learning-pillar"><span>01</span><strong>Comprender</strong><small>Conceptos antes de memorizar fórmulas.</small></div>
       <div class="learning-pillar"><span>02</span><strong>Derivar</strong><small>Justificar de dónde sale cada relación.</small></div>
       <div class="learning-pillar"><span>03</span><strong>Practicar</strong><small>Problemas progresivos y corrección de errores.</small></div>
-      <div class="learning-pillar"><span>04</span><strong>Dominar</strong><small>Exámenes y flashcards del tema estudiado.</small></div>
+      <div class="learning-pillar"><span>04</span><strong>Dominar</strong><small>Síntesis, práctica acumulativa y repaso del tema.</small></div>
     </div>`;
   if(presetTopic && [...$("#science-topic").options].some(o=>o.value===presetTopic)) $("#science-topic").value=presetTopic;
   const start=()=>{
@@ -2221,7 +2084,7 @@ function renderLanguageRoute(course){
   const start=Math.max(0,current-2),end=Math.min(items.length,start+7),slice=items.slice(start,end);
   const currentItem=items[current];
   if($("#lang-route-title"))$("#lang-route-title").textContent=currentItem?`Siguiente: ${currentItem.topic_name}`:"Ruta completada";
-  box.innerHTML=`<div class="route-line"></div>${slice.map((item,offset)=>{const idx=start+offset;const done=Number(item.completed)===1;const active=idx===current&&!done;const locked=!done&&!active;return `<button class="route-node ${done?"done":active?"active":"locked"}" data-index="${idx}" ${locked?"disabled":""}><span>${done?"✓":String(idx+1).padStart(2,"0")}</span><div><strong>${escapeHtml(item.topic_name)}</strong><small>${done?"Aprobado":active?`${Math.round(Number(item.progress_percent||0))}% estudiado · examen pendiente`:"Bloqueado"}</small></div></button>`}).join("")}`;
+  box.innerHTML=`<div class="route-line"></div>${slice.map((item,offset)=>{const idx=start+offset;const done=Number(item.completed)===1;const active=idx===current&&!done;const locked=!done&&!active;return `<button class="route-node ${done?"done":active?"active":"locked"}" data-index="${idx}" ${locked?"disabled":""}><span>${done?"✓":String(idx+1).padStart(2,"0")}</span><div><strong>${escapeHtml(item.topic_name)}</strong><small>${done?"Completado":active?`${Math.round(Number(item.progress_percent||0))}% estudiado · síntesis pendiente`:"Bloqueado"}</small></div></button>`}).join("")}`;
   $$(".route-node:not([disabled])",box).forEach(btn=>btn.onclick=()=>openLanguageCourseLesson(Number(btn.dataset.index)));
 }
 
@@ -2886,15 +2749,15 @@ function renderV17LessonSummary(){
         <div><strong>+${s.xp}</strong><small>XP</small></div>
         <div><strong>${s.hearts}/5</strong><small>oportunidades</small></div>
       </div>
-      <div class="v17-summary-note">${passed?"Ya practicaste el tema. El curso oficial se completa únicamente cuando apruebas su examen final.":"Repite la práctica o conversa con el Coach IA antes de ir al examen."}</div>
+      <div class="v17-summary-note">${passed?"Ya practicaste el tema. Vuelve a la clase oficial para revisar la síntesis y cerrar el tema.":"Repite la práctica o conversa con el Coach IA antes de cerrar el tema."}</div>
       <div class="v17-summary-actions">
         <button id="v17-repeat-lesson" class="secondary-btn">REPETIR PRÁCTICA</button>
-        <button id="v17-go-course-exam" class="primary-btn">IR AL TEMA Y EXAMEN →</button>
+        <button id="v17-go-course-summary" class="primary-btn">IR A LA SÍNTESIS →</button>
       </div>
     </div>`;
   $("#v17-repeat-lesson").onclick=()=>startV17LanguageLesson(true);
-  $("#v17-go-course-exam").onclick=()=>openLanguageCourseLesson(Number(state.languageCourse?.next_index||0));
-  updateV17Coach(passed?"Terminaste la práctica. Cuando te sientas listo, aprueba el examen del tema para avanzar.":"Tus errores ya nos dicen qué repasar. Eso también es progreso.",passed?"happy":"thinking");
+  $("#v17-go-course-summary").onclick=()=>openLanguageCourseLesson(Number(state.languageCourse?.next_index||0));
+  updateV17Coach(passed?"Terminaste la práctica. Revisa la síntesis del tema para integrarlo y continuar.":"Tus errores ya nos dicen qué repasar. Eso también es progreso.",passed?"happy":"thinking");
 }
 
 function updateV17Coach(text,mood="normal"){
@@ -4055,12 +3918,10 @@ async function transcribeLibraryMediaV29(fileId){
       <header><div class="eyebrow">${d.cached?"PAQUETE GUARDADO · SIN NUEVA IA":"CLASE TRANSCRITA Y GUARDADA"}</div><h2>${escapeHtml(p.title||file?.title||"Clase")}</h2><p>${escapeHtml(p.overview||"")}</p></header>
       ${(p.sections||[]).map((s,i)=>`<article><span>${String(i+1).padStart(2,"0")}</span><div><h3>${escapeHtml(s.title)}</h3><div class="masterclass-prose">${renderStudyParagraphs(s.explanation||"")}</div>${s.key_points?.length?`<ul>${s.key_points.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}</div></article>`).join("")}
       <section class="card"><div class="panel-code">DEBES RECORDAR</div>${(p.must_remember||[]).map(x=>`<p>• ${escapeHtml(x)}</p>`).join("")}</section>
-      <div class="v29-transcript-metrics"><span>${(p.flashcards||[]).length} flashcards guardadas</span><span>${(p.questions||[]).length} preguntas guardadas</span></div>
-      <div class="v29-pack-actions"><button id="v29-media-practice" class="primary-btn">▶ EXAMEN DE ESTA CLASE</button><button id="v29-bank-from-media" class="secondary-btn">▦ VER BANCO</button><button id="v29-go-flashcards" class="secondary-btn">▱ FLASHCARDS</button><button id="v29-close-media" class="ghost-btn">CERRAR</button></div>
+      <div class="v29-transcript-metrics"><span>Clase procesada y guardada</span><span>Lista para repasar</span></div>
+      <div class="v29-pack-actions"><button id="v29-media-to-courses" class="primary-btn">📖 IR A CURSOS</button><button id="v29-close-media" class="ghost-btn">CERRAR</button></div>
     </section>`;
-    $("#v29-media-practice").onclick=()=>startMediaPracticeV29(p,file?.title||"Clase");
-    $("#v29-bank-from-media").onclick=()=>{$("#v29-study-result-overlay").classList.add("hidden");document.body.classList.remove("modal-open");navigate("question_bank")};
-    $("#v29-go-flashcards").onclick=()=>{$("#v29-study-result-overlay").classList.add("hidden");document.body.classList.remove("modal-open");navigate("flashcards")};
+    $("#v29-media-to-courses").onclick=()=>{$("#v29-study-result-overlay").classList.add("hidden");document.body.classList.remove("modal-open");navigate("study")};
     $("#v29-close-media").onclick=()=>{$("#v29-study-result-overlay").classList.add("hidden");document.body.classList.remove("modal-open")};
   }catch(err){$("#v29-result-body").innerHTML=`<div class="masterclass-error"><strong>No pude transcribir esta clase.</strong><p>${escapeHtml(err.message)}</p><small>Para archivos grandes, divide la grabación en partes de hasta 25 MB.</small></div>`}
 }
@@ -4084,8 +3945,7 @@ async function finishMediaPracticeV29(){
   st.questions.forEach((q,i)=>{if(Number(st.answers[`q${i}`])===Number(q.correctIndex))score++});
   const pct=Math.round(score/Math.max(1,st.questions.length)*100);
   try{await api("/api/exams/record",{method:"POST",body:{title:`Clase transcrita · ${st.title}`,score,max_score:st.questions.length,percentage:pct,started_at:st.started_at,settings:{subject:st.title,transcription:true},questions:st.questions,answers:st.answers}})}catch{}
-  $("#v29-result-body").innerHTML=`<section class="answer-key-result"><div class="answer-key-result-ring"><strong>${pct}%</strong><small>${score}/${st.questions.length}</small></div><div class="eyebrow">EXAMEN DE CLASE TERMINADO</div><h2>${pct>=80?"Buen dominio de la clase.":"Repasa los conceptos que fallaste."}</h2><p>Las preguntas ya están en tu banco permanente y los errores del examen quedan registrados.</p><div class="answer-key-result-actions"><button id="media-result-bank" class="primary-btn">BANCO DE PREGUNTAS</button><button id="media-result-close" class="secondary-btn">CERRAR</button></div></section>`;
-  $("#media-result-bank").onclick=()=>{$("#v29-study-result-overlay").classList.add("hidden");document.body.classList.remove("modal-open");navigate("question_bank")};
+  $("#v29-result-body").innerHTML=`<section class="answer-key-result"><div class="answer-key-result-ring"><strong>${pct}%</strong><small>${score}/${st.questions.length}</small></div><div class="eyebrow">EXAMEN DE CLASE TERMINADO</div><h2>${pct>=80?"Buen dominio de la clase.":"Repasa los conceptos que fallaste."}</h2><p>Usa el resultado únicamente como práctica de recuperación y vuelve a la clase para reforzar lo que fallaste.</p><div class="answer-key-result-actions"><button id="media-result-close" class="primary-btn">CERRAR</button></div></section>`;
   $("#media-result-close").onclick=()=>{$("#v29-study-result-overlay").classList.add("hidden");document.body.classList.remove("modal-open")};
 }
 
@@ -4396,7 +4256,7 @@ function renderLibraryStudyRangeForm(info){
           <label class="form-check library-ocr-option"><input id="library-study-pdf-ocr" type="checkbox"><span><strong>Usar OCR si alguna página es escaneada</strong><small>Déjalo apagado para máxima velocidad. Actívalo solo si el PDF es una foto/escaneo.</small></span></label>`:""}
           <div class="field"><label>¿Qué tema o enfoque estás viendo?</label><input id="library-study-focus" placeholder="Ej. Farmacocinética, páginas 35–42..."></div>
           <div class="field"><label>Instrucción opcional para MED AI</label><textarea id="library-study-instruction" rows="4" placeholder="Ej. Esto entra al parcial. Quiero entender mecanismos y diferencias..."></textarea></div>
-          <div class="library-simple-output-note"><span>SE GENERARÁ SOLO</span><strong>Resumen / apuntes de estudio</strong><small>Título, subtítulos, explicación clara y solo los recursos científicos necesarios. Sin mapas mentales ni diagramas separados.</small></div>
+          <div class="library-simple-output-note"><span>SE GENERARÁ SOLO</span><strong>Apuntes académicos estructurados</strong><small>Título, subtítulos, explicación coherente, relaciones conceptuales y síntesis final. Sin mapas mentales ni diagramas.</small></div>
           <button id="library-study-extract" class="library-analyze-btn"><span>→</span><div><strong>CONTINUAR Y PREPARAR SESIÓN</strong><small>${isPdf?"Leeremos solo las páginas seleccionadas":"Extraeremos solo el fragmento seleccionado"}</small></div></button>
         </section>
         <aside class="library-study-budget-card"><div class="panel-code">CÓMO AHORRAMOS</div><div><b>01</b><span><strong>${isPdf?"Tú eliges las páginas":"No enviamos el libro completo"}</strong><small>Solo se procesa lo seleccionado.</small></span></div><div><b>02</b><span><strong>Menos contexto</strong><small>Rangos pequeños suelen responder más rápido.</small></span></div><div><b>03</b><span><strong>Solo lo esencial</strong><small>Apuntes claros, coherentes y más cortos que la fuente.</small></span></div><div><b>04</b><span><strong>Repasos sin nueva IA</strong><small>Reabrir reutiliza la sesión.</small></span></div></aside>
@@ -4462,13 +4322,13 @@ function renderLibraryStudyConfirm(ctx){
 
   body.innerHTML=`<section class="library-study-confirm">
     <button id="library-study-confirm-back" class="ghost-btn">← CAMBIAR SELECCIÓN</button>
-    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2 · FUENTE VERIFICADA</span><h2>MED AI ya reconoció el tema y la estructura de estas páginas.</h2><p>Ahora creará únicamente un resumen de estudio claro, coherente y más corto que el material original.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens de fuente</small></div></div>
+    <div class="library-study-confirm-head"><div><span>PASO 2 DE 2 · FUENTE VERIFICADA</span><h2>MED AI ya reconoció el tema y la estructura de estas páginas.</h2><p>Ahora creará únicamente apuntes académicos de estudio claro, coherente y más corto que el material original.</p></div><div class="library-confirm-scope"><strong>${escapeHtml(scope)}</strong><small>~${approx.toLocaleString()} tokens de fuente</small></div></div>
 
     <section class="v30-source-preview">
       <div><span>CONTENIDO REAL DETECTADO</span><strong>${headings.length?"Títulos y subtítulos encontrados":"Unidades de estudio encontradas"}</strong><small>${ctx.sourceMap?.domain?`${escapeHtml(ctx.sourceMap.domain)} · ${escapeHtml(ctx.sourceMap.material_type||"Material académico")}`:"Detector académico general"}</small></div>
       <div class="v30-source-preview-topics">${(headings.length?headings:sourceTopics).map(x=>`<span>${escapeHtml(academicTextV302(x))}</span>`).join("")}</div>
       ${sourceSummary?`<p>${escapeHtml(academicTextV302(sourceSummary))}</p>`:""}
-      <small>El resumen se limitará a estas páginas. No se mezclará el resto del PDF ni se crearán mapas mentales o diagramas separados.</small>
+      <small>Los apuntes se limitarán a estas páginas. No se mezclará el resto del PDF ni se crearán mapas mentales o diagramas.</small>
     </section>
 
     <div class="library-study-confirm-grid">
@@ -4480,7 +4340,7 @@ function renderLibraryStudyConfirm(ctx){
         <div class="library-confirm-row"><span>Apuntes</span><strong>Título claro · subtítulos · explicación congruente · ideas clave</strong></div>
         <div class="library-confirm-row"><span>Contenido especial</span><strong>Ecuaciones, fórmulas, compuestos, tablas o figuras solo cuando sean necesarios</strong></div>
         ${instruction?`<div class="library-confirm-instruction"><span>TU INDICACIÓN</span><p>${escapeHtml(academicTextV302(instruction))}</p></div>`:""}
-        <button id="library-study-create" class="library-create-study-btn"><div><strong>CREAR RESUMEN / APUNTES</strong><small>Una sola generación · después queda guardado</small></div></button>
+        <button id="library-study-create" class="library-create-study-btn"><div><strong>CREAR APUNTES ACADÉMICOS</strong><small>Una sola generación · después queda guardado</small></div></button>
       </section>
       <aside class="library-study-generated-list">
         <div class="panel-code">ENFOQUE V30.2.1</div>
@@ -4499,7 +4359,7 @@ function renderLibraryStudyConfirm(ctx){
 async function createLibraryStudyPack(ctx){
   if(state.maintenanceMode&&navigator.onLine){state.maintenanceMode=false;updateMaintenanceBanner()}
   const btn=$("#library-study-create"),file=state.libraryStudyFile;
-  btn.disabled=true;btn.innerHTML=`<div><strong>CREANDO TUS APUNTES…</strong><small>Organizando título, subtítulos y explicación</small></div>`;
+  btn.disabled=true;btn.innerHTML=`<div><strong>CONSTRUYENDO APUNTES ACADÉMICOS…</strong><small>Organizando subtítulos, conceptos y relaciones con rigor académico</small></div>`;
   try{
     const payload={
       file_id:file.id,extracted_text:ctx.text,study_focus:ctx.focus,instruction:ctx.instruction,study_scope:ctx.scope,
@@ -4510,10 +4370,10 @@ async function createLibraryStudyPack(ctx){
     };
     const result=await api("/api/library/study-pack/summary",{method:"POST",body:payload});
     const list=await api(`/api/library/study-packs?file_id=${encodeURIComponent(file.id)}`);state.libraryStudyPacks=list.packs||[];
-    toast(result.reused?"Este mismo resumen ya estaba guardado; lo abrí sin volver a usar IA.":result.fallback_generated?"MED AI guardó apuntes directos desde la fuente porque el servicio remoto no completó a tiempo.":"Resumen y apuntes creados y guardados.");
+    toast(result.reused?"Estos mismos apuntes académicos ya estaban guardados; los abrí sin volver a usar IA.":result.fallback_generated?"MED AI guardó apuntes directos desde la fuente porque el servicio remoto no completó a tiempo.":"Apuntes académicos creados y guardados.");
     await openLibrarySavedStudyPack(result.id,true);
   }catch(err){
-    btn.disabled=false;btn.innerHTML=`<div><strong>CREAR RESUMEN / APUNTES</strong><small>Una sola generación · después queda guardado</small></div>`;
+    btn.disabled=false;btn.innerHTML=`<div><strong>CREAR APUNTES ACADÉMICOS</strong><small>Una sola generación · después queda guardado</small></div>`;
     toast(err.message,true);
   }
 }
@@ -4595,21 +4455,20 @@ async function renderOfflineStudyVault(){
     <section class="offline-vault-stats">
       <div><span>▥</span><strong>${summary.files.length}</strong><small>archivos offline</small></div>
       <div><span>📖</span><strong>${summary.coursePacks.length}</strong><small>clases de curso</small></div>
-      <div><span>✓</span><strong>${summary.exams.length}</strong><small>exámenes reutilizables</small></div>
       <div><span>文</span><strong>${summary.languagePacks.length}</strong><small>lecciones de idiomas</small></div>
       <div><span>▦</span><strong>${summary.preparedBundles.length}</strong><small>materias preparadas</small></div>
       <div><span>☁</span><strong>${formatBytes(bytes)}</strong><small>en este dispositivo</small></div>
     </section>
 
     <section class="offline-vault-info">
-      <div><b>✓</b><span><strong>Funciona sin internet</strong><small>Clases guardadas, resúmenes, mapas, diagramas, práctica, exámenes reutilizados, apuntes cacheados y archivos marcados OFFLINE.</small></span></div>
+      <div><b>✓</b><span><strong>Funciona sin internet</strong><small>Clases académicas guardadas, práctica, síntesis, apuntes de Biblioteca y archivos marcados OFFLINE.</small></span></div>
       <div><b>✦</b><span><strong>La IA necesita internet</strong><small>Tutor IA, crear una clase nueva o analizar un archivo nuevo vuelve a funcionar automáticamente cuando recuperas conexión.</small></span></div>
       <div><b>↻</b><span><strong>Sincronización posterior</strong><small>Los cambios compatibles hechos sin conexión quedan en cola y se envían cuando regresa internet.</small></span></div>
     </section>
 
     <section class="offline-vault-list">
-      <div class="library-study-saved-head"><div><span>MATERIAS PREPARADAS PARA SALIR</span><h3>${summary.preparedBundles.length} paquete${summary.preparedBundles.length===1?"":"s"}</h3></div><small>Clases · flashcards · preguntas</small></div>
-      <div class="v29-offline-bundles">${summary.preparedBundles.length?summary.preparedBundles.map(r=>{const b=r.value||{};return `<button class="v29-offline-bundle-open" data-key="${escapeAttr(r.key)}"><span>↓</span><div><strong>${escapeHtml(b.subject?.name||"Materia preparada")}</strong><small>${(b.flashcards||[]).length} flashcards · ${(b.question_bank||[]).length} preguntas</small></div><b>ABRIR →</b></button>`}).join(""):`<div class="system-empty compact">Prepara una materia desde Estado del sistema para reunir su contenido local.</div>`}</div>
+      <div class="library-study-saved-head"><div><span>MATERIAS PREPARADAS PARA SALIR</span><h3>${summary.preparedBundles.length} paquete${summary.preparedBundles.length===1?"":"s"}</h3></div><small>Clases académicas preparadas</small></div>
+      <div class="v29-offline-bundles">${summary.preparedBundles.length?summary.preparedBundles.map(r=>{const b=r.value||{};return `<button class="v29-offline-bundle-open" data-key="${escapeAttr(r.key)}"><span>↓</span><div><strong>${escapeHtml(b.subject?.name||"Materia preparada")}</strong><small>${(b.classes||[]).length} clases académicas disponibles</small></div><b>ABRIR →</b></button>`}).join(""):`<div class="system-empty compact">Prepara una materia desde Estado del sistema para reunir sus clases locales.</div>`}</div>
     </section>
 
     <section class="offline-vault-list">
@@ -4633,14 +4492,13 @@ async function renderOfflineStudyVault(){
 async function openPreparedOfflineBundleV29(key){
   const box=$("#study-library-content"),bundle=await offlineGetJson(key);
   if(!bundle)return toast("Ya no encuentro este paquete offline.",true);
-  const bank=bundle.question_bank||[],cards=bundle.flashcards||[];
+  const classes=Array.isArray(bundle.classes)?bundle.classes:[];
   box.innerHTML=`<section class="v29-offline-bundle-page">
     <button id="v29-offline-back" class="ghost-btn">← ESTUDIO OFFLINE</button>
-    <header><div class="learning-home-chip"><span></span> MODO SOLO OFFLINE · V30</div><h2>${escapeHtml(bundle.subject?.name||"Materia")}</h2><p>Este contenido está almacenado en este dispositivo. No necesita una llamada nueva de IA.</p></header>
-    <section class="v29-result-metrics"><div><strong>${cards.length}</strong><span>flashcards</span></div><div><strong>${bank.length}</strong><span>preguntas</span></div></section>
+    <header><div class="learning-home-chip"><span></span> MODO SOLO OFFLINE · V30.3</div><h2>${escapeHtml(bundle.subject?.name||"Materia")}</h2><p>Las clases que ya preparaste están almacenadas en este dispositivo. No necesitan una llamada nueva de IA.</p></header>
+    <section class="v29-result-metrics"><div><strong>${classes.length}</strong><span>clases académicas</span></div></section>
     <div class="v29-offline-bundle-grid">
-      <article class="card"><div class="panel-code">PREGUNTAS</div>${bank.slice(0,20).map((q,i)=>`<div class="v29-offline-question"><span>${i+1}</span><div><strong>${escapeHtml(q.stem||"")}</strong><small>${escapeHtml(q.topic||"")}</small></div></div>`).join("")||`<div class="system-empty compact">Sin preguntas guardadas.</div>`}</article>
-      <article class="card"><div class="panel-code">FLASHCARDS</div>${cards.slice(0,20).map((c,i)=>`<details><summary>${escapeHtml(c.front||"Tarjeta")}</summary><p>${escapeHtml(c.back||"")}</p></details>`).join("")||`<div class="system-empty compact">Sin flashcards guardadas.</div>`}</article>
+      <article class="card"><div class="panel-code">CONTENIDO PREPARADO</div>${classes.length?classes.slice(0,50).map((c,i)=>`<div class="v29-offline-question"><span>${String(i+1).padStart(2,"0")}</span><div><strong>${escapeHtml(c.topic_name||c.title||"Clase")}</strong><small>Disponible desde Cursos</small></div></div>`).join(""):`<div class="system-empty compact">Aún no hay clases preparadas en este paquete.</div>`}</article>
     </div>
   </section>`;
   $("#v29-offline-back").onclick=renderOfflineStudyVault;
@@ -4791,7 +4649,7 @@ async function deleteStudyLibraryItem(id,type,name){
 
 
 /* ============================================================
-   V30.2.5 · FECHAS ACADÉMICAS
+   V30.3.0 · FECHAS ACADÉMICAS
    ============================================================ */
 
 function deadlineDaysLabel(date){
@@ -5281,7 +5139,7 @@ async function searchGlobal(){
   if(q.length<2){box.classList.add("hidden");return}
   try{
     const d=await api(`/api/search?q=${encodeURIComponent(q)}`);
-    box.innerHTML=d.results.length?`<div class="v30-global-search-head"><strong>BUSCADOR DE MIS ESTUDIOS</strong><small>${d.results.length} resultados</small></div>${d.results.slice(0,18).map(r=>`<button class="search-item v30-global-result" data-view="${escapeAttr(r.view||"smart")}" data-subject="${escapeAttr(r.subject_id||"")}"><span class="v30-search-kind">${escapeHtml(r.label||r.type||"Fuente")}</span><div><strong>${r.primary?"★ ":""}${escapeHtml(r.title)}</strong><small>${escapeHtml(r.subtitle||r.type)}</small></div><b>→</b></button>`).join("")}`:`<div class="search-item"><span>Sin resultados en cursos, Biblioteca, apuntes, flashcards o errores.</span></div>`;
+    box.innerHTML=d.results.length?`<div class="v30-global-search-head"><strong>BUSCADOR DE MIS ESTUDIOS</strong><small>${d.results.length} resultados</small></div>${d.results.slice(0,18).map(r=>`<button class="search-item v30-global-result" data-view="${escapeAttr(r.view||"smart")}" data-subject="${escapeAttr(r.subject_id||"")}"><span class="v30-search-kind">${escapeHtml(r.label||r.type||"Fuente")}</span><div><strong>${r.primary?"★ ":""}${escapeHtml(r.title)}</strong><small>${escapeHtml(r.subtitle||r.type)}</small></div><b>→</b></button>`).join("")}`:`<div class="search-item"><span>Sin resultados en cursos, Biblioteca, apuntes o repaso.</span></div>`;
     box.classList.remove("hidden");
     $$(".v30-global-result",box).forEach(b=>b.onclick=()=>{
       const sid=b.dataset.subject;
@@ -5316,7 +5174,7 @@ async function hardRefreshApplication(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.2.5",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.3.0",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }

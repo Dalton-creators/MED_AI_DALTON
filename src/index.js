@@ -11,6 +11,46 @@ for (const [code,extra] of Object.entries(COURSE_EXPANSIONS)) {
   COURSE_PATHS[code] = [...base, ...extra.filter(name=>!base.includes(name))];
 }
 
+// V30.3 · Currículo ampliado. Estas unidades desglosan áreas que antes estaban
+// demasiado agrupadas para que cada curso cubra fundamentos, integración y
+// aplicaciones con una progresión académica más completa.
+const COURSE_COMPREHENSIVE_EXPANSIONS = {
+  ANAT:["Piel, fascia y compartimentos","Sistema nervioso periférico y dermatomas","Sistema nervioso autónomo","Plexos nerviosos","Anatomía vascular por regiones","Sistema linfático","Pares craneales","Anatomía del encéfalo y médula espinal","Anatomía funcional de articulaciones","Correlación anatómica con TC, RM y ultrasonido"],
+  HIST:["Biología celular aplicada a histología","Matriz extracelular y membrana basal","Piel y anexos","Sistema linfático y órganos linfoides","Sistema digestivo por segmentos","Hígado, vesícula y páncreas","Sistema respiratorio por niveles","Riñón y vías urinarias","Hipófisis, tiroides, suprarrenal y páncreas endocrino","Órganos de los sentidos"],
+  EMBR:["Primeras cuatro semanas del desarrollo","Neurulación y cresta neural","Arcos faríngeos y desarrollo de cara y cuello","Tabicación cardíaca y grandes vasos","Desarrollo pulmonar","Rotación intestinal y pared abdominal","Desarrollo renal y genital","Desarrollo óseo y muscular","Desarrollo de extremidades","Diagnóstico prenatal y bases embriológicas de anomalías"],
+  FISIO:["Compartimentos líquidos y osmolaridad","Canales iónicos y excitabilidad","Contracción del músculo esquelético, liso y cardíaco","Electrofisiología cardíaca y ECG fisiológico","Hemodinámica y microcirculación","Ventilación, perfusión y transporte de gases","Filtración glomerular y manejo tubular","Regulación de sodio, potasio y agua","Motilidad y secreción gastrointestinal","Ejes hipotálamo-hipófisis","Fisiología de la reproducción y embarazo","Fisiología del sistema nervioso central"],
+  BIOQ:["Estructura y función de proteínas","Membranas y transporte molecular","Regulación alostérica y hormonal del metabolismo","Glucólisis, gluconeogénesis y glucógeno","Ciclo de Krebs y cadena respiratoria","Síntesis y oxidación de ácidos grasos","Colesterol, lipoproteínas y esteroides","Ciclo de la urea y metabolismo del nitrógeno","Metabolismo de purinas y pirimidinas","Reparación del ADN","Tecnologías de ADN recombinante","Bioquímica del ayuno, alimentación y diabetes"],
+  GEN:["Patrones no mendelianos","Penetrancia, expresividad y mosaicismo","Ligamiento y recombinación","Mutaciones y mecanismos de enfermedad","Citogenética clínica","Herencia ligada al X","Impronta genómica y disomía uniparental","Bases genéticas de enfermedades comunes","Principios de secuenciación y bioinformática","Ética y privacidad genética"],
+  INMUNO:["Barreras físicas y reconocimiento de patrones","Células dendríticas y activación adaptativa","Maduración y selección linfocitaria","Clases de inmunoglobulinas y cambio de isotipo","Respuesta inmune frente a bacterias, virus, hongos y parásitos","Inmunología de mucosas y microbiota","Tolerancia central y periférica","Bases inmunológicas de alergia y asma","Inmunidad antitumoral","Interpretación de pruebas serológicas e inmunológicas"],
+  MICRO:["Estructura y genética bacteriana","Crecimiento, cultivo y tinciones","Factores de virulencia y toxinas","Cocos grampositivos","Bacilos grampositivos","Enterobacterias y otros gramnegativos","Micobacterias","Espiroquetas, clamidias, micoplasmas y rickettsias","Virus ADN","Virus ARN","Hongos levaduriformes y filamentosos","Microbioma humano","Diagnóstico microbiológico molecular","Infecciones asociadas a la atención sanitaria"],
+  PARA:["Amebas y flagelados intestinales","Coccidios intestinales","Malaria y otros hemoparásitos","Leishmaniasis y tripanosomiasis","Toxoplasmosis","Geohelmintos","Filariasis","Teniasis y cisticercosis","Esquistosomiasis y otros trematodos","Ectoparasitosis","Diagnóstico por microscopía, antígeno y biología molecular"],
+  FARMA:["Principios de receptores y curvas dosis-respuesta","Variabilidad farmacogenética","Interacciones farmacológicas","Adrenérgicos y antiadrenérgicos","Colinérgicos y anticolinérgicos","Antiarrítmicos","Antihipertensivos","Antianginosos e insuficiencia cardíaca","Anticoagulantes, antiagregantes y trombolíticos","Insulinas y antidiabéticos","Hormonas tiroideas y antitiroideos","Antiepilépticos","Antidepresivos, antipsicóticos y ansiolíticos","Analgésicos opioides y no opioides","Antibacterianos por mecanismo","Antivirales, antifúngicos y antiparasitarios","Farmacovigilancia y reacciones adversas"],
+  PATO:["Muerte celular y acumulaciones intracelulares","Estrés oxidativo y envejecimiento","Mediadores de inflamación","Regeneración, fibrosis y matriz extracelular","Edema, congestión y hemorragia","Embolia, infarto y shock","Carcinogénesis y biología tumoral","Grados, estadios y biomarcadores de neoplasia","Patología hematológica","Patología del sistema nervioso","Patología de piel y aparato locomotor","Patología reproductiva"],
+  EPI:["Incidencia, prevalencia y mortalidad","Riesgo relativo, odds ratio y diferencia de riesgos","Cohortes, casos y controles, ensayos y estudios transversales","Causalidad y criterios de Bradford Hill","Sensibilidad, especificidad y valores predictivos","Curvas ROC y razones de verosimilitud","Muestreo y tamaño de muestra","Distribuciones de probabilidad","Correlación y regresión","Supervivencia y análisis de tiempo a evento","Revisiones sistemáticas y metaanálisis","Vigilancia epidemiológica y brotes"],
+  SEMIO:["Anamnesis orientada por problemas","Dolor: caracterización clínica","Cabeza, cuello y tiroides","Exploración de tórax y pulmones","Exploración cardiovascular y pulsos","Exploración vascular periférica","Exploración gastrointestinal y hepatobiliar","Exploración renal y urológica","Exploración neurológica completa","Exploración endocrina","Exploración hematológica y ganglionar","Interpretación sindrómica de hallazgos"],
+  MI:["Hipertensión arterial","Cardiopatía isquémica","Insuficiencia cardíaca","Arritmias frecuentes","Enfermedad valvular","Asma y EPOC","Neumonía y enfermedad intersticial","Lesión renal aguda y enfermedad renal crónica","Trastornos del sodio y potasio","Enfermedad ácido-péptica y sangrado digestivo","Hepatitis, cirrosis y complicaciones","Diabetes mellitus","Trastornos tiroideos y suprarrenales","Anemias","Trastornos de coagulación","Leucemias y linfomas","Sepsis e infecciones frecuentes","VIH y tuberculosis","Artritis inflamatorias","Lupus y vasculitis","Fiebre de origen desconocido","Polifarmacia y valoración geriátrica"],
+  PED:["Evaluación del recién nacido","Reanimación neonatal","Prematuridad y problemas neonatales","Lactancia y alimentación complementaria","Deshidratación y trastornos hidroelectrolíticos","Infecciones respiratorias pediátricas","Asma pediátrica","Diarrea aguda y enfermedad gastrointestinal","Exantemas e infecciones comunes","Fiebre sin foco","Cardiopatías congénitas","Convulsiones y neurodesarrollo","Hematología pediátrica","Endocrinología pediátrica","Maltrato infantil y protección"],
+  CIR:["Respuesta metabólica al trauma","Cicatrización y manejo de heridas","Principios de anestesia y analgesia perioperatoria","Choque hemorrágico","Trauma torácico","Trauma abdominal","Trauma craneoencefálico","Apendicitis y patología biliar","Obstrucción y perforación intestinal","Hernias","Enfermedad colorrectal","Enfermedad arterial y venosa periférica","Principios de oncología quirúrgica","Soporte nutricional perioperatorio"],
+  GINOBS:["Amenorrea","Síndrome de ovario poliquístico","Endometriosis","Miomatosis uterina","Patología cervical y tamizaje","Menopausia","Fisiología materna del embarazo","Complicaciones tempranas del embarazo","Hipertensión del embarazo y preeclampsia","Diabetes gestacional","Hemorragia obstétrica","Parto pretérmino","Monitoreo fetal","Lactancia y cuidados posparto"],
+  PSIQ:["Trastorno depresivo mayor","Trastorno bipolar","Trastorno de ansiedad generalizada y pánico","TEPT","Esquizofrenia y otros trastornos psicóticos","Alcohol y trastornos por sustancias","Riesgo suicida","Trastornos de la conducta alimentaria","Trastornos del neurodesarrollo","Delirium y demencias","Psicoterapia cognitivo-conductual","Aspectos legales y capacidad mental"],
+  NEURO:["Anatomía funcional y síndromes de localización","Estado de conciencia y coma","Migraña y cefaleas secundarias","Crisis epilépticas y estatus","Ictus isquémico y hemorrágico","Parkinsonismo y movimientos anormales","Esclerosis múltiple","Guillain-Barré y neuropatías","Miastenia y enfermedades de la unión neuromuscular","ELA y enfermedades de motoneurona","Meningitis y encefalitis","Demencia y deterioro cognitivo","Hipertensión intracraneal"],
+  DERM:["Morfología y distribución de lesiones","Dermatitis atópica y de contacto","Infecciones bacterianas, virales y fúngicas","Infestaciones","Acné y rosácea","Psoriasis y liquen plano","Urticaria y angioedema","Enfermedades ampollosas","Lupus cutáneo y dermatomiositis","Nevos y melanoma","Carcinoma basocelular y espinocelular","Reacciones cutáneas graves a fármacos"],
+  OFT:["Agudeza visual y refracción","Conjuntivitis, queratitis y escleritis","Catarata","Glaucoma de ángulo abierto y cerrado","Retinopatía diabética e hipertensiva","Degeneración macular","Desprendimiento de retina","Oclusiones vasculares retinianas","Uveítis","Defectos pupilares y nervio óptico","Estrabismo y ambliopía","Pérdida visual aguda"],
+  ORL:["Anatomía funcional de oído, nariz y garganta","Otitis externa y media","Hipoacusia conductiva y neurosensorial","Tinnitus","Vértigo periférico y central","Rinitis y sinusitis","Epistaxis","Amigdalitis y absceso periamigdalino","Disfonía y patología laríngea","Trastornos de deglución","Obstrucción de vía aérea superior","Cáncer de cabeza y cuello"],
+  TRAUMA:["Principios de inmovilización","Consolidación ósea","Fracturas abiertas y cerradas","Luxaciones","Síndrome compartimental","Lesiones tendinosas y ligamentarias","Trauma de hombro","Trauma de mano","Fracturas de cadera","Lesiones de rodilla","Trauma de tobillo y pie","Lesión de columna y médula","Infección osteoarticular","Tumores óseos"],
+  EMERG:["Triage y prioridades","Manejo inicial de vía aérea","Síndrome coronario agudo","Taquiarritmias y bradiarritmias","Edema agudo de pulmón","Crisis asmática y exacerbación de EPOC","Anafilaxia","Alteración aguda del estado mental","Convulsiones y estatus epiléptico","Hemorragia digestiva","Cetoacidosis y estado hiperosmolar","Trastornos graves de sodio y potasio","Golpe de calor e hipotermia","Ahogamiento y electrocución"],
+  CRIT:["Evaluación de perfusión y lactato","Vasopresores e inotrópicos","Modos de ventilación mecánica","Destete y extubación","SDRA","Sepsis y shock séptico","Choque cardiogénico","Falla renal y terapia de reemplazo","Trastornos ácido-base complejos","Coagulopatía y transfusión masiva","Nutrición enteral y parenteral","Delirium y movilización temprana","Cuidados al final de la vida"],
+  FAM:["Principios de longitudinalidad y continuidad","Prevención primaria, secundaria y terciaria","Vacunación del adulto","Consejería de estilos de vida","Manejo integral de hipertensión","Manejo integral de diabetes","Dislipidemia y riesgo cardiovascular","Obesidad","Infecciones ambulatorias frecuentes","Dolor musculoesquelético frecuente","Salud sexual y reproductiva","Depresión y ansiedad en atención primaria","Fragilidad y adulto mayor","Cuidados paliativos básicos"],
+  MATH:["Fracciones, porcentajes y proporcionalidad","Polinomios y factorización","Sistemas de ecuaciones","Funciones polinomiales, racionales, exponenciales y logarítmicas","Identidades trigonométricas","Coordenadas polares","Series de Taylor","Derivadas parciales","Integrales múltiples","Campos vectoriales","Variables aleatorias y distribuciones","Inferencia estadística","Espacios vectoriales y transformaciones lineales","Valores y vectores propios","Transformadas básicas"],
+  PHYS:["Análisis dimensional e incertidumbre","Movimiento en dos y tres dimensiones","Fuerzas de fricción y movimiento circular","Centro de masa","Momento angular","Elasticidad","Hidrostática e hidrodinámica","Teoría cinética de gases","Entropía y segunda ley","Oscilador armónico","Interferencia y difracción","Campos eléctricos y potencial","Capacitancia","Circuitos de corriente continua","Inducción electromagnética","Óptica geométrica y física","Efecto fotoeléctrico","Estructura atómica y nuclear"],
+  ASTRO:["Magnitudes, luminosidad y distancia","Espectros y clasificación estelar","Diagrama Hertzsprung-Russell","Formación estelar","Enanas blancas, estrellas de neutrones y agujeros negros","Estructura y dinámica galáctica","Medio interestelar","Núcleos galácticos activos","Escala de distancias cósmicas","Expansión del universo","Radiación cósmica de fondo","Nucleosíntesis cosmológica","Lentes gravitacionales","Métodos de detección de exoplanetas","Habitabilidad planetaria"],
+  LANG:["Alfabeto y sistema de escritura","Fonética y pronunciación","Vocabulario de alta frecuencia","Estructura de oración","Sustantivos, género y número","Pronombres","Verbos y tiempos principales","Negación e interrogación","Preposiciones y conectores","Comprensión auditiva","Lectura graduada","Producción escrita","Conversación por situaciones","Registro formal e informal","Vocabulario académico y médico"]
+};
+for (const [code,extra] of Object.entries(COURSE_COMPREHENSIVE_EXPANSIONS)) {
+  const base = COURSE_PATHS[code] || [];
+  COURSE_PATHS[code] = [...base, ...extra.filter(name=>!base.includes(name))];
+}
+
 
 export default {
   async fetch(request, env, ctx) {
@@ -457,7 +497,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.2.5";
+const SYSTEM_VERSION="30.3.0";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -648,10 +688,6 @@ async function systemSelfTestApi(url,env,user){
     add("D1 · notes",true,`${Number(n?.n||0)} notas/materiales`);
   }catch(err){add("D1 · notes",false,String(err?.message||err))}
 
-  try{
-    const bank=await questionBankRows(env,user);
-    add("Banco de preguntas",true,`${bank.length} preguntas válidas`);
-  }catch(err){add("Banco de preguntas",false,String(err?.message||err))}
 
   try{
     requireLibraryR2(env);
@@ -681,10 +717,10 @@ async function systemSelfTestApi(url,env,user){
   try{
     const r=await env.DB.prepare("SELECT body FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id).first();
     const p=r?parseJsonLoose(r.body):null;
-    add("Biblioteca · resumen guardado",true,!r?"Sin resúmenes todavía":p?.summary?.sections?.length?`${p.summary.sections.length} secciones · calidad ${Number(p?.quality?.coverage_percent||0)}%`:"Registro legible");
-  }catch(err){add("Biblioteca · resumen guardado",false,String(err?.message||err))}
+    add("Biblioteca · apuntes académicos",true,!r?"Sin apuntes todavía":p?.summary?.sections?.length?`${p.summary.sections.length} secciones · calidad ${Number(p?.quality?.coverage_percent||0)}%`:"Registro legible");
+  }catch(err){add("Biblioteca · apuntes académicos",false,String(err?.message||err))}
   try{
-    const r=await env.DB.prepare("SELECT body FROM notes WHERE user_id=? AND title LIKE 'Material V19:%' ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id).first();
+    const r=await env.DB.prepare("SELECT body FROM notes WHERE user_id=? AND (title LIKE 'Material V20:%' OR title LIKE 'Material V19:%') ORDER BY datetime(updated_at) DESC LIMIT 1").bind(user.id).first();
     const p=r?parseJsonLoose(r.body):null;add("Cursos · material guardado",true,!r?"Sin clases generadas todavía":p?.sections?.length?`${p.sections.length} secciones válidas`:"Material legible");
   }catch(err){add("Cursos · material guardado",false,String(err?.message||err))}
   try{
@@ -692,7 +728,6 @@ async function systemSelfTestApi(url,env,user){
   }catch(err){add("Progreso oficial",false,String(err?.message||err))}
   add("Tutor IA · rutas",typeof aiChat==="function"&&typeof aiChatStream==="function","Chat y streaming disponibles");
   add("Cursos · motor",typeof aiCourseMaterialPack==="function"&&typeof importUniversitySourceApi==="function","Cursos y clases desde material disponibles");
-  add("Claves · motor",typeof analyzeHistoricalKeysApi==="function"&&typeof getHistoricalKeysApi==="function","Análisis histórico disponible");
   add("AI binding",!!env.AI,env.AI?"Binding AI disponible":"Falta binding AI");
   add("Assets binding",!!env.ASSETS,env.ASSETS?"Assets disponible":"Falta ASSETS");
 
@@ -929,22 +964,16 @@ async function systemIntegrityApi(url,env,user){
 
 async function systemOfflineCourseApi(url,env,user){
   const subjectId=cleanText(url.searchParams.get("subject_id"),220);
-  if(!subjectId)return json({materials:[],flashcards:[],question_bank:[],count:0});
+  if(!subjectId)return json({materials:[],count:0});
   const subject=await env.DB.prepare(`SELECT id,name,code FROM subjects WHERE id=? LIMIT 1`).bind(subjectId).first();
   if(!subject)return json({error:"No encontré esa materia."},404);
 
-  const [materialRows,flashRows]=await Promise.all([
-    env.DB.prepare(`
-      SELECT id,subject_id,topic_id,title,body,metadata_json,updated_at
-      FROM notes
-      WHERE user_id=? AND subject_id=? AND tags_json LIKE '%material_v19%'
-      ORDER BY datetime(updated_at) DESC LIMIT 400
-    `).bind(user.id,subjectId).all(),
-    env.DB.prepare(`
-      SELECT id,topic_id,source_type,front,back,hint,tags_json,interval_days,ease_factor,due_at,metadata_json,created_at
-      FROM flashcards WHERE user_id=? ORDER BY datetime(created_at) DESC LIMIT 1500
-    `).bind(user.id).all().catch(()=>({results:[]}))
-  ]);
+  const materialRows=await env.DB.prepare(`
+    SELECT id,subject_id,topic_id,title,body,metadata_json,updated_at
+    FROM notes
+    WHERE user_id=? AND subject_id=? AND tags_json LIKE '%material_v19%'
+    ORDER BY datetime(updated_at) DESC LIMIT 500
+  `).bind(user.id,subjectId).all();
 
   const seen=new Set(),materials=[];
   for(const row of (materialRows.results||[])){
@@ -955,24 +984,10 @@ async function systemOfflineCourseApi(url,env,user){
     materials.push({id:row.id,subject_id:row.subject_id,topic_id:row.topic_id,lesson_id:lessonId,language:cleanText(meta.language,100),title:row.title,material,updated_at:row.updated_at});
   }
 
-  const topicRows=await env.DB.prepare(`SELECT id FROM topics WHERE subject_id=?`).bind(subjectId).all().catch(()=>({results:[]}));
-  const subjectTopics=new Set((topicRows.results||[]).map(x=>x.id));
-  const flashcards=(flashRows.results||[]).filter(c=>{
-    const m=parseJsonLoose(c.metadata_json)||{},tags=parseJsonLoose(c.tags_json)||[];
-    const hay=smartNormalize(`${m.subject||""} ${tags.join(" ")}`);
-    return subjectTopics.has(c.topic_id)||hay.includes(smartNormalize(subject.name))||hay.includes(smartNormalize(subject.code));
-  }).slice(0,600);
-
-  const allBank=await questionBankRows(env,user),normName=smartNormalize(subject.name),normCode=smartNormalize(subject.code);
-  const question_bank=allBank.filter(q=>{
-    const s=smartNormalize(`${q.subject} ${q.topic}`);
-    return s.includes(normName)||s.includes(normCode);
-  }).slice(0,500);
-
   return json({
     subject:{id:subject.id,name:subject.name,code:subject.code},
-    materials,flashcards,question_bank,count:materials.length,bundle_version:30.25,
-    note:"Los PDF/libros quedan offline cuando los marcaste OFFLINE en Biblioteca; este paquete añade clases, flashcards y banco de preguntas."
+    materials,count:materials.length,bundle_version:30.3,
+    note:"Este paquete prepara las clases ya generadas para uso offline. Los PDF/libros se guardan aparte cuando los marcas OFFLINE en Biblioteca."
   });
 }
 
@@ -1212,10 +1227,9 @@ async function academicHomeApi(env,user){
   }
 
   const missionTasks=[];
-  if(dueF)missionTasks.push({id:"flashcards",title:`Repasar ${Math.min(10,dueF)} flashcards`,view:"flashcards",minutes:8});
   if(dueM)missionTasks.push({id:"mistakes",title:`Corregir ${Math.min(4,dueM)} errores`,view:"smart",minutes:10});
   missionTasks.push({id:"focus",title:`Estudiar ${recommendation.title}`,view:recommendation.action||"study",subject_id:recommendation.subject_id||null,minutes:recommendation.minutes||25});
-  missionTasks.push({id:"questions",title:"Responder 10 preguntas de recuperación activa",view:"question_bank",minutes:12});
+  missionTasks.push({id:"library",title:"Revisar apuntes de Biblioteca o material universitario",view:"library",minutes:12});
   const missionMinutes=missionTasks.reduce((s,x)=>s+Number(x.minutes||0),0);
 
   const diagnostics=diagnosticPreview;
@@ -1781,52 +1795,38 @@ function courseTeachingProfile(code,languageName){
 }
 
 
-function courseMaterialDiagramFallback(material,topicName){
-  const sections=Array.isArray(material?.sections)?material.sections:[];
-  return {
-    title:`Diagrama de ${topicName}`,
-    caption:"Secuencia visual de los conceptos centrales.",
-    steps:sections.slice(0,7).map((sec,i)=>({
-      label:cleanText(sec?.title,260)||`Parte ${i+1}`,
-      detail:cleanText((Array.isArray(sec?.key_points)&&sec.key_points.length?sec.key_points.join(" · "):sec?.content)||"",900)
-    })).filter(x=>x.label)
-  };
-}
-
-function courseMaterialMapFallback(material,topicName){
-  const sections=Array.isArray(material?.sections)?material.sections:[];
-  return {
-    center:topicName,
-    branches:sections.slice(0,7).map(sec=>({
-      label:cleanText(sec?.title,260)||"Concepto",
-      children:Array.isArray(sec?.key_points)?sec.key_points.slice(0,4).map(x=>cleanText(x,350)).filter(Boolean):[]
-    })).filter(x=>x.label)
-  };
-}
-
 function upgradeCourseMaterialV19(material,row){
   if(!material||typeof material!=="object")return null;
   const sections=Array.isArray(material.sections)?material.sections:[];
   const practice=Array.isArray(material.practice)?material.practice:[];
   if(sections.length<3||practice.length<6)return null;
+  const coverage=Array.isArray(material.coverage)&&material.coverage.length
+    ? material.coverage
+    : sections.flatMap(s=>Array.isArray(s?.subtopics)&&s.subtopics.length?s.subtopics:[s?.title]).filter(Boolean);
   return {
     ...material,
-    version:19,
+    version:20,
     title:cleanText(material.title,260)||row.topic_name,
-    overview:cleanText(material.overview,1600)||cleanText(row.summary||row.description,1600),
-    diagram:(material.diagram&&Array.isArray(material.diagram.steps)&&material.diagram.steps.length)
-      ? material.diagram
-      : courseMaterialDiagramFallback(material,row.topic_name),
-    concept_map:(material.concept_map&&Array.isArray(material.concept_map.branches)&&material.concept_map.branches.length)
-      ? material.concept_map
-      : courseMaterialMapFallback(material,row.topic_name)
+    overview:cleanText(material.overview,2200)||cleanText(row.summary||row.description,2200),
+    coverage:coverage.slice(0,24).map(x=>cleanText(x,320)).filter(Boolean),
+    sections:sections.slice(0,10).map(sec=>({
+      ...sec,
+      title:cleanText(sec?.title,280),
+      subtopics:Array.isArray(sec?.subtopics)?sec.subtopics.slice(0,8).map(x=>cleanText(x,260)).filter(Boolean):[],
+      content:cleanText(sec?.content||sec?.explanation,4200),
+      key_points:Array.isArray(sec?.key_points)?sec.key_points.slice(0,6).map(x=>cleanText(x,550)).filter(Boolean):[],
+      example:cleanText(sec?.example,1800),
+      application:cleanText(sec?.application,1500)
+    })).filter(x=>x.title&&x.content),
+    diagram:null,
+    concept_map:null
   };
 }
 
 async function saveCourseMaterialV19(env,user,row,languageName,title,material,existingId=null){
   const serialized=JSON.stringify(material),now=new Date().toISOString();
-  const tags=JSON.stringify(["curso","material_v19"]);
-  const metadata=JSON.stringify({course_material:true,version:19,lesson_id:row.lesson_id,language:languageName});
+  const tags=JSON.stringify(["curso","material_v19","material_v20","academic_class_v303"]);
+  const metadata=JSON.stringify({course_material:true,version:20,lesson_id:row.lesson_id,language:languageName,format:"academic_class_v303"});
   if(existingId){
     await env.DB.prepare("UPDATE notes SET title=?,body=?,tags_json=?,metadata_json=?,updated_at=?,sync_version=sync_version+1 WHERE id=? AND user_id=?")
       .bind(title,serialized,tags,metadata,now,existingId,user.id).run();
@@ -2150,7 +2150,7 @@ async function aiCourseMaterialPack(request,env,user){
   const language=normalizeCourseLanguage(body.language||"en-US");
   const languageNames={"he-IL":"Hebreo","la":"Latín","en-US":"Inglés","ru-RU":"Ruso","fr-FR":"Francés"};
   const languageName=row.subject_code==="LANG"?languageNames[language]:null;
-  const materialTitle=`Material V19: ${row.topic_name}`;
+  const materialTitle=`Material V20: ${row.topic_name}`;
 
   // First reuse anything already generated. This does NOT consume Workers AI.
   const existing=await env.DB.prepare("SELECT id,title,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title=? ORDER BY datetime(updated_at) DESC LIMIT 1")
@@ -2159,7 +2159,7 @@ async function aiCourseMaterialPack(request,env,user){
     const parsed=parseJsonLoose(existing.body);
     const upgraded=upgradeCourseMaterialV19(parsed,row);
     if(upgraded){
-      if(parsed?.version!==19){
+      if(parsed?.version!==20){
         const saved=await saveCourseMaterialV19(env,user,row,languageName,materialTitle,upgraded,existing.id);
         return json({material:upgraded,cached:true,migrated:true,updated_at:saved.updated_at});
       }
@@ -2167,8 +2167,8 @@ async function aiCourseMaterialPack(request,env,user){
     }
   }
 
-  // V18 material is valuable and should be migrated instead of regenerated.
-  const legacyTitle=`Material V18: ${row.topic_name}`;
+  // V19 material is valuable and should be migrated into the new academic format instead of regenerated.
+  const legacyTitle=`Material V19: ${row.topic_name}`;
   const legacy=await env.DB.prepare("SELECT id,title,body,updated_at FROM notes WHERE user_id=? AND topic_id=? AND title=? ORDER BY datetime(updated_at) DESC LIMIT 1")
     .bind(user.id,row.topic_id,legacyTitle).first();
   if(legacy?.body){
@@ -2183,9 +2183,10 @@ async function aiCourseMaterialPack(request,env,user){
   ensureAI(env);
   const seedObjectives=parseJsonLoose(row.learning_objectives_json)||[];
   const profile=courseTeachingProfile(row.subject_code,languageName);
-  const prompt=`Crea el material completo de UNA sesión de estudio para una plataforma educativa universitaria.
+  const prompt=`Crea una CLASE ACADÉMICA COMPLETA, coherente y progresiva para una plataforma universitaria.
+
 MATERIA: ${row.subject_name}
-TEMA: ${row.topic_name}
+TEMA CENTRAL: ${row.topic_name}
 DIFICULTAD: ${Number(row.difficulty||4)}/10
 ${languageName?`IDIOMA OBJETIVO: ${languageName}`:""}
 DESCRIPCIÓN BASE: ${row.description||row.summary||""}
@@ -2193,48 +2194,62 @@ OBJETIVOS BASE: ${Array.isArray(seedObjectives)?seedObjectives.join("; "):""}
 
 ENFOQUE PEDAGÓGICO: ${profile}
 
-La sesión debe poder estudiarse como un capítulo corto antes de hacer ejercicios. Debe cubrir los subtemas esenciales del tema, de lo más sencillo a lo más complejo, sin convertirse en una enciclopedia ni omitir fundamentos necesarios.
+OBJETIVO PRINCIPAL:
+- La clase debe poder estudiarse de principio a fin como un capítulo universitario bien escrito.
+- Debe abarcar TODOS los subtemas fundamentales y académicamente esperables dentro de "${row.topic_name}", sin saltarse bases necesarias.
+- Organiza la explicación desde fundamentos -> desarrollo -> integración -> aplicación.
+- Cada sección debe conectar lógicamente con la anterior; evita fragmentos aislados, listas sin explicación y repeticiones.
+- No conviertas la clase en una enciclopedia infinita: sé completa para el alcance del tema, pero conserva una estructura enseñable.
+- Si el tema es amplio, divide su contenido en suficientes secciones para cubrirlo con sentido.
+- No incluyas mapas mentales ni diagramas.
+- La práctica es formativa, no un examen final.
 
 Devuelve EXCLUSIVAMENTE JSON válido con esta forma:
 {
- "version":19,
- "title":"título de la clase",
- "overview":"introducción de 2 a 4 oraciones que explique por qué importa el tema",
- "estimated_minutes":35,
- "objectives":["5 a 7 objetivos concretos"],
+ "version":20,
+ "title":"título académico claro y específico",
+ "overview":"introducción de 2 a 4 párrafos breves que ubique el tema, explique su importancia y anticipe la organización de la clase",
+ "estimated_minutes":45,
+ "objectives":["5 a 8 objetivos concretos"],
+ "coverage":["subtema esencial 1","subtema esencial 2","subtema esencial 3"],
  "sections":[
-   {"title":"subtema","content":"explicación clara y completa en varios párrafos separados por saltos de línea","key_points":["3 a 5 ideas"],"example":"ejemplo trabajado o aplicado","application":"cómo se usa o por qué importa"}
+   {
+     "title":"título académico de la sección",
+     "subtopics":["subtema cubierto","subtema relacionado"],
+     "content":"explicación continua, clara y completa en varios párrafos. Debe definir conceptos, explicar mecanismos o razonamiento y conectar ideas.",
+     "key_points":["3 a 6 ideas esenciales"],
+     "example":"ejemplo trabajado, caso, demostración o aplicación cuando corresponda",
+     "application":"por qué importa, cómo se aplica o cómo conecta con otros conceptos"
+   }
  ],
- "key_terms":["8 a 15 conceptos clave"],
- "diagram":{
-   "title":"título del diagrama",
-   "caption":"qué representa",
-   "steps":[{"label":"bloque o paso","detail":"explicación corta del bloque"}]
- },
- "concept_map":{
-   "center":"concepto central",
-   "branches":[{"label":"rama principal","children":["idea relacionada","idea relacionada"]}]
- },
+ "key_terms":["10 a 20 conceptos esenciales"],
  "practice":[
-   {"type":"choice|true_false","question":"ejercicio","context":"dato o escenario opcional","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación educativa de la respuesta"}
+   {"type":"choice|true_false","question":"ejercicio de aplicación","context":"dato o escenario opcional","options":["A","B","C","D"],"correctIndex":0,"explanation":"explicación educativa de la respuesta"}
  ],
- "summary":{"overview":"síntesis final","must_remember":["6 a 10 ideas indispensables"],"common_errors":["3 a 6 errores o confusiones frecuentes"],"connection":"cómo conecta con el siguiente nivel o con otros temas"}
+ "summary":{
+   "overview":"síntesis integrada del tema, no una repetición literal de la introducción",
+   "must_remember":["8 a 14 ideas que conecten los conceptos principales"],
+   "common_errors":["3 a 7 errores, confusiones o razonamientos incorrectos frecuentes"],
+   "connection":"cómo este tema se relaciona con contenidos previos, posteriores o aplicaciones relevantes"
+ }
 }
 
 REGLAS ESTRICTAS:
-- 5 a 7 sections, ordenadas pedagógicamente.
-- Cada section debe enseñar de verdad: definición, mecanismo o razonamiento y ejemplo/aplicación cuando corresponda.
-- diagram debe tener entre 4 y 8 steps y representar un proceso, método, jerarquía o secuencia útil para ESTE tema; no debe ser decorativo.
-- concept_map debe tener entre 4 y 7 branches y cada rama entre 2 y 4 children. Debe conectar los conceptos más importantes de la clase.
-- Adapta los recursos visuales a la materia: mecanismos y rutas en Medicina; procedimientos y relaciones en Matemática; modelos, fuerzas o transformaciones en Física; escalas/procesos en Astronomía; patrones, estructura de frase o gramática en Idiomas.
+- coverage debe enumerar entre 8 y 20 subtemas esenciales cuando el tema lo permita.
+- Debes cubrir en sections todos los elementos listados en coverage.
+- Genera entre 6 y 10 sections, salvo que el tema realmente requiera menos.
+- Cada section debe tener contenido sustancial y coherente; no escribas frases sueltas.
+- Usa transiciones conceptuales naturales entre secciones.
+- No repitas la misma definición en varias secciones.
 - EXACTAMENTE 8 ejercicios de práctica.
-- Todos los ejercicios deben poder autocorregirse. Usa 4 opciones en todos; para verdadero/falso usa ["Verdadero","Falso","No se puede determinar","Depende del contexto"] si hace falta.
+- Todos los ejercicios deben poder autocorregirse con 4 opciones.
 - correctIndex debe ser 0,1,2 o 3 y apuntar a la opción correcta.
-- No incluyas preguntas del examen final dentro del texto.
+- No incluyas examen final, mapa mental, mapa conceptual ni diagrama.
 - No inventes referencias bibliográficas ni datos dudosos.
-- En Matemática/Física incluye fórmulas en texto legible y al menos un ejemplo resuelto paso a paso.
+- En Matemática/Física incluye fórmulas en texto legible y ejemplos resueltos paso a paso donde sean necesarios.
+- En Astronomía distingue observación, modelo físico y escala cuando corresponda.
 - En Idiomas adapta ejemplos y explicación al idioma ${languageName||"seleccionado"}; si es Hebreo usa escritura hebrea, si es Ruso cirílico, si es Latín latín correcto.
-- En Medicina conserva propósito educativo y no sustituye valoración profesional.
+- En Medicina y ciencias de la salud conserva rigor académico, explica mecanismos y correlación clínica cuando corresponda, y evita presentar el material como sustituto de atención profesional.
 - Escribe en español salvo ejemplos necesarios del idioma objetivo.
 - Sin markdown fuera de los valores JSON.`;
 
@@ -2244,10 +2259,10 @@ REGLAS ESTRICTAS:
       fallback:false,
       task:"course_material",
       messages:[
-        {role:"system",content:"Eres un profesor universitario y diseñador instruccional. Creas clases autocontenidas, progresivas, correctas y orientadas a comprensión profunda y práctica activa. Devuelve solo JSON válido."},
+        {role:"system",content:"Eres un profesor universitario y diseñador instruccional. Redactas clases académicas completas, coherentes, progresivas y autosuficientes. Priorizas comprensión, cobertura temática e integración conceptual. No generes mapas mentales ni diagramas. Devuelve solo JSON válido."},
         {role:"user",content:prompt}
       ],
-      max_tokens:model===PREMIUM_PRO_MODEL?6800:6200,
+      max_tokens:model===PREMIUM_PRO_MODEL?7200:6800,
       temperature:temp,
       response_format:jsonMode?{type:"json_object"}:undefined
     });
@@ -2267,46 +2282,37 @@ REGLAS ESTRICTAS:
   }
 
   const material={
-    version:19,
-    title:cleanText(parsed.title,260)||row.topic_name,
-    overview:cleanText(parsed.overview,1600)||cleanText(row.summary||row.description,1600),
-    estimated_minutes:clamp(Number(parsed.estimated_minutes||40),20,90),
-    objectives:Array.isArray(parsed.objectives)?parsed.objectives.slice(0,7).map(x=>cleanText(x,500)).filter(Boolean):[],
-    sections:parsed.sections.slice(0,7).map(sec=>({
-      title:cleanText(sec.title,260),content:cleanText(sec.content,2300),
-      key_points:Array.isArray(sec.key_points)?sec.key_points.slice(0,5).map(x=>cleanText(x,450)).filter(Boolean):[],
-      example:cleanText(sec.example,1600),application:cleanText(sec.application,1200)
+    version:20,
+    title:cleanText(parsed.title,280)||row.topic_name,
+    overview:cleanText(parsed.overview,2400)||cleanText(row.summary||row.description,2400),
+    estimated_minutes:clamp(Number(parsed.estimated_minutes||45),25,120),
+    objectives:Array.isArray(parsed.objectives)?parsed.objectives.slice(0,8).map(x=>cleanText(x,600)).filter(Boolean):[],
+    coverage:Array.isArray(parsed.coverage)?parsed.coverage.slice(0,24).map(x=>cleanText(x,320)).filter(Boolean):[],
+    sections:parsed.sections.slice(0,10).map(sec=>({
+      title:cleanText(sec.title,280),
+      subtopics:Array.isArray(sec.subtopics)?sec.subtopics.slice(0,8).map(x=>cleanText(x,280)).filter(Boolean):[],
+      content:cleanText(sec.content,4200),
+      key_points:Array.isArray(sec.key_points)?sec.key_points.slice(0,6).map(x=>cleanText(x,600)).filter(Boolean):[],
+      example:cleanText(sec.example,1900),application:cleanText(sec.application,1600)
     })).filter(x=>x.title&&x.content),
-    key_terms:Array.isArray(parsed.key_terms)?parsed.key_terms.slice(0,15).map(x=>cleanText(x,220)).filter(Boolean):[],
-    diagram:{
-      title:cleanText(parsed.diagram?.title,260)||`Diagrama de ${row.topic_name}`,
-      caption:cleanText(parsed.diagram?.caption,700)||"Secuencia visual de los conceptos centrales.",
-      steps:Array.isArray(parsed.diagram?.steps)?parsed.diagram.steps.slice(0,8).map(x=>({
-        label:cleanText(x.label,260),
-        detail:cleanText(x.detail,900)
-      })).filter(x=>x.label):[]
-    },
-    concept_map:{
-      center:cleanText(parsed.concept_map?.center,260)||row.topic_name,
-      branches:Array.isArray(parsed.concept_map?.branches)?parsed.concept_map.branches.slice(0,7).map(x=>({
-        label:cleanText(x.label,260),
-        children:Array.isArray(x.children)?x.children.slice(0,4).map(y=>cleanText(y,350)).filter(Boolean):[]
-      })).filter(x=>x.label):[]
-    },
+    key_terms:Array.isArray(parsed.key_terms)?parsed.key_terms.slice(0,20).map(x=>cleanText(x,260)).filter(Boolean):[],
+    diagram:null,
+    concept_map:null,
     practice:parsed.practice.slice(0,8).map(q=>({
       type:String(q.type||"choice")==="true_false"?"true_false":"choice",
-      question:cleanText(q.question,900),context:cleanText(q.context,900),
-      options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,600)):[],
-      correctIndex:clamp(Math.round(Number(q.correctIndex||0)),0,3),explanation:cleanText(q.explanation,1200)
+      question:cleanText(q.question,1000),context:cleanText(q.context,1000),
+      options:Array.isArray(q.options)?q.options.slice(0,4).map(x=>cleanText(x,650)):[],
+      correctIndex:clamp(Math.round(Number(q.correctIndex||0)),0,3),explanation:cleanText(q.explanation,1400)
     })).filter(q=>q.question&&q.options.length===4),
     summary:{
-      overview:cleanText(parsed.summary?.overview,1600),
-      must_remember:Array.isArray(parsed.summary?.must_remember)?parsed.summary.must_remember.slice(0,10).map(x=>cleanText(x,500)).filter(Boolean):[],
-      common_errors:Array.isArray(parsed.summary?.common_errors)?parsed.summary.common_errors.slice(0,6).map(x=>cleanText(x,500)).filter(Boolean):[],
-      connection:cleanText(parsed.summary?.connection,1000)
+      overview:cleanText(parsed.summary?.overview,2200),
+      must_remember:Array.isArray(parsed.summary?.must_remember)?parsed.summary.must_remember.slice(0,14).map(x=>cleanText(x,600)).filter(Boolean):[],
+      common_errors:Array.isArray(parsed.summary?.common_errors)?parsed.summary.common_errors.slice(0,7).map(x=>cleanText(x,600)).filter(Boolean):[],
+      connection:cleanText(parsed.summary?.connection,1400)
     }
   };
-  if(material.sections.length<3||material.practice.length<6)return json({error:"El material generado quedó incompleto. Intenta nuevamente."},502);
+  if(!material.coverage.length)material.coverage=material.sections.flatMap(s=>s.subtopics?.length?s.subtopics:[s.title]).filter(Boolean).slice(0,24);
+  if(material.sections.length<4||material.practice.length<6)return json({error:"El material generado quedó incompleto. Intenta nuevamente."},502);
   const saved=await saveCourseMaterialV19(env,user,row,languageName,materialTitle,material,existing?.id||null);
   return json({material,cached:false,updated_at:saved.updated_at});
 }
@@ -3186,7 +3192,7 @@ async function callLibraryPartJson(env,{
             {role:"system",content:system+"\nDevuelve exclusivamente JSON válido, sin Markdown."},
             {role:"user",content:prompt}
           ],
-          max_tokens:Math.min(maxOutputTokens,3200),
+          max_tokens:Math.min(maxOutputTokens,5200),
           temperature,
           chat_template_kwargs:{enable_thinking:false}
         },
@@ -3343,7 +3349,7 @@ async function retryLibraryPartFast(env,{task,system,prompt,maxOutputTokens=2600
             {role:"system",content:system+"\nDevuelve SOLO JSON válido. Cumple exactamente las cantidades solicitadas."},
             {role:"user",content:prompt}
           ],
-          max_tokens:Math.min(maxOutputTokens,3200),
+          max_tokens:Math.min(maxOutputTokens,5200),
           temperature:0.04,
           chat_template_kwargs:{enable_thinking:false}
         },
@@ -3506,8 +3512,8 @@ function sanitizeSourceMapAgainstText(map,sourceText){
   }
 
   return {
-    topics:dedup.slice(0,20),
-    headings:headings.slice(0,30),
+    topics:dedup.slice(0,30),
+    headings:headings.slice(0,40),
     excluded:Array.isArray(map?.excluded)?map.excluded.map(x=>cleanText(x,300)).filter(Boolean).slice(0,20):[],
     source_summary:cleanText(map?.source_summary,2200),
     domain:cleanText(map?.domain,180)||"General",
@@ -3516,7 +3522,7 @@ function sanitizeSourceMapAgainstText(map,sourceText){
   };
 }
 function sourceLockMapValid(map){return !!map&&Array.isArray(map.topics)&&map.topics.length>=1&&map.topics.every(t=>String(t?.name||"").trim())}
-function sourceLockNames(map){return (map?.topics||[]).map(t=>String(t.name||"").trim()).filter(Boolean).slice(0,20)}
+function sourceLockNames(map){return (map?.topics||[]).map(t=>String(t.name||"").trim()).filter(Boolean).slice(0,30)}
 function sourceLockCoverage(sourceText,generatedText){
   const src=new Set(sourceLockMeaningfulTokens(sourceText)),gen=[...new Set(sourceLockMeaningfulTokens(generatedText))];
   if(!gen.length)return 0; return gen.filter(x=>src.has(x)).length/gen.length;
@@ -3776,7 +3782,7 @@ function mergeLibrarySummaryRepair(base,repair){
     if(!key||seen.has(key))continue;
     current.push(s);seen.add(key);
   }
-  base.summary.sections=current.slice(0,24);
+  base.summary.sections=current.slice(0,36);
   return base;
 }
 function deterministicLibraryVisuals(map,title){
@@ -4135,28 +4141,28 @@ function sanitizeAcademicStudyAidsV302(parsed){
 }
 function sanitizeLibraryNotesPackV302(parsed,{studyFocus,sourceName,sourceType,mimeType}={}){
   const secRaw=Array.isArray(parsed?.summary?.sections)?parsed.summary.sections:Array.isArray(parsed?.sections)?parsed.sections:[];
-  const sections=secRaw.slice(0,24).map((s,i)=>({
+  const sections=secRaw.slice(0,36).map((s,i)=>({
     title:cleanHeadingTitleV3023(s?.title,420)||`Apartado ${i+1}`,
     page_refs:academicPageRefsV302(s?.page_refs),
     source_headings:Array.isArray(s?.source_headings)?s.source_headings.slice(0,12).map(x=>cleanHeadingTitleV3023(x,420)).filter(Boolean):[],
-    summary:cleanAcademicTextV302(s?.summary||s?.content||s?.explanation,4200),
-    key_points:Array.isArray(s?.key_points)?s.key_points.slice(0,7).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
+    summary:cleanAcademicTextV302(s?.summary||s?.content||s?.explanation,5600),
+    key_points:Array.isArray(s?.key_points)?s.key_points.slice(0,6).map(x=>cleanAcademicTextV302(x,900)).filter(Boolean):[],
     important_data:Array.isArray(s?.important_data)?s.important_data.slice(0,6).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[]
   })).filter(s=>s.summary||s.key_points.length||s.important_data.length);
 
   const summary={
-    overview:cleanAcademicTextV302(parsed?.summary?.overview||parsed?.overview,3800),
+    overview:cleanAcademicTextV302(parsed?.summary?.overview||parsed?.overview,4600),
     sections,
     must_remember:Array.isArray(parsed?.summary?.must_remember)?parsed.summary.must_remember.slice(0,14).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
-    final_synthesis:cleanAcademicTextV302(parsed?.summary?.final_synthesis||parsed?.final_synthesis,2200)
+    final_synthesis:cleanAcademicTextV302(parsed?.summary?.final_synthesis||parsed?.final_synthesis,3200)
   };
   if(!summary.overview||!sections.length)return null;
   return {
-    version:30.23,
+    version:30.3,
     university_source:true,
     library_study_pack:true,
     library_notes_only_v302:true,
-    library_universal_notes_v3023:true,
+    library_academic_notes_v3030:true,
     library_simple_v30:true,
     title:cleanHeadingTitleV3023(parsed?.title,420)||cleanHeadingTitleV3023(studyFocus,420)||cleanHeadingTitleV3023(sourceName,420)||"Apuntes de estudio",
     overview:cleanAcademicTextV302(parsed?.overview,2800)||summary.overview,
@@ -4199,7 +4205,7 @@ function augmentLibraryNotesCoverageV3023(pack,map,sourceText){
   const missing=libraryMissingPackHeadingsV3023(pack,map).slice(0,20);
   const allHeadings=(map?.headings||[]).map(x=>x.title).filter(Boolean);
   for(const heading of missing){
-    if((pack.summary.sections||[]).length>=24)break;
+    if((pack.summary.sections||[]).length>=36)break;
     const idx=allHeadings.findIndex(x=>libraryHeadingKey(x)===libraryHeadingKey(heading));
     const next=idx>=0?allHeadings[idx+1]:null;
     const chunk=libraryFallbackSectionText(sourceText,heading,next);
@@ -4237,9 +4243,9 @@ function libraryNotesQualityV302(pack,sourceMap,sourceText){
   const strayPlus=(generated.match(/(?:[,.;:]\s*\+\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]|\b(?:de|del|la|el|las|los)\s+\+\s+[a-záéíóúüñ])/gi)||[]).length;
 
   return {
-    ok:noteWords>=100 && weird===0 && strayPlus===0 &&
+    ok:noteWords>=180 && weird===0 && strayPlus===0 &&
        (headings.length===0||coveragePercent>=95) &&
-       (sourceWords<450||ratio<=0.68),
+       (sourceWords<450||ratio<=0.78),
     coverage_percent:coveragePercent,
     headings_total:headings.length,
     headings_covered:covered,
@@ -4249,24 +4255,24 @@ function libraryNotesQualityV302(pack,sourceMap,sourceText){
     compression_percent:sourceWords?Math.round((1-Math.min(1,ratio))*100):null,
     weird_characters:weird,
     stray_plus_artifacts:strayPlus,
-    status:"checked_v3023"
+    status:"checked_v3030"
   };
 }
 function buildDeterministicLibraryNotesV302({sourceText,sourceMap,title,scope}){
   const headings=(sourceMap?.headings||[]).map(x=>x.title).filter(Boolean);
   const topics=sourceLockNames(sourceMap);
-  const units=(headings.length?headings:topics).slice(0,20);
+  const units=(headings.length?headings:topics).slice(0,36);
   const allSent=libraryFallbackSentences(sourceText);
   const sections=[];
   for(let i=0;i<units.length;i++){
     const unit=units[i],next=units[i+1];
     let chunk=libraryFallbackSectionText(sourceText,unit,next);
     if(chunk.length<100){
-      chunk=allSent.filter(s=>sourceLockTopicSupported(unit,[],normalizeSourceLockText(s))).slice(0,7).join(" ");
+      chunk=allSent.filter(s=>sourceLockTopicSupported(unit,[],normalizeSourceLockText(s))).slice(0,10).join(" ");
     }
     const sents=libraryFallbackSentences(chunk);
     if(!sents.length)continue;
-    const body=cleanAcademicTextV302(sents.slice(0,6).join(" "),3000);
+    const body=cleanAcademicTextV302(sents.slice(0,10).join(" "),4600);
     if(body.length<70)continue;
     const src=(sourceMap?.headings||[]).find(h=>h.title===unit)||(sourceMap?.topics||[]).find(t=>t.name===unit);
     sections.push({
@@ -4274,7 +4280,7 @@ function buildDeterministicLibraryNotesV302({sourceText,sourceMap,title,scope}){
       source_headings:[cleanHeadingTitleV3023(unit,420)],
       page_refs:academicPageRefsV302(src?.page_refs),
       summary:body,
-      key_points:sents.slice(0,4).map(x=>cleanAcademicTextV302(x,750)),
+      key_points:sents.slice(0,5).map(x=>cleanAcademicTextV302(x,850)),
       important_data:sents.filter(s=>/\d|%|=|→|↔|mol|mg|ml|mmhg|hz|ph\b/i.test(s)).slice(0,4).map(x=>cleanAcademicTextV302(x,750))
     });
   }
@@ -4284,15 +4290,15 @@ function buildDeterministicLibraryNotesV302({sourceText,sourceMap,title,scope}){
   }
   const overview=cleanAcademicTextV302(sections.slice(0,4).map(s=>s.summary).join(" ").slice(0,2400),2400);
   return {
-    version:30.21,university_source:true,library_study_pack:true,library_notes_only_v302:true,library_simple_v30:true,
-    title:cleanAcademicTextV302(title,420)||"Apuntes de estudio",
-    overview,estimated_minutes:20,source_digest:cleanAcademicTextV302(sections.map(s=>`${s.title}: ${s.summary}`).join("\n\n"),14000),
+    version:30.3,university_source:true,library_study_pack:true,library_notes_only_v302:true,library_simple_v30:true,library_academic_notes_v3030:true,
+    title:cleanAcademicTextV302(title,420)||"Apuntes académicos",
+    overview,estimated_minutes:30,source_digest:cleanAcademicTextV302(sections.map(s=>`${s.title}: ${s.summary}`).join("\n\n"),14000),
     key_terms:libraryFallbackKeywords(sourceText,18).map(x=>cleanAcademicTextV302(x,240)),
     summary:{
       overview,
       sections,
-      must_remember:sections.flatMap(s=>s.key_points||[]).slice(0,10),
-      final_synthesis:cleanAcademicTextV302(`Estos apuntes condensan ${scope||"el fragmento seleccionado"} y conservan únicamente información identificable en la fuente.`,900)
+      must_remember:sections.flatMap(s=>s.key_points||[]).slice(0,14),
+      final_synthesis:cleanAcademicTextV302(`Síntesis académica construida directamente desde ${scope||"el fragmento seleccionado"}, manteniendo el orden conceptual y la información identificable en la fuente.`,1200)
     },
     study_aids:{equations:[],compounds:[],tables:[],figures:[]},
     diagrams:[],diagram:null,concept_map:null,sections:[],objectives:[],exam_focus:[],practice:[],exam:[],video_searches:[],
@@ -4317,7 +4323,7 @@ async function createLibraryStudySummaryV301(request,env,user){
   const exactPageRange=pageStart>0&&pageEnd>=pageStart;
   const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
 
-  const sourceSignature=await sha256(["library-notes-v30.2.3",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
+  const sourceSignature=await sha256(["library-notes-v30.3.0",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
   const existing=await env.DB.prepare(`SELECT id,title,body,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 180`).bind(user.id).all();
   for(const row of (existing.results||[])){
     const m=parseJsonLoose(row.metadata_json)||{};
@@ -4346,7 +4352,7 @@ async function createLibraryStudySummaryV301(request,env,user){
 
   const topicNames=sourceLockNames(sourceMap);
   const headingNames=(sourceMap.headings||[]).map(h=>cleanAcademicTextV302(h.title,420)).filter(Boolean);
-  const units=(headingNames.length?headingNames:topicNames).slice(0,24);
+  const units=(headingNames.length?headingNames:topicNames).slice(0,36);
   const unitBlock=units.map((x,i)=>`${i+1}. ${x}`).join("\n");
   const selectedPageCount=exactPageRange?(pageEnd-pageStart+1):null;
 
@@ -4361,57 +4367,67 @@ async function createLibraryStudySummaryV301(request,env,user){
     `===== MATERIAL =====\n${extracted}\n===== FIN DEL MATERIAL =====`
   ].filter(Boolean).join("\n\n");
 
-  const prompt=`Convierte estas páginas en APUNTES DE ESTUDIO UNIVERSALES, claros, coherentes y agradables de leer.
+  const prompt=`Transforma estas páginas en APUNTES ACADÉMICOS DE ALTA CALIDAD para estudiar directamente de ellos.
 
-OBJETIVO:
-- Debe parecer un resumen académico normal de un tema, como un PDF de apuntes bien redactado.
-- El lector debe entender desde el título qué tema está estudiando.
-- Sirve para CUALQUIER materia. No presupongas Medicina: adapta el vocabulario a lo que realmente contenga la fuente.
-- Usa un título natural que indique con claridad qué tema se estudia.
+PROPÓSITO:
+- El resultado debe leerse como un capítulo de apuntes universitarios bien redactado, no como una lista automática ni como un resumen superficial.
+- Debe ser lógico, congruente y progresivo: introducción -> desarrollo por apartados -> integración final.
+- Debe servir para repasar antes de una clase, parcial o examen sin necesidad de reconstruir mentalmente el orden del PDF.
+- Trabaja para CUALQUIER materia; adapta el vocabulario, profundidad y ejemplos a la fuente real.
+- Usa únicamente la información del fragmento proporcionado. No agregues conocimiento externo como si estuviera en el documento.
+
+COBERTURA:
 - TODOS los subtítulos reales listados en UNIDADES REALES DETECTADAS deben quedar cubiertos.
-- Puedes combinar subtítulos relacionados dentro de una misma sección para evitar repetición, pero cada sección debe declarar source_headings con los subtítulos reales que cubrió.
-- Si dos subtítulos no son equivalentes o no se explican juntos con naturalidad, mantenlos en apartados separados.
-- Explica con prosa continua y clara; no hagas frases cortadas ni listas sin contexto.
-- Resume: NO copies todo el PDF. Idealmente conserva aproximadamente 25% a 45% de la extensión conceptual del fragmento, sin perder ideas esenciales.
-- Cada apartado debe explicar qué es, cómo funciona o por qué importa cuando esa información esté en la fuente.
-- Los puntos clave son complementarios; la explicación principal debe poder leerse sola y tener sentido.
-- Si hay ecuaciones, fórmulas, reacciones químicas, compuestos, tablas o figuras relevantes en la fuente, inclúyelos en study_aids.
-- Si no existen, devuelve listas vacías. No inventes fórmulas, compuestos ni figuras.
-- Conserva y NORMALIZA la notación científica sin destruirla: por ejemplo Na⁺, K⁺, Ca²⁺, Cl⁻ cuando esa carga esté presente en la fuente.
-- Repara palabras partidas por salto de línea y evita copiar números de página, pies editoriales o fragmentos de columnas como si fueran parte de una explicación.
-- No uses símbolos decorativos, emojis, Markdown ni caracteres extraños.
-- No mezcles información de otras páginas ni conocimiento externo.
-- Español natural, ortografía correcta, acentos correctos y texto limpio.
+- Puedes agrupar subtítulos relacionados únicamente cuando la explicación conjunta sea natural y mejore la comprensión.
+- Cada sección debe declarar source_headings con TODOS los subtítulos reales que cubre.
+- Si dos subtítulos tratan ideas diferentes, mantenlos separados.
+- No omitas apartados porque parezcan secundarios si contienen conceptos, mecanismos, clasificaciones, pasos, fórmulas, criterios o datos relevantes.
 
-${selectedPageCount?`LONGITUD: son ${selectedPageCount} páginas. Resume de forma sustancial: normalmente el resultado debería ocupar alrededor de 25% a 45% del contenido conceptual original. El número de apartados depende de la estructura real, no de un límite artificial.`:""}
+REDACCIÓN ACADÉMICA:
+- Cada apartado debe iniciar con contexto y desarrollar la idea con prosa continua.
+- Explica relaciones de causa, mecanismo, secuencia, comparación o aplicación cuando estén presentes en la fuente.
+- Evita frases telegráficas, repeticiones, listas desconectadas y párrafos sin transición.
+- Mantén terminología académica correcta pero con lectura clara.
+- Los puntos clave deben reforzar la explicación; nunca deben reemplazarla.
+- No copies párrafos completos del PDF: sintetiza y reorganiza conservando significado.
+- Si el fragmento contiene definiciones importantes, criterios, clasificaciones, ecuaciones, fórmulas, valores, tablas o figuras, consérvalos con fidelidad.
+- Conserva y normaliza notación científica: Na⁺, K⁺, Ca²⁺, Cl⁻, ecuaciones y símbolos cuando estén presentes en la fuente.
+- Repara palabras partidas por salto de línea, encabezados repetidos, pies de página y artefactos del PDF.
+- No uses emojis, adornos, Markdown ni símbolos decorativos.
+
+PROFUNDIDAD:
+${selectedPageCount?`- El fragmento contiene ${selectedPageCount} páginas. Produce apuntes suficientemente desarrollados para estudiar: normalmente entre 35% y 60% de la extensión conceptual de la fuente, dependiendo de su densidad.
+- Una sección importante puede requerir 140 a 350 palabras; una sección breve puede ser menor. No fuerces la misma longitud para todas.`:"- Desarrolla cada apartado según su importancia y cantidad de información."}
+- El número de secciones depende de la estructura real de la fuente, no de un límite artificial.
+- Prioriza comprensión y cobertura sobre brevedad extrema.
 
 Devuelve SOLO JSON válido:
 {
- "title":"tema principal, claro y específico",
- "overview":"introducción de 1 a 3 párrafos breves que ubique el tema",
- "estimated_minutes":20,
- "source_digest":"síntesis compacta de la fuente",
- "key_terms":["términos realmente importantes"],
+ "title":"título académico específico del contenido estudiado",
+ "overview":"introducción de 2 a 4 párrafos breves que ubique el tema y explique cómo se organiza",
+ "estimated_minutes":30,
+ "source_digest":"síntesis estructural compacta de lo que contiene el fragmento",
+ "key_terms":["conceptos esenciales que aparecen realmente en la fuente"],
  "summary":{
-   "overview":"introducción congruente",
+   "overview":"introducción académica congruente y diferente de una simple lista",
    "sections":[
      {
-       "title":"subtítulo claro o título agrupador natural",
-       "source_headings":["subtítulo real cubierto"],
+       "title":"título académico claro del apartado",
+       "source_headings":["subtítulo real cubierto","otro subtítulo real si fue agrupado"],
        "page_refs":[34],
-       "summary":"explicación coherente de aproximadamente 80 a 220 palabras según importancia",
-       "key_points":["solo 2 a 6 ideas que valga la pena memorizar"],
-       "important_data":["datos, valores o reglas concretas presentes en la fuente"]
+       "summary":"explicación académica continua, coherente y suficientemente desarrollada",
+       "key_points":["3 a 5 ideas de alto valor para recordar"],
+       "important_data":["criterios, cifras, pasos, clasificaciones, reglas o relaciones concretas presentes en la fuente"]
      }
    ],
-   "must_remember":["6 a 12 ideas finales"],
-   "final_synthesis":"cierre breve que conecte el tema"
+   "must_remember":["8 a 14 ideas integradoras realmente importantes"],
+   "final_synthesis":"cierre académico que conecte los apartados y deje una visión global del tema"
  },
  "study_aids":{
    "equations":[{"expression":"ecuación exacta","meaning":"qué representa según la fuente","page_refs":[34]}],
-   "compounds":[{"formula":"fórmula","name":"nombre","importance":"por qué aparece aquí","page_refs":[34]}],
-   "tables":[{"title":"tabla útil","headers":["columna 1","columna 2"],"rows":[["dato","dato"]],"page_refs":[34]}],
-   "figures":[{"title":"figura o esquema que conviene revisar","description":"qué muestra y cómo interpretarla","page_refs":[34]}]
+   "compounds":[{"formula":"fórmula o especie","name":"nombre","importance":"por qué aparece aquí","page_refs":[34]}],
+   "tables":[{"title":"tabla útil basada en la fuente","headers":["columna 1","columna 2"],"rows":[["dato","dato"]],"page_refs":[34]}],
+   "figures":[{"title":"figura o esquema presente o descrito en la fuente","description":"qué muestra y cómo debe interpretarse","page_refs":[34]}]
  }
 }
 
@@ -4423,10 +4439,10 @@ ${material}`;
   let parsed=null,summaryModel=null,fallbackGenerated=false;
   try{
     const r=await callLibraryPartJson(env,{
-      task:"library_universal_notes_v3023",
+      task:"library_academic_notes_v3030",
       model:PREMIUM_FLASH_MODEL,
-      system:"Redacta apuntes universitarios universales para cualquier materia. Cubre todos los subtítulos reales, limpia artefactos del PDF y conserva notación científica. Devuelve solo JSON válido.",
-      prompt,maxOutputTokens:4800,temperature:0.02,providerTimeout:30000,fallbackTimeout:12000
+      system:"Redacta apuntes universitarios de alta calidad para cualquier materia. Deben ser coherentes, progresivos, suficientemente desarrollados y cubrir todos los subtítulos reales de la fuente. Limpia artefactos del PDF y conserva notación científica. No inventes contenido externo. Devuelve solo JSON válido.",
+      prompt,maxOutputTokens:6800,temperature:0.03,providerTimeout:45000,fallbackTimeout:20000
     });
     parsed=r.parsed;summaryModel=r.model;
   }catch(err){
@@ -4464,7 +4480,7 @@ ${material}`;
     quality.status="source_direct_fallback_v3023";
   }
 
-  pack.version=30.23;
+  pack.version=30.3;
   pack.library_study_pack=true;
   pack.library_notes_only_v302=true;
   pack.library_simple_v30=true;
@@ -4474,7 +4490,7 @@ ${material}`;
   pack.quality=quality;
   pack.user_personalization=libraryPersonalizationV301(pack);
   pack.source_lock={
-    enabled:true,version:"30.2.3",
+    enabled:true,version:"30.3.0",
     domain:sourceMap.domain||"General",
     material_type:sourceMap.material_type||"Material académico",
     topics:sourceMap.topics||[],
@@ -4491,11 +4507,11 @@ ${material}`;
   const id=crypto.randomUUID(),now=new Date().toISOString();
   const metadata={
     university_source:true,library_study_pack:true,library_notes_only_v302:true,library_simple_v30:true,
-    version:30.23,source_type:"library",source_file_id:fileId,source_name:file.title,
+    version:30.3,source_type:"library",source_file_id:fileId,source_name:file.title,
     study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,
     page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,
     source_signature:sourceSignature,source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,
-    source_domain:sourceMap.domain||"General",fallback_generated:fallbackGenerated,generation_version:"30.2.3",
+    source_domain:sourceMap.domain||"General",fallback_generated:fallbackGenerated,generation_version:"30.3.0",
     generation_models:{summary:summaryModel,visuals:"disabled",source_map:sourceMapModel,fallback:fallbackGenerated?"deterministic_source_only":null},
     generation_ms:Date.now()-started,imported_once:true,quality
   };
@@ -4504,7 +4520,7 @@ ${material}`;
     .bind(
       id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,
       JSON.stringify(pack),
-      JSON.stringify(["university_source","study_pack","library_study_pack","library_notes_only_v302","source_locked","v30_2_3"]),
+      JSON.stringify(["university_source","study_pack","library_study_pack","library_notes_only_v302","source_locked","v30_3_0","academic_notes"]),
       JSON.stringify(metadata),now,now
     ).run();
 
@@ -4863,7 +4879,7 @@ function sanitizeHistoricalKeysPack(parsed,subject,sourceFiles){
   let noteSections=rawSections.slice(0,14).map((s,i)=>({
     title:cleanAcademicTextV302(s?.title,420)||`Tema ${i+1}`,
     summary:cleanAcademicTextV302(s?.summary||s?.content||s?.explanation,3600),
-    key_points:Array.isArray(s?.key_points)?s.key_points.slice(0,7).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
+    key_points:Array.isArray(s?.key_points)?s.key_points.slice(0,6).map(x=>cleanAcademicTextV302(x,900)).filter(Boolean):[],
     source_files:Array.isArray(s?.source_files)?s.source_files.slice(0,12).map(x=>cleanAcademicTextV302(x,320)).filter(Boolean):[]
   })).filter(s=>s.summary||s.key_points.length);
 
@@ -5926,7 +5942,7 @@ async function search(url, env, user) {
   const q=cleanText(url.searchParams.get("q"),160);
   if(!q)return json({results:[]});
   const like=`%${q}%`;
-  const [topicsRows,lessonRows,noteRows,flashRows,mistakeRows]=await Promise.all([
+  const [topicsRows,lessonRows,noteRows,mistakeRows]=await Promise.all([
     env.DB.prepare(`
       SELECT 'topic' AS type,t.id,t.name AS title,s.name AS subtitle,t.subject_id
       FROM topics t JOIN subjects s ON s.id=t.subject_id
@@ -5943,11 +5959,6 @@ async function search(url, env, user) {
       SELECT id,title,body,tags_json,metadata_json,subject_id,updated_at
       FROM notes WHERE user_id=? AND (title LIKE ? OR body LIKE ?)
       ORDER BY datetime(updated_at) DESC LIMIT 50
-    `).bind(user.id,like,like).all(),
-    env.DB.prepare(`
-      SELECT 'flashcard' AS type,id,front AS title,back AS subtitle,topic_id
-      FROM flashcards WHERE user_id=? AND (front LIKE ? OR back LIKE ?)
-      ORDER BY datetime(updated_at) DESC LIMIT 20
     `).bind(user.id,like,like).all(),
     env.DB.prepare(`
       SELECT 'mistake' AS type,id,prompt AS title,correct_answer AS subtitle,topic_id
@@ -5981,7 +5992,6 @@ async function search(url, env, user) {
       }
     }
   }
-  for(const r of (flashRows.results||[]))results.push({...r,view:"flashcards",label:"Flashcard"});
   for(const r of (mistakeRows.results||[]))results.push({...r,view:"mistakes",label:"Error"});
 
   const norm=smartNormalize(q);
