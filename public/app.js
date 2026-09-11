@@ -1,4 +1,4 @@
-const APP_VERSION="30.2.3";
+const APP_VERSION="30.2.5";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -17,7 +17,6 @@ const state = {
   libraryStudyDoc:null,libraryStudyRange:null,
   offlineDb:null,offlineReady:false,
   smartDashboard:null,smartReview:null,
-  historicalKeysPack:null,historicalKeysSource:null,historicalKeysDraft:[],historicalKeysQuiz:null,
   systemHealth:null,systemSelfTest:null,systemIntegrity:null,systemBackups:[],maintenanceMode:false,lastSyncReport:null,
   questionBank:[],adaptiveExam:null,examPrepPlan:null,mediaStudyPack:null,mediaPractice:null,progressOverview:null,
   academicHome:null,semesterData:null,diagnostics:[],credentials:[],seriousExam:null,seriousTimer:null,academicExplainContext:null,
@@ -324,7 +323,7 @@ async function renderSystemCenter(){
 
       <article class="card system-offline-course">
         <div class="system-section-head"><div><span>PREPARACIÓN OFFLINE</span><h2>Preparar materia para salir</h2></div><span>US$0 IA</span></div>
-        <p class="system-help">Guarda en este dispositivo clases ya creadas, flashcards, paquetes de claves y preguntas del banco. Los PDF/libros se incluyen cuando tú los marcaste OFFLINE en Biblioteca.</p>
+        <p class="system-help">Guarda en este dispositivo clases ya creadas, flashcards y preguntas del banco. Los PDF/libros se incluyen cuando tú los marcaste OFFLINE en Biblioteca.</p>
         <div class="field"><label>Materia</label><select id="system-offline-subject"><option value="">Selecciona…</option>${state.subjects.map(s=>`<option value="${escapeAttr(s.id)}">${escapeHtml(s.name)}</option>`).join("")}</select></div>
         <button id="system-download-course" class="secondary-btn">↓ PREPARAR ESTA MATERIA OFFLINE</button>
         <div id="system-offline-course-result"></div>
@@ -353,7 +352,7 @@ async function renderSystemCenter(){
         </div>
         <p class="system-help">${resetStatus.used
           ?"Este reinicio ya fue utilizado y no puede ejecutarse otra vez."
-          :"Úsalo únicamente cuando termines las pruebas. Borra tus PDF de Biblioteca, resúmenes, claves, ejercicios, banco generado, progreso, calendario de prueba, errores locales y contenido offline. Conserva MED AI, tu cuenta personal, materias base y toda la configuración de Cloudflare."}</p>
+          :"Úsalo únicamente cuando termines las pruebas. Borra tus PDF de Biblioteca, resúmenes, ejercicios, banco generado, progreso, calendario de prueba, errores locales y contenido offline. Conserva MED AI, tu cuenta personal, materias base y toda la configuración de Cloudflare."}</p>
         ${resetStatus.used
           ?`<div class="system-reset-used">✓ MED AI ya inició su etapa de estudio real.</div>`
           :`<button id="system-reset-once" class="system-reset-danger">REINICIAR MED AI · EMPEZAR DE CERO</button>
@@ -395,7 +394,7 @@ async function clearLocalMedAIForFreshStartV3023(){
 }
 async function runOneTimeFreshStartV3023(){
   if(!navigator.onLine)return toast("Conéctate a internet para ejecutar el reinicio único.",true);
-  if(!confirm("Este botón es de USO ÚNICO.\n\nBorrará tus pruebas, PDF de Biblioteca, resúmenes, claves, prácticas, progreso y datos offline. MED AI y su configuración permanecerán instalados.\n\n¿Deseas continuar?"))return;
+  if(!confirm("Este botón es de USO ÚNICO.\n\nBorrará tus pruebas, PDF de Biblioteca, resúmenes, prácticas, progreso y datos offline. MED AI y su configuración permanecerán instalados.\n\n¿Deseas continuar?"))return;
   if(!confirm("Última confirmación: después de usarlo no volverá a estar disponible.\n\n¿Seguro que quieres comenzar desde cero?"))return;
   const typed=prompt('Escribe exactamente: REINICIAR MED AI');
   if(typed!=="REINICIAR MED AI")return toast("Texto incorrecto. No se borró nada.",true);
@@ -463,7 +462,7 @@ async function runSystemIntegrity(){
 }
 async function runDeepSystemTestV29(){
   if(!navigator.onLine)return toast("La prueba profunda necesita conexión para comprobar D1, R2 e IA.",true);
-  openV29Result("Prueba profesional",`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Probando MED AI completo…</strong><small>Biblioteca · Claves · Cursos · Tutor · D1 · R2 · PWA · IA real.</small></div>`);
+  openV29Result("Prueba profesional",`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Probando MED AI completo…</strong><small>Biblioteca · Cursos · Tutor · D1 · R2 · PWA · IA real.</small></div>`);
   try{
     const d=await api("/api/system/self-test?ai=1"),local=[{name:"PWA · Service Worker",ok:!!navigator.serviceWorker?.controller,detail:navigator.serviceWorker?.controller?"Service Worker controla esta pestaña":"Recarga una vez para activarlo"},{name:"Dispositivo · IndexedDB",ok:"indexedDB" in window,detail:"Almacenamiento offline disponible"}];
     d.checks=[...(d.checks||[]),...local];d.total=d.checks.length;d.passed=d.checks.filter(x=>x.ok).length;d.ok=d.passed===d.total;state.systemSelfTest=d;const pct=Math.round(d.passed/Math.max(1,d.total)*100);
@@ -481,7 +480,7 @@ async function downloadExistingCourseOffline(){
   const subjectId=$("#system-offline-subject").value,box=$("#system-offline-course-result");
   if(!subjectId)return toast("Selecciona una materia.",true);
   if(!navigator.onLine)return toast("Conéctate una vez para preparar esta materia.",true);
-  box.innerHTML=`<div class="system-inline-loading">Reuniendo clases, flashcards, claves y preguntas ya guardadas…</div>`;
+  box.innerHTML=`<div class="system-inline-loading">Reuniendo clases, flashcards y preguntas ya guardadas…</div>`;
   try{
     const d=await api(`/api/system/offline-course?subject_id=${encodeURIComponent(subjectId)}`);
     let classes=0;
@@ -491,9 +490,9 @@ async function downloadExistingCourseOffline(){
       const key=`coursepack:${row.subject_id||subjectId}:${row.topic_id||""}:${row.lesson_id||""}:${languageKey}`;
       await offlinePutJson(key,row.material);classes++;
     }
-    const bundle={version:29,subject:d.subject,flashcards:d.flashcards||[],historical_packs:d.historical_packs||[],question_bank:d.question_bank||[],prepared_at:new Date().toISOString()};
+    const bundle={version:30.25,subject:d.subject,flashcards:d.flashcards||[],question_bank:d.question_bank||[],prepared_at:new Date().toISOString()};
     await offlinePutJson(`offlinebundle:${subjectId}`,bundle);
-    box.innerHTML=`<div class="system-offline-success"><span>✓</span><strong>${escapeHtml(d.subject?.name||"Materia")} preparada en este dispositivo.</strong><small>${classes} clases · ${bundle.flashcards.length} flashcards · ${bundle.historical_packs.length} paquetes históricos · ${bundle.question_bank.length} preguntas. ${escapeHtml(d.note||"")}</small></div>`;
+    box.innerHTML=`<div class="system-offline-success"><span>✓</span><strong>${escapeHtml(d.subject?.name||"Materia")} preparada en este dispositivo.</strong><small>${classes} clases · ${bundle.flashcards.length} flashcards · ${bundle.question_bank.length} preguntas. ${escapeHtml(d.note||"")}</small></div>`;
   }catch(err){logSystemError("offline_course_download",err);box.innerHTML=`<div class="notice">${escapeHtml(err.message)}</div>`}
 }
 async function copySystemDiagnostic(){
@@ -616,7 +615,7 @@ async function navigate(view){
   try{
     const renderers={
       dashboard:renderDashboard,study:renderStudy,tutor:()=>renderAIStudio("tutor"),
-      exams:renderExams,exam_prep:renderExamPrepCenter,question_bank:renderQuestionBank,flashcards:renderFlashcards,patient:renderPatientVirtual,
+      exams:renderExams,question_bank:renderQuestionBank,flashcards:renderFlashcards,patient:renderPatientVirtual,
       case_solver:renderCaseSolver,
       grand_rounds:()=>renderAIStudio("grand_rounds"),emergency:()=>renderAIStudio("emergency"),
       ecg:()=>renderVisionStudio("ecg"),radiology:()=>renderVisionStudio("radiology"),
@@ -662,7 +661,7 @@ async function renderDashboard(){
       </div>
       <aside class="v30-home-deadline ${deadline?"active":""}">
         <span>PRÓXIMA FECHA</span>
-        <strong>${deadline?examPrepDaysLabel(deadline.due_at):"—"}</strong>
+        <strong>${deadline?deadlineDaysLabel(deadline.due_at):"—"}</strong>
         <h3>${escapeHtml(deadline?.title||"Sin parciales próximos")}</h3>
         <small>${deadline?formatDate(deadline.due_at):"Puedes registrar tus fechas en Plan de estudio."}</small>
       </aside>
@@ -688,12 +687,12 @@ async function renderDashboard(){
       <button id="v30-config-semester" class="secondary-btn">${semester?"EDITAR SEMESTRE":"CONFIGURAR SEMESTRE"}</button>
     </section>
 
-    <div class="institution-section-head"><div><span>ACCESOS ACADÉMICOS</span><h3>Aprender · practicar · preparar</h3></div><small>Tu flujo principal</small></div>
+    <div class="institution-section-head"><div><span>ACCESOS ACADÉMICOS</span><h3>Aprender · practicar · avanzar</h3></div><small>Tu flujo principal</small></div>
     <section class="v30-academic-launcher">
       <button data-view="study"><span>01</span><b>CURSOS</b><small>Mapa curricular y diagnóstico</small></button>
-      <button data-view="exam_prep"><span>02</span><b>ANTES DEL PARCIAL</b><small>Claves, plan y simulacro</small></button>
-      <button data-view="library"><span>03</span><b>BIBLIOTECA</b><small>PDF por páginas y fuentes</small></button>
-      <button data-view="smart"><span>04</span><b>REPASO INTELIGENTE</b><small>Errores y búsqueda en tus fuentes</small></button>
+      <button data-view="library"><span>02</span><b>BIBLIOTECA</b><small>PDF por páginas y fuentes</small></button>
+      <button data-view="smart"><span>03</span><b>REPASO INTELIGENTE</b><small>Errores y búsqueda en tus fuentes</small></button>
+      <button data-view="exams"><span>04</span><b>EXÁMENES</b><small>Evaluación y práctica activa</small></button>
       <button data-view="question_bank"><span>05</span><b>BANCO</b><small>Preguntas permanentes</small></button>
       <button data-view="tutor"><span>06</span><b>TUTOR IA</b><small>Aprender de otra manera</small></button>
     </section>
@@ -710,7 +709,6 @@ async function renderDashboard(){
     </section>`;
 
   const startRecommendation=()=>{
-    if(r.action==="exam_prep")return navigate("exam_prep");
     if(r.action==="smart")return navigate("smart");
     if(r.subject_id){
       state.currentSubject=state.subjects.find(s=>s.id===r.subject_id)||null;
@@ -950,12 +948,17 @@ async function openCoursePhase(phase){
 
 async function loadCourseMasterclass(){
   const item=state.currentLesson,s=state.currentSubject;
+  const requestLessonId=item?.lesson_id;
+  const isActive=()=>state.currentView==="course_lesson"&&state.currentLesson?.lesson_id===requestLessonId&&!!$("#course-learning-body");
   const key=courseOfflinePackKey(item,s);
   const local=await offlineGetJson(key);
+  if(!isActive())return;
   const usePack=async(material,label)=>{
+    if(!isActive())return;
     state.courseLearningPack=material;
-    $("#course-pdf-side").disabled=false;
-    $("#course-material-status").textContent=label;
+    const pdfBtn=$("#course-pdf-side"),status=$("#course-material-status");
+    if(pdfBtn)pdfBtn.disabled=false;
+    if(status)status.textContent=label;
     if(!Number(item.completed)&&Number(item.progress_percent||0)<35)await updateCourseLessonProgress(35,false,{stage:"lesson",material_saved:true,offline_ready:true},false);
     const desired=coursePhaseAllowed(state.coursePhase)?state.coursePhase:"lesson";
     openCoursePhase(desired);
@@ -969,10 +972,14 @@ async function loadCourseMasterclass(){
     await offlinePutJson(key,pack.material);
     await usePack(pack.material,pack.cached?"Clase recuperada y guardada offline ✓":"Clase creada, guardada en tu cuenta y offline ✓");
   }catch(err){
+    if(!isActive())return;
     if(local){await usePack(local,"Usando copia offline porque la red no respondió ✓");return}
-    $("#course-learning-body").innerHTML=`<div class="masterclass-error"><strong>No pude preparar el material de esta clase.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-pack" class="primary-btn">INTENTAR DE NUEVO</button></div>`;
-    $("#retry-course-pack").onclick=loadCourseMasterclass;
-    $("#course-material-status").textContent="Material pendiente.";
+    const body=$("#course-learning-body");
+    if(!body)return;
+    body.innerHTML=`<div class="masterclass-error"><strong>No pude preparar el material de esta clase.</strong><p>${escapeHtml(err.message)}</p><button id="retry-course-pack" class="primary-btn">INTENTAR DE NUEVO</button></div>`;
+    $("#retry-course-pack")?.addEventListener("click",loadCourseMasterclass);
+    const status=$("#course-material-status");
+    if(status)status.textContent="Material pendiente.";
   }
 }
 
@@ -2559,18 +2566,21 @@ async function startV17LanguageLesson(practiceFirst=false){
   if(!item)return toast("No hay un tema disponible en este curso.",true);
 
   const stage=$("#language-challenge");
+  if(!stage||state.currentView!=="languages")return;
+  const requestLanguage=state.courseLanguage;
+  const requestTopic=item.topic_name;
   stage.innerHTML=`<div class="v17-pack-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando una lección interactiva</strong><span>${escapeHtml(item.topic_name)}</span><small>Explicación + ejemplos + práctica variada</small></div>`;
   updateV17Coach("Estoy preparando una clase corta y ejercicios distintos para que realmente practiques.");
 
   let pack;
   const langLevel=$("#lang-level")?.value||"A1 — Principiante";
-  const offlineKey=languageOfflinePackKey(state.courseLanguage,item.topic_name,langLevel);
+  const offlineKey=languageOfflinePackKey(requestLanguage,item.topic_name,langLevel);
   try{
     pack=await offlineGetJson(offlineKey);
     if(!pack){
       if(!navigator.onLine)throw new Error("offline");
       pack=await api("/api/language/lesson-pack",{method:"POST",body:{
-        language:state.courseLanguage,
+        language:requestLanguage,
         topic:item.topic_name,
         level:langLevel,
         practice_first:practiceFirst
@@ -2581,6 +2591,14 @@ async function startV17LanguageLesson(practiceFirst=false){
     pack=buildV17FallbackLesson(item.topic_name);
     toast("Usando una lección local de respaldo para no interrumpir el estudio.",false);
   }
+
+  // The request may finish after the user changed language or left this screen.
+  // In that case discard the stale result instead of touching DOM nodes that no longer exist.
+  if(state.currentView!=="languages"||state.courseLanguage!==requestLanguage||!$("#language-challenge"))return;
+  const activeCourse=state.languageCourse;
+  const activeIndex=Math.max(0,Number(activeCourse?.next_index||0));
+  const activeItem=activeCourse?.items?.[activeIndex];
+  if(!activeItem||activeItem.topic_name!==requestTopic)return;
 
   const exercises=Array.isArray(pack.exercises)&&pack.exercises.length?pack.exercises:buildV17FallbackLesson(item.topic_name).exercises;
   state.languageLessonSession={
@@ -2628,6 +2646,7 @@ function renderV17LessonIntro(){
   const session=state.languageLessonSession;if(!session)return;
   const p=session.pack;
   const stage=$("#language-challenge");
+  if(!stage||state.currentView!=="languages")return;
   stage.innerHTML=`
     <div class="v17-lesson-intro">
       <div class="v17-lesson-top">
@@ -2660,6 +2679,7 @@ function renderV17Exercise(){
   const total=s.pack.exercises.length;
   const progress=Math.round((s.index/total)*100);
   const stage=$("#language-challenge");
+  if(!stage||state.currentView!=="languages")return;
   const dir=LANGUAGE_META[state.courseLanguage]?.dir||"ltr";
 
   stage.innerHTML=`
@@ -3014,27 +3034,56 @@ async function renderCaseSolver(){
         <div class="notice" style="margin-top:14px">Este módulo es para aprendizaje. Si introduces información de un paciente real, evita datos identificables y verifica las decisiones clínicas con supervisión y fuentes actuales.</div>
       </section>
       <section class="card case-output-panel">
-        <div class="simulation-status"><div><i></i><span>ANÁLISIS CLÍNICO</span></div><small>La solución aparecerá progresivamente.</small></div>
+        <div class="simulation-status"><div><i></i><span>ANÁLISIS CLÍNICO</span></div><small>La resolución aparecerá aquí al finalizar el análisis.</small></div>
         <div id="case-answer" class="case-answer"><div class="empty">Pega un caso y pulsa “Analizar y resolver”.</div></div>
       </section>
     </div>`;
   $("#solve-case").onclick=solveClinicalCase;
-  $("#clear-case").onclick=()=>{$("#case-text").value="";$("#case-question").value="";$("#case-answer").innerHTML='<div class="empty">Pega un caso y pulsa “Analizar y resolver”.</div>';state.caseSolverConversation=null};
+  $("#clear-case").onclick=()=>{state.caseSolveRequest=null;$("#case-text").value="";$("#case-question").value="";$("#case-answer").innerHTML='<div class="empty">Pega un caso y pulsa “Analizar y resolver”.</div>';state.caseSolverConversation=null};
 }
 
 async function solveClinicalCase(){
-  const caseText=$("#case-text").value.trim();if(!caseText)return toast("Pega primero el caso clínico.",true);
-  const subjectId=$("#case-subject").value;
+  const caseText=$("#case-text")?.value.trim();if(!caseText)return toast("Pega primero el caso clínico.",true);
+  const subjectId=$("#case-subject")?.value||"";
   const subject=state.subjects.find(s=>s.id===subjectId)?.name||"Medicina";
-  const level=$("#case-level").value;
-  const question=$("#case-question").value.trim();
-  const prompt=`[RESOLVER_CASO_CLINICO]\nMateria: ${subject}.\nNivel: ${level}.\n\nCASO:\n${caseText}\n\n${question?`PREGUNTA DEL ESTUDIANTE: ${question}\n`:""}\nResuelve el caso de forma docente y estructurada. Incluye: 1) resumen clínico, 2) lista de problemas, 3) diagnóstico más probable y argumentos, 4) diferenciales priorizados con datos a favor/en contra, 5) estudios adicionales que pedirías y por qué, 6) manejo inicial y definitivo, 7) alertas o complicaciones, 8) puntos de aprendizaje. Señala incertidumbres y no inventes datos que no estén en el caso.`;
-  $("#solve-case").disabled=true;
-  $("#case-answer").innerHTML="";
+  const level=$("#case-level")?.value||"Residencia";
+  const question=$("#case-question")?.value.trim()||"";
+  const requestId=crypto.randomUUID();
+  state.caseSolveRequest=requestId;
+  state.caseSolverConversation=null;
+  const prompt=`[RESOLVER_CASO_CLINICO]\nMateria: ${subject}.\nNivel: ${level}.\n\nCASO:\n${caseText}\n\n${question?`PREGUNTA DEL ESTUDIANTE: ${question}\n`:""}\nResuelve el caso de forma docente, completa y estructurada. Incluye obligatoriamente: 1) resumen clínico, 2) lista de problemas, 3) diagnóstico más probable con razonamiento explícito, 4) diagnósticos diferenciales priorizados con datos a favor y en contra, 5) estudios adicionales justificados, 6) manejo inicial y definitivo, 7) alertas, complicaciones y signos de gravedad, 8) puntos de aprendizaje. No inventes hallazgos ausentes. Si faltan datos, dilo y explica cómo cambiarían el razonamiento. La respuesta debe tener contenido sustancial bajo cada apartado.`;
+  const btn=$("#solve-case");
+  const answerBox=$("#case-answer");
+  if(btn)btn.disabled=true;
+  if(answerBox)answerBox.innerHTML=`<div class="case-solving-state"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Analizando el caso clínico…</strong><small>Integrando problemas, diagnóstico diferencial, estudios y manejo.</small></div>`;
   try{
-    await streamClinicalMessage({mode:"case_solver",message:prompt,conversationKey:"caseSolverConversation",container:"#case-answer",thinkingText:"Analizando el caso...",appendUser:false});
-  }catch(err){$("#case-answer").innerHTML=`<div class="notice">${escapeHtml(err.message)}</div>`}
-  finally{$("#solve-case").disabled=false}
+    const d=await api("/api/ai/chat?case_solver=1",{method:"POST",body:{mode:"case_solver",message:prompt,conversation_id:null,title:"Resolver caso clínico",subject_id:subjectId||null,context:{subject,level,question:question||null}}});
+    if(state.caseSolveRequest!==requestId)return;
+    const target=$("#case-answer");if(!target)return;
+    let answer=String(d?.answer||"").trim();
+    if(answer.length<180 || /^no pude generar/i.test(answer)){
+      const retryPrompt=`${prompt}\n\nIMPORTANTE: el intento anterior no produjo una resolución suficiente. Genera ahora la resolución completa con los ocho apartados solicitados, con razonamiento clínico claro y sin omitir el manejo.`;
+      const retry=await api("/api/ai/chat?case_solver=1&retry=1",{method:"POST",body:{mode:"case_solver",message:retryPrompt,conversation_id:null,title:"Resolver caso clínico · reintento",subject_id:subjectId||null,context:{subject,level,retry:true}}});
+      if(state.caseSolveRequest!==requestId)return;
+      answer=String(retry?.answer||"").trim();
+    }
+    if(!answer)throw new Error("La IA no devolvió una resolución del caso. Intenta nuevamente.");
+    target.innerHTML='';
+    const messageEl=document.createElement("div");
+    messageEl.className="message ai rich case-resolution";
+    setMessageContent(messageEl,"ai",answer);
+    target.appendChild(messageEl);
+    target.scrollTop=0;
+    state.caseSolverConversation=d?.conversation_id||null;
+  }catch(err){
+    if(state.caseSolveRequest!==requestId)return;
+    const target=$("#case-answer");
+    if(target)target.innerHTML=`<div class="case-error-state"><strong>No se pudo completar la resolución.</strong><p>${escapeHtml(err.message)}</p><button id="retry-case" class="secondary-btn">REINTENTAR</button></div>`;
+    $("#retry-case")?.addEventListener("click",solveClinicalCase);
+    logSystemError("case_solver",err,{url:"/api/ai/chat",method:"POST"});
+  }finally{
+    if(state.caseSolveRequest===requestId){const currentBtn=$("#solve-case");if(currentBtn)currentBtn.disabled=false;}
+  }
 }
 
 async function streamClinicalMessage({mode,message,conversationKey,container,thinkingText="Analizando...",appendUser=false}){
@@ -3334,7 +3383,7 @@ async function renderQuestionBank(){
         <div>
           <div class="learning-home-chip"><span></span> BANCO PERMANENTE · V30</div>
           <h1>Tus buenas preguntas no se desperdician.</h1>
-          <p>MED AI guarda automáticamente preguntas útiles de exámenes, claves históricas y clases transcritas. Puedes volver a practicarlas sin pagar otra generación.</p>
+          <p>MED AI guarda automáticamente preguntas útiles de exámenes, prácticas y clases transcritas. Puedes volver a practicarlas sin pagar otra generación.</p>
           <div class="question-bank-actions">
             <button id="qb-start-adaptive" class="primary-btn">▶ EXAMEN ADAPTATIVO</button>
             <button id="qb-go-exams" class="secondary-btn">＋ GENERAR PREGUNTAS NUEVAS</button>
@@ -3372,7 +3421,7 @@ async function renderQuestionBank(){
   }
 }
 function renderQuestionBankList(rows){
-  if(!rows?.length)return `<div class="system-empty">Aún no hay preguntas guardadas. Haz un examen o crea un paquete en Antes del parcial.</div>`;
+  if(!rows?.length)return `<div class="system-empty">Aún no hay preguntas guardadas. Haz un examen o practica dentro de tus cursos para alimentar el banco.</div>`;
   return rows.slice(0,250).map((q,i)=>`<article data-id="${escapeAttr(q.id)}"><span>${String(i+1).padStart(3,"0")}</span><div><strong>${escapeHtml(q.stem)}</strong><small>${escapeHtml(q.subject||"Sin materia")}${q.topic?` · ${escapeHtml(q.topic)}`:""} · dificultad ${Number(q.difficulty||2)}/5</small></div><b>${String.fromCharCode(65+Number(q.correctIndex||0))}</b><button class="qb-delete" data-id="${escapeAttr(q.id)}" title="Quitar del banco">×</button></article>`).join("");
 }
 function bindQuestionBankDelete(){
@@ -3917,8 +3966,7 @@ function renderStudyLibraryFiles(){
           <div class="library-file-copy"><strong title="${escapeAttr(file.title)}">${escapeHtml(file.title)}</strong><span>${formatBytes(meta.size_bytes)} · ${formatDate(file.updated_at)}</span></div>
           <div class="library-file-actions library-file-actions-v25">
             <button class="library-study-file" data-id="${escapeAttr(file.id)}"><span>✦</span> ESTUDIAR CON MED AI</button>
-            ${info.cls==="pdf"?`<button class="library-past-exam" data-id="${escapeAttr(file.id)}"><span>▤</span> CLAVE PASADA</button>`:""}
-            ${canIndex?`<button class="library-index-source" data-id="${escapeAttr(file.id)}"><span>⌖</span> OCR + CITAS</button>`:""}
+                        ${canIndex?`<button class="library-index-source" data-id="${escapeAttr(file.id)}"><span>⌖</span> OCR + CITAS</button>`:""}
             ${canTranscribe?`<button class="library-transcribe-media" data-id="${escapeAttr(file.id)}"><span>◉</span> TRANSCRIBIR CLASE</button>`:""}
             <button class="library-primary-source ${meta.primary_source_v30?"active":""}" data-id="${escapeAttr(file.id)}"><span>${meta.primary_source_v30?"★":"☆"}</span> ${meta.primary_source_v30?"PRINCIPAL":"FUENTE PRINCIPAL"}</button>
             <button class="library-offline-file" data-id="${escapeAttr(file.id)}"><span>↓</span> OFFLINE</button>
@@ -3943,7 +3991,6 @@ function renderStudyLibraryFiles(){
     $$("#library-grid>[data-search]").forEach(x=>x.classList.toggle("hidden",q&&!x.dataset.search.includes(q)));
   };
   $$(".library-study-file").forEach(b=>b.onclick=()=>openLibraryStudyMode(b.dataset.id));
-  $$(".library-past-exam").forEach(b=>b.onclick=()=>openHistoricalKeysStudio({libraryFileId:b.dataset.id}));
   $$(".library-index-source").forEach(b=>b.onclick=()=>indexLibrarySourceV29(b.dataset.id));
   $$(".library-transcribe-media").forEach(b=>b.onclick=()=>transcribeLibraryMediaV29(b.dataset.id));
   $$(".library-primary-source").forEach(b=>b.onclick=()=>openPrimarySourceV30(b.dataset.id));
@@ -4561,8 +4608,8 @@ async function renderOfflineStudyVault(){
     </section>
 
     <section class="offline-vault-list">
-      <div class="library-study-saved-head"><div><span>MATERIAS PREPARADAS PARA SALIR</span><h3>${summary.preparedBundles.length} paquete${summary.preparedBundles.length===1?"":"s"}</h3></div><small>Clases · flashcards · claves · preguntas</small></div>
-      <div class="v29-offline-bundles">${summary.preparedBundles.length?summary.preparedBundles.map(r=>{const b=r.value||{};return `<button class="v29-offline-bundle-open" data-key="${escapeAttr(r.key)}"><span>↓</span><div><strong>${escapeHtml(b.subject?.name||"Materia preparada")}</strong><small>${(b.flashcards||[]).length} flashcards · ${(b.historical_packs||[]).length} paquetes · ${(b.question_bank||[]).length} preguntas</small></div><b>ABRIR →</b></button>`}).join(""):`<div class="system-empty compact">Prepara una materia desde Estado del sistema para reunir su contenido local.</div>`}</div>
+      <div class="library-study-saved-head"><div><span>MATERIAS PREPARADAS PARA SALIR</span><h3>${summary.preparedBundles.length} paquete${summary.preparedBundles.length===1?"":"s"}</h3></div><small>Clases · flashcards · preguntas</small></div>
+      <div class="v29-offline-bundles">${summary.preparedBundles.length?summary.preparedBundles.map(r=>{const b=r.value||{};return `<button class="v29-offline-bundle-open" data-key="${escapeAttr(r.key)}"><span>↓</span><div><strong>${escapeHtml(b.subject?.name||"Materia preparada")}</strong><small>${(b.flashcards||[]).length} flashcards · ${(b.question_bank||[]).length} preguntas</small></div><b>ABRIR →</b></button>`}).join(""):`<div class="system-empty compact">Prepara una materia desde Estado del sistema para reunir su contenido local.</div>`}</div>
     </section>
 
     <section class="offline-vault-list">
@@ -4586,16 +4633,15 @@ async function renderOfflineStudyVault(){
 async function openPreparedOfflineBundleV29(key){
   const box=$("#study-library-content"),bundle=await offlineGetJson(key);
   if(!bundle)return toast("Ya no encuentro este paquete offline.",true);
-  const bank=bundle.question_bank||[],cards=bundle.flashcards||[],packs=bundle.historical_packs||[];
+  const bank=bundle.question_bank||[],cards=bundle.flashcards||[];
   box.innerHTML=`<section class="v29-offline-bundle-page">
     <button id="v29-offline-back" class="ghost-btn">← ESTUDIO OFFLINE</button>
     <header><div class="learning-home-chip"><span></span> MODO SOLO OFFLINE · V30</div><h2>${escapeHtml(bundle.subject?.name||"Materia")}</h2><p>Este contenido está almacenado en este dispositivo. No necesita una llamada nueva de IA.</p></header>
-    <section class="v29-result-metrics"><div><strong>${cards.length}</strong><span>flashcards</span></div><div><strong>${packs.length}</strong><span>repasos históricos</span></div><div><strong>${bank.length}</strong><span>preguntas</span></div></section>
+    <section class="v29-result-metrics"><div><strong>${cards.length}</strong><span>flashcards</span></div><div><strong>${bank.length}</strong><span>preguntas</span></div></section>
     <div class="v29-offline-bundle-grid">
       <article class="card"><div class="panel-code">PREGUNTAS</div>${bank.slice(0,20).map((q,i)=>`<div class="v29-offline-question"><span>${i+1}</span><div><strong>${escapeHtml(q.stem||"")}</strong><small>${escapeHtml(q.topic||"")}</small></div></div>`).join("")||`<div class="system-empty compact">Sin preguntas guardadas.</div>`}</article>
       <article class="card"><div class="panel-code">FLASHCARDS</div>${cards.slice(0,20).map((c,i)=>`<details><summary>${escapeHtml(c.front||"Tarjeta")}</summary><p>${escapeHtml(c.back||"")}</p></details>`).join("")||`<div class="system-empty compact">Sin flashcards guardadas.</div>`}</article>
     </div>
-    <section class="card"><div class="panel-code">REPASOS DE CLAVES</div>${packs.map(p=>`<details class="v29-offline-pack"><summary>${escapeHtml(p.pack?.title||p.title||"Repaso")}</summary><p>${escapeHtml(p.pack?.overview||"")}</p><div>${(p.pack?.must_remember||[]).slice(0,12).map(x=>`<p>• ${escapeHtml(x)}</p>`).join("")}</div></details>`).join("")||`<div class="system-empty compact">Sin paquetes históricos.</div>`}</section>
   </section>`;
   $("#v29-offline-back").onclick=renderOfflineStudyVault;
 }
@@ -4745,10 +4791,10 @@ async function deleteStudyLibraryItem(id,type,name){
 
 
 /* ============================================================
-   V26.1 · ANTES DEL PARCIAL
+   V30.2.5 · FECHAS ACADÉMICAS
    ============================================================ */
 
-function examPrepDaysLabel(date){
+function deadlineDaysLabel(date){
   if(!date)return "SIN FECHA";
   const diff=Math.ceil((new Date(date)-new Date())/86400000);
   if(!Number.isFinite(diff))return "SIN FECHA";
@@ -4756,117 +4802,6 @@ function examPrepDaysLabel(date){
   if(diff===0)return "HOY";
   if(diff===1)return "MAÑANA";
   return `${diff} DÍAS`;
-}
-
-async function renderExamPrepCenter(){
-  root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando tu centro para el parcial…</strong><small>Claves históricas + plan + errores + banco de preguntas.</small></div>`;
-  try{
-    const [dash,keys,planData]=await Promise.all([
-      api("/api/smart/dashboard"),
-      api("/api/smart/historical-keys?list=1"),
-      api("/api/exam-prep/plan")
-    ]);
-    const packs=keys.packs||dash.historical_keys||[],due=Number(dash.review_due||0),deadline=dash.next_deadline||null;
-    const latest=packs[0]||null,trends=dash.historical_key_trends||[],plan=planData.plan||null;
-    state.examPrepPlan=plan;
-
-    root.innerHTML=`
-      <section class="exam-prep-hero">
-        <div>
-          <div class="learning-home-chip"><span></span> ANTES DEL PARCIAL · V29 FINAL</div>
-          <h1>Tu centro de preparación antes del examen.</h1>
-          <p>Claves de años anteriores, apuntes claros, temas repetidos, práctica calificada, banco permanente y errores. MED AI usa la frecuencia histórica para priorizar, nunca como garantía de lo que vendrá.</p>
-          <div class="exam-prep-actions">
-            <button id="exam-prep-upload" class="primary-btn">▤ SUBIR CLAVES DE AÑOS PASADOS</button>
-            <button id="exam-prep-errors" class="secondary-btn">↻ REPASAR ERRORES ${due?`· ${due}`:""}</button>
-            <button id="exam-prep-bank" class="secondary-btn">▦ BANCO DE PREGUNTAS</button>
-          </div>
-        </div>
-        <aside class="exam-prep-countdown ${deadline||plan?"active":""}">
-          <span>PRÓXIMO PARCIAL</span>
-          <strong>${examPrepDaysLabel(plan?.due_at||deadline?.due_at)}</strong>
-          <small>${escapeHtml(plan?.title||deadline?.title||"Configura tu próximo parcial abajo")}</small>
-        </aside>
-      </section>
-
-      <section class="card v29-exam-plan-builder">
-        <div class="smart-section-head"><div><span>PARCIAL PRÓXIMO</span><h2>Plan automático hasta el examen</h2></div><small>Sin IA · usa historial + dominio actual</small></div>
-        <div class="v29-plan-form">
-          <div class="field"><label>Materia</label><input id="v29-plan-subject" placeholder="Ej. Química" value="${escapeAttr(plan?.subject||latest?.subject||"")}"></div>
-          <div class="field"><label>Fecha del parcial</label><input id="v29-plan-date" type="date" value="${escapeAttr(String(plan?.due_at||"").slice(0,10))}"></div>
-          <div class="field"><label>Minutos diarios</label><select id="v29-plan-minutes">${[30,45,60,90,120].map(n=>`<option value="${n}" ${Number(plan?.daily_minutes||60)===n?"selected":""}>${n} min</option>`).join("")}</select></div>
-          <button id="v29-create-plan" class="primary-btn">CREAR / ACTUALIZAR PLAN</button>
-        </div>
-        <div id="v29-plan-result">${plan?renderExamPrepPlanV29(plan):`<div class="system-empty compact">Agrega materia y fecha para que MED AI distribuya tus prioridades día por día.</div>`}</div>
-      </section>
-
-      <section class="exam-prep-step-grid v302-three-steps">
-        <article><b>01</b><span><strong>CLAVES</strong><small>Sube varios PDF históricos</small></span></article>
-        <article><b>02</b><span><strong>APUNTES + PRIORIDADES</strong><small>Qué debes estudiar y por qué</small></span></article>
-        <article><b>03</b><span><strong>PRÁCTICA CALIFICADA</strong><small>Selecciona respuestas y MED AI te corrige</small></span></article>
-      </section>
-
-      ${latest?`
-      <section class="card exam-prep-current">
-        <div class="exam-prep-current-head">
-          <div><span>REPASO MÁS RECIENTE</span><h2>${escapeHtml(latest.study_title||latest.title||"Claves históricas")}</h2><p>${escapeHtml(latest.subject||"")} · ${Number(latest.source_count||0)} PDF históricos</p></div>
-          <button id="exam-prep-open-analysis" class="ghost-btn">VER REPASO →</button>
-        </div>
-        <div class="exam-prep-stage-buttons v302-three-steps">
-          <button data-prep-tab="summary"><span>01</span><div><strong>APUNTES</strong><small>Resumen claro y ordenado</small></div></button>
-          <button data-prep-tab="keypoints"><span>02</span><div><strong>PRIORIDADES</strong><small>Qué más se repite</small></div></button>
-          <button data-prep-tab="practice"><span>03</span><div><strong>PRÁCTICA CALIFICADA</strong><small>Responde y recibe explicación</small></div></button>
-        </div>
-      </section>`:`
-      <section class="card exam-prep-empty">
-        <div>▤</div><h2>Aún no has preparado tus claves históricas.</h2>
-        <p>Sube varios PDF de años anteriores de la misma materia. MED AI preparará apuntes claros, temas repetidos y ejercicios de práctica calificados.</p>
-        <button id="exam-prep-empty-upload" class="primary-btn">SUBIR MIS PRIMERAS CLAVES</button>
-      </section>`}
-
-      <section class="exam-prep-main-grid">
-        <article class="card">
-          <div class="smart-section-head"><div><span>PATRONES HISTÓRICOS</span><h2>Temas que más se han repetido</h2></div><small>Evidencia de tus PDF</small></div>
-          ${trends.length?`<div class="smart-trend-bars">${trends.slice(0,10).map(t=>`<div><span>${escapeHtml(t.topic)}</span><i><b style="width:${Math.min(100,Number(t.score||0))}%"></b></i><strong>${Number(t.count||0)}×</strong></div>`).join("")}</div>`:`<div class="system-empty">Aparecerán después de crear tu primer paquete.</div>`}
-        </article>
-        <article class="card">
-          <div class="smart-section-head"><div><span>LISTOS PARA REPASAR</span><h2>Mis paquetes</h2></div><b>${packs.length}</b></div>
-          <div class="exam-prep-pack-list">${packs.length?packs.slice(0,8).map(p=>`<button class="exam-prep-pack" data-id="${escapeAttr(p.id)}"><span>▤</span><div><strong>${escapeHtml(p.study_title||p.title)}</strong><small>${escapeHtml(p.subject||"")} · ${Number(p.source_count||0)} PDF</small></div><b>ESTUDIAR →</b></button>`).join(""):`<div class="system-empty compact">No hay paquetes todavía.</div>`}</div>
-        </article>
-      </section>`;
-
-    $("#exam-prep-upload").onclick=()=>openHistoricalKeysStudio();
-    $("#exam-prep-empty-upload")?.addEventListener("click",()=>openHistoricalKeysStudio());
-    $("#exam-prep-errors").onclick=startSmartReview;
-    $("#exam-prep-bank").onclick=()=>navigate("question_bank");
-    $("#v29-create-plan").onclick=createExamPrepPlanV29;
-    if(latest){
-      $("#exam-prep-open-analysis").onclick=()=>openHistoricalKeysPack(latest.id,false,"summary");
-      $$(".exam-prep-stage-buttons button").forEach(b=>b.onclick=()=>openHistoricalKeysPack(latest.id,false,b.dataset.prepTab));
-    }
-    $$(".exam-prep-pack").forEach(b=>b.onclick=()=>openHistoricalKeysPack(b.dataset.id,false,"analysis"));
-  }catch(err){
-    logSystemError("exam_prep",err);
-    root.innerHTML=`<div class="card masterclass-error"><strong>No pude abrir Antes del parcial.</strong><p>${escapeHtml(err.message)}</p><button id="exam-prep-retry" class="primary-btn">REINTENTAR</button></div>`;
-    $("#exam-prep-retry").onclick=renderExamPrepCenter;
-  }
-}
-function renderExamPrepPlanV29(plan){
-  const sessions=plan?.sessions||[];
-  return `<section class="v29-plan-timeline">
-    <div class="v29-plan-summary"><span>${Number(plan.days_remaining||sessions.length)} días</span><strong>${escapeHtml(plan.title||"Parcial")}</strong><small>${Number(plan.daily_minutes||60)} min/día · ${escapeHtml(plan.subject||"")}</small></div>
-    <div>${sessions.slice(0,16).map(s=>`<article><b>${escapeHtml(String(s.date||"").slice(5))}</b><div><strong>${escapeHtml(s.title)}</strong><small>${escapeHtml(s.task||"")}</small>${s.reason?`<em>${escapeHtml(s.reason)}</em>`:""}</div><span>${Number(s.minutes||0)}m</span></article>`).join("")}</div>
-  </section>`;
-}
-async function createExamPrepPlanV29(){
-  const subject=$("#v29-plan-subject").value.trim(),date=$("#v29-plan-date").value,minutes=Number($("#v29-plan-minutes").value);
-  if(!subject||!date)return toast("Escribe la materia y selecciona la fecha del parcial.",true);
-  const btn=$("#v29-create-plan");btn.disabled=true;btn.textContent="CREANDO PLAN…";
-  try{
-    const d=await api("/api/exam-prep/plan",{method:"POST",body:{subject,due_at:`${date}T23:59:00`,daily_minutes:minutes,title:`Parcial de ${subject}`}});
-    state.examPrepPlan=d.plan;$("#v29-plan-result").innerHTML=renderExamPrepPlanV29(d.plan);toast("Plan del parcial guardado.");
-  }catch(err){toast(err.message,true)}
-  finally{btn.disabled=false;btn.textContent="CREAR / ACTUALIZAR PLAN"}
 }
 
 /* ============================================================
@@ -4879,19 +4814,17 @@ async function renderSmartStudy(){
   try{
     const d=await api("/api/smart/dashboard");
     state.smartDashboard=d;
-    const weak=d.weaknesses||[],due=Number(d.review_due||0),exams=d.past_exams||[],trend=d.exam_trends||[];
-    const historicalKeys=d.historical_keys||[],keyTrend=d.historical_key_trends||[];
+    const weak=d.weaknesses||[],due=Number(d.review_due||0),exams=d.past_exams||[];
     const deadline=d.next_deadline;
     root.innerHTML=`
       <section class="smart-hero">
         <div>
-          <div class="learning-home-chip"><span></span> SMART STUDY ENGINE · V30</div>
+          <div class="learning-home-chip"><span></span> SMART STUDY ENGINE · V30.2</div>
           <h1>Estudia lo que más necesitas, no lo que ya dominas.</h1>
-          <p>MED AI combina tus errores, progreso, clases guardadas, Biblioteca y parciales anteriores. Primero reutiliza tus datos; la IA se reserva para cuando realmente agrega valor.</p>
+          <p>MED AI combina tus errores, progreso, cursos y Biblioteca. Primero reutiliza lo que ya tienes guardado; la IA se usa solo cuando realmente agrega valor.</p>
           <div class="smart-hero-actions">
             <button id="smart-start-review" class="primary-btn">▶ REPASO DE HOY ${due?`· ${due}`:""}</button>
-            <button id="smart-upload-exam" class="secondary-btn">▤ CLAVES DE AÑOS PASADOS</button>
-            <input id="smart-exam-input" type="file" accept="application/pdf,.pdf" multiple hidden>
+            <button id="smart-open-courses" class="secondary-btn">▤ IR A CURSOS</button>
           </div>
         </div>
         <div class="smart-brain">
@@ -4904,7 +4837,7 @@ async function renderSmartStudy(){
         <article><span class="mint">↻</span><div><b>${due}</b><strong>repasos pendientes</strong><small>${due?"Prioridad para hoy":"Todo al día"}</small></div></article>
         <article><span class="violet">◎</span><div><b>${weak.length?Math.round(Number(weak[0]?.mastery||0)):100}%</b><strong>tema más débil</strong><small>${escapeHtml(weak[0]?.topic_name||"Sin debilidades registradas")}</small></div></article>
         <article><span class="amber">▤</span><div><b>${Number(d.material_count||0)}</b><strong>materiales aprovechables</strong><small>Clases, apuntes y sesiones guardadas</small></div></article>
-        <article><span class="blue">▤</span><div><b>${historicalKeys.length}</b><strong>repasos de claves</strong><small>Paquetes guardados para reutilizar</small></div></article>
+        <article><span class="blue">✓</span><div><b>${Number(exams.length||0)}</b><strong>evaluaciones guardadas</strong><small>Historial disponible para repasar</small></div></article>
       </section>
 
       <section class="smart-grid-main">
@@ -4919,55 +4852,40 @@ async function renderSmartStudy(){
         <article class="card smart-weak-card">
           <div class="smart-section-head"><div><span>DOMINIO REAL</span><h2>Temas que necesitan trabajo</h2></div><small>Basado en progreso + errores</small></div>
           <div class="smart-weak-list">
-            ${weak.length?weak.slice(0,6).map(w=>`<button class="smart-weak-topic" data-topic="${escapeAttr(w.topic_name)}">
-              <div><strong>${escapeHtml(w.topic_name)}</strong><small>${escapeHtml(w.subject_name||"")}</small></div>
-              <span>${Math.round(Number(w.mastery||0))}%</span><i><b style="width:${Math.max(2,Number(w.mastery||0))}%"></b></i>
-            </button>`).join(""):`<div class="empty">Todavía no hay suficiente información de dominio. Sigue realizando prácticas y exámenes.</div>`}
+            ${weak.length?weak.slice(0,6).map(w=>`<button class="smart-weak-topic" data-topic="${escapeAttr(w.topic_name)}"><div><strong>${escapeHtml(w.topic_name)}</strong><small>${escapeHtml(w.subject_name||"")}</small></div><span>${Math.round(Number(w.mastery||0))}%</span><i><b style="width:${Math.max(2,Number(w.mastery||0))}%"></b></i></button>`).join(""):`<div class="empty">Todavía no hay suficiente información de dominio. Sigue realizando prácticas y exámenes.</div>`}
           </div>
         </article>
       </section>
 
       <section class="card smart-rag-card">
         <div class="smart-rag-head">
-          <div><span>PREGUNTA A TODO LO QUE YA HAS ESTUDIADO</span><h2>Busca primero en tus materiales.</h2><p>La búsqueda local en D1 no consume Gemini. Solo pulsa “Responder con IA” si necesitas que MED AI conecte las fuentes.</p></div>
+          <div><span>PREGUNTA A TODO LO QUE YA HAS ESTUDIADO</span><h2>Busca primero en tus materiales.</h2><p>La búsqueda local en D1 no consume IA. Pulsa “Responder con IA” únicamente cuando quieras que MED AI conecte tus fuentes.</p></div>
           <label class="smart-quality"><span>CALIDAD IA</span><select id="smart-quality"><option value="economy">Ahorro · Flash</option><option value="balanced">Equilibrado · Flash</option><option value="max">Máxima · Pro</option></select></label>
         </div>
         <div class="smart-searchbar"><span>⌕</span><input id="smart-query" placeholder="Ej. ¿Qué he estudiado sobre sistema renina angiotensina?"><button id="smart-search" class="secondary-btn">BUSCAR SIN IA</button><button id="smart-ask" class="primary-btn">✦ RESPONDER CON IA</button></div>
         <div id="smart-search-results" class="smart-search-results"><div class="smart-search-empty">Escribe un tema para buscar en tus cursos, apuntes, clases universitarias y sesiones de Biblioteca.</div></div>
       </section>
 
-      <section class="smart-grid-main">
-        <article class="card smart-exam-trends">
-          <div class="smart-section-head"><div><span>CLAVES DE AÑOS PASADOS</span><h2>Qué se ha repetido históricamente</h2></div><button id="smart-open-keys-studio" class="ghost-btn">ABRIR ESTUDIO →</button></div>
-          ${keyTrend.length?`<div class="smart-trend-bars">${keyTrend.slice(0,8).map((t,i)=>`<div><span>${escapeHtml(t.topic)}</span><i><b style="width:${Math.min(100,Number(t.score||0))}%"></b></i><strong>${Number(t.count||0)}×</strong></div>`).join("")}</div>`:`<div class="smart-exam-empty"><span>▤</span><strong>Aún no has creado un repaso desde claves pasadas.</strong><p>Sube varios PDF de claves de años anteriores. MED AI detectará los temas históricos y guardará apuntes, prioridades y práctica calificada.</p></div>`}
-          <div class="smart-past-exam-list">${historicalKeys.slice(0,5).map(x=>`<button class="smart-open-historical-keys" data-id="${escapeAttr(x.id)}"><span>▤</span><div><strong>${escapeHtml(x.study_title||x.title)}</strong><small>${escapeHtml(x.subject||"Claves históricas")} · ${Number(x.source_count||0)} PDF</small></div><b>ESTUDIAR →</b></button>`).join("")}</div>
-        </article>
-
-        <article class="card smart-health">
-          <div class="smart-section-head"><div><span>SISTEMA DE ESTUDIO</span><h2>Todo conectado</h2></div><b class="smart-health-ok">●</b></div>
-          <div class="smart-health-list">
-            <div><span>D1</span><strong>${d.health?.db?"LISTO":"REVISAR"}</strong></div>
-            <div><span>R2 · Biblioteca</span><strong>${d.health?.r2?"LISTO":"REVISAR"}</strong></div>
-            <div><span>AI Gateway / Workers AI</span><strong>${d.health?.ai?"CONFIGURADO":"REVISAR"}</strong></div>
-            <div><span>Offline Vault</span><strong>${state.offlineReady||("indexedDB" in window)?"DISPONIBLE":"NO DISPONIBLE"}</strong></div>
-            <div><span>Conexión actual</span><strong>${navigator.onLine?"ONLINE":"OFFLINE"}</strong></div>
-          </div>
-          <p>Este panel comprueba bindings y capacidades sin hacer una llamada de IA, por lo que no gasta créditos.</p>
-        </article>
+      <section class="card smart-health clean-smart-health">
+        <div class="smart-section-head"><div><span>SISTEMA DE ESTUDIO</span><h2>Todo conectado</h2></div><b class="smart-health-ok">●</b></div>
+        <div class="smart-health-list">
+          <div><span>D1</span><strong>${d.health?.db?"LISTO":"REVISAR"}</strong></div>
+          <div><span>R2 · Biblioteca</span><strong>${d.health?.r2?"LISTO":"REVISAR"}</strong></div>
+          <div><span>AI Gateway / Workers AI</span><strong>${d.health?.ai?"CONFIGURADO":"REVISAR"}</strong></div>
+          <div><span>Offline Vault</span><strong>${state.offlineReady||("indexedDB" in window)?"DISPONIBLE":"NO DISPONIBLE"}</strong></div>
+          <div><span>Conexión actual</span><strong>${navigator.onLine?"ONLINE":"OFFLINE"}</strong></div>
+        </div>
+        <p>Este panel comprueba bindings y capacidades sin hacer una llamada de IA, por lo que no gasta créditos.</p>
       </section>`;
 
     $("#smart-quality").value=state.smartQuality;
     $("#smart-quality").onchange=e=>{state.smartQuality=e.target.value;localStorage.setItem("medai_smart_quality",state.smartQuality)};
     $("#smart-start-review").onclick=startSmartReview;
-    $("#smart-upload-exam").onclick=()=>openHistoricalKeysStudio();
-    $("#smart-exam-input").onchange=e=>{const files=[...(e.target.files||[])];if(files.length)openHistoricalKeysStudio({files})};
-    $("#smart-open-keys-studio").onclick=()=>openHistoricalKeysStudio();
+    $("#smart-open-courses").onclick=()=>navigate("study");
     $("#smart-search").onclick=()=>smartRetrieve(false);
     $("#smart-ask").onclick=()=>smartRetrieve(true);
     $("#smart-query").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();smartRetrieve(false)}});
     $$(".smart-weak-topic").forEach(b=>b.onclick=()=>{$("#smart-query").value=b.dataset.topic;smartRetrieve(false)});
-    $$(".smart-open-past-exam").forEach(b=>b.onclick=()=>openPastExamPack(b.dataset.id));
-    $$(".smart-open-historical-keys").forEach(b=>b.onclick=()=>openHistoricalKeysPack(b.dataset.id));
   }catch(err){
     root.innerHTML=`<div class="card masterclass-error"><strong>No pude preparar Repaso inteligente.</strong><p>${escapeHtml(err.message)}</p><button id="smart-retry" class="primary-btn">REINTENTAR</button></div>`;
     $("#smart-retry").onclick=renderSmartStudy;
@@ -5075,267 +4993,6 @@ function renderSmartReviewDone(){
 
 /* -------- V25.2 · Historical Keys Study -------- */
 
-function ensureHistoricalKeysOverlay(){
-  let o=$("#historical-keys-overlay");
-  if(o)return o;
-  o=document.createElement("div");
-  o.id="historical-keys-overlay";o.className="historical-keys-overlay hidden";
-  o.innerHTML=`<div class="historical-keys-shell">
-    <header><div><span>MED AI · HISTORICAL KEYS STUDY</span><strong id="historical-keys-title">Claves de años pasados</strong></div><button id="historical-keys-close" class="library-viewer-close">×</button></header>
-    <main id="historical-keys-body"></main>
-  </div>`;
-  document.body.appendChild(o);
-  $("#historical-keys-close").onclick=closeHistoricalKeysStudio;
-  o.onclick=e=>{if(e.target===o)closeHistoricalKeysStudio()};
-  return o;
-}
-function closeHistoricalKeysStudio(){
-  $("#historical-keys-overlay")?.classList.add("hidden");
-  document.body.classList.remove("modal-open");
-}
-async function openHistoricalKeysStudio(options={}){
-  const o=ensureHistoricalKeysOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
-  if(options.files?.length){
-    state.historicalKeysDraft=options.files.map(f=>({kind:"local",file:f,name:f.name,size:f.size}));
-  }else if(options.libraryFileId){
-    const f=(state.libraryData?.files||[]).find(x=>x.id===options.libraryFileId);
-    state.historicalKeysDraft=[{kind:"library",id:options.libraryFileId,name:f?.title||"Clave histórica PDF"}];
-  }else if(!state.historicalKeysDraft?.length){
-    state.historicalKeysDraft=[];
-  }
-  $("#historical-keys-body").innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Preparando estudio de claves históricas…</strong></div>`;
-  let saved=[];
-  try{
-    const d=await api("/api/smart/historical-keys?list=1");
-    saved=d.packs||[];
-  }catch{}
-  renderHistoricalKeysHome(saved);
-}
-
-function renderHistoricalKeysHome(saved=[]){
-  const box=$("#historical-keys-body"),draft=state.historicalKeysDraft||[];
-  box.innerHTML=`<section class="historical-keys-home">
-    <div class="historical-keys-hero v302-keys-hero">
-      <div><span>CLAVES DE AÑOS PASADOS</span><h2>Convierte tus claves en apuntes de repaso y práctica calificada.</h2><p>MED AI identifica los temas que realmente aparecen, resume lo más importante y prepara preguntas para que selecciones respuestas y compruebes tu dominio. La frecuencia histórica sirve para priorizar, no para asegurar qué vendrá en el próximo parcial.</p></div>
-      <div class="historical-keys-cost"><span><strong>PREPARAR UNA VEZ</strong><small>Repasar después no vuelve a usar IA</small></span></div>
-    </div>
-
-    <div class="historical-keys-layout">
-      <section class="card">
-        <div class="panel-code">1 · AGREGA TUS PDF HISTÓRICOS</div>
-        <label class="library-dropzone historical-keys-dropzone" for="historical-keys-files">
-          <input id="historical-keys-files" type="file" accept="application/pdf,.pdf" multiple hidden>
-          <div>＋</div><strong>AGREGAR VARIOS PDF</strong><span>Puedes seleccionar varios al mismo tiempo · máximo 12 por paquete</span>
-        </label>
-        <div id="historical-keys-draft-list" class="historical-keys-draft-list">
-          ${draft.length?draft.map((x,i)=>`<article><span>PDF</span><div><strong>${escapeHtml(academicTextV302(x.name))}</strong><small>${x.kind==="library"?"Ya está en tu Biblioteca":formatBytes(x.size||0)}</small></div><button data-remove="${i}">×</button></article>`).join(""):`<div class="historical-keys-empty">Todavía no has agregado PDF.</div>`}
-        </div>
-        <div class="field"><label>Materia / curso</label><input id="historical-keys-subject" placeholder="Ej. Química quinto módulo, Fisiología, Física..."></div>
-        <div class="field"><label>Indicación opcional</label><textarea id="historical-keys-note" rows="3" placeholder="Ej. Quiero priorizar los temas que más se repiten y practicar antes del parcial."></textarea></div>
-        <div class="historical-keys-warning"><span>i</span><p>MED AI usa las claves como evidencia histórica. Si un archivo contiene únicamente letras como “1-B, 2-C” y no incluye la pregunta o contexto, no inventará el tema correspondiente.</p></div>
-        <button id="historical-keys-create" class="library-create-study-btn"><div><strong>CREAR APUNTES + PRÁCTICA</strong><small>Resumen, prioridades y ejercicios con calificación</small></div></button>
-      </section>
-
-      <aside class="historical-keys-output">
-        <div class="panel-code">MED AI PREPARARÁ</div>
-        <div><b>01</b><span><strong>Apuntes de repaso</strong><small>Títulos, subtítulos y explicación clara</small></span></div>
-        <div><b>02</b><span><strong>Temas prioritarios</strong><small>Frecuencia verificada por PDF</small></span></div>
-        <div><b>03</b><span><strong>Contenido científico</strong><small>Ecuaciones, fórmulas o compuestos cuando aparezcan</small></span></div>
-        <div><b>04</b><span><strong>Práctica calificada</strong><small>Seleccionas respuestas y MED AI te indica si están bien</small></span></div>
-      </aside>
-    </div>
-
-    <section class="historical-keys-saved">
-      <div class="library-study-saved-head"><div><span>REPASOS YA PREPARADOS</span><h3>${saved.length} guardado${saved.length===1?"":"s"}</h3></div><small>Abrirlos no vuelve a usar IA</small></div>
-      <div class="smart-past-exam-list">${saved.length?saved.map(x=>`<button class="historical-open-saved" data-id="${escapeAttr(x.id)}"><span>PDF</span><div><strong>${escapeHtml(academicTextV302(x.study_title||x.title))}</strong><small>${escapeHtml(academicTextV302(x.subject||""))} · ${Number(x.source_count||0)} PDF · ${formatDate(x.updated_at)}</small></div><b>ESTUDIAR →</b></button>`).join(""):`<div class="smart-exam-empty"><strong>Aún no hay repasos guardados.</strong><p>El primero que crees quedará aquí para volver a estudiarlo y practicar.</p></div>`}</div>
-    </section>
-  </section>`;
-  $("#historical-keys-files").onchange=e=>{
-    const files=[...(e.target.files||[])].filter(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name));
-    const existing=state.historicalKeysDraft||[];
-    state.historicalKeysDraft=[...existing,...files.map(f=>({kind:"local",file:f,name:f.name,size:f.size}))].slice(0,12);
-    renderHistoricalKeysHome(saved);
-  };
-  $$("[data-remove]",box).forEach(b=>b.onclick=()=>{
-    state.historicalKeysDraft.splice(Number(b.dataset.remove),1);
-    renderHistoricalKeysHome(saved);
-  });
-  $("#historical-keys-create").onclick=createHistoricalKeysPack;
-  $$(".historical-open-saved",box).forEach(b=>b.onclick=()=>openHistoricalKeysPack(b.dataset.id));
-}
-
-async function createHistoricalKeysPack(){
-  const draft=state.historicalKeysDraft||[],subject=$("#historical-keys-subject").value.trim(),note=$("#historical-keys-note").value.trim(),btn=$("#historical-keys-create");
-  if(draft.length<1)return toast("Agrega al menos un PDF de clave pasada.",true);
-  if(!subject)return toast("Escribe la materia para organizar el repaso.",true);
-  if(!navigator.onLine)return toast("La preparación inicial necesita internet. Después podrás repasar el paquete guardado.",true);
-  btn.disabled=true;
-  const ids=[];
-  try{
-    for(let i=0;i<draft.length;i++){
-      const item=draft[i];
-      if(item.kind==="library"){ids.push(item.id);continue}
-      btn.innerHTML=`<div><strong>GUARDANDO PDF ${i+1}/${draft.length}…</strong><small>Preparando la fuente para el análisis</small></div>`;
-      const form=new FormData();form.append("file",item.file,item.file.name);
-      const res=await fetch("/api/library/upload",{method:"POST",body:form,credentials:"same-origin"});
-      const d=await res.json().catch(()=>({}));
-      if(!res.ok)throw new Error(d.error||`No pude subir ${item.name}.`);
-      ids.push(d.id);
-    }
-    btn.innerHTML=`<div><strong>ANALIZANDO TUS CLAVES…</strong><small>Extrayendo temas por bloques para evitar esperas largas</small></div>`;
-    const result=await api("/api/smart/historical-keys",{method:"POST",body:{file_ids:ids,subject,note}});
-    state.historicalKeysDraft=[];
-    toast(result.cached?"Este mismo conjunto ya estaba preparado; se reutilizó.":result.fallback_mode?"Repaso preparado con respaldo directo desde las claves.":"Apuntes y práctica preparados y guardados.");
-    await openHistoricalKeysPack(result.id,true);
-  }catch(err){
-    toast(err.message,true);
-    btn.disabled=false;btn.innerHTML=`<div><strong>CREAR APUNTES + PRÁCTICA</strong><small>Resumen, prioridades y ejercicios con calificación</small></div>`;
-  }
-}
-
-async function openHistoricalKeysPack(id,justCreated=false,startTab="summary"){
-  const o=ensureHistoricalKeysOverlay();o.classList.remove("hidden");document.body.classList.add("modal-open");
-  const box=$("#historical-keys-body");
-  box.innerHTML=`<div class="library-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>${justCreated?"Guardando tu nuevo paquete…":"Abriendo paquete guardado…"}</strong><small>No se está regenerando con IA.</small></div>`;
-  try{
-    const d=await api(`/api/smart/historical-keys?id=${encodeURIComponent(id)}`);
-    state.historicalKeysPack=d.pack;state.historicalKeysSource=d.source||null;
-    renderHistoricalKeysPack(startTab);
-  }catch(err){
-    box.innerHTML=`<div class="masterclass-error"><strong>No pude abrir este paquete.</strong><p>${escapeHtml(err.message)}</p></div>`;
-  }
-}
-
-function renderHistoricalKeysPack(tab="summary"){
-  const p=state.historicalKeysPack,box=$("#historical-keys-body");if(!p)return;
-  const legacy={analysis:"keypoints",class:"summary",review:"keypoints",exam:"practice",visuals:"summary"};
-  tab=legacy[tab]||tab;if(!["summary","keypoints","practice"].includes(tab))tab="summary";
-  const topics=p.recurring_topics||[],important=(p.important_points?.length?p.important_points:p.must_remember)||[],sourceCount=Number(p.source_count||p.source_files?.length||0);
-  const noteSections=p?.notes?.sections?.length?p.notes.sections:topics.slice(0,12).map(t=>({title:t.name,summary:t.why_priority||"",key_points:t.concepts||[],source_files:t.source_files||[]}));
-
-  box.innerHTML=`<section class="historical-pack v302-historical">
-    <header class="historical-pack-head">
-      <button id="historical-pack-back" class="ghost-btn">← MIS CLAVES</button>
-      <div><span>${escapeHtml(academicTextV302(p.subject||""))} · ${sourceCount} PDF HISTÓRICOS</span><h2>${escapeHtml(academicTextV302(p.title||"Repaso desde claves"))}</h2><p>Apuntes preparados con evidencia de las claves cargadas. La frecuencia histórica sirve para priorizar, no para predecir el próximo examen.</p></div>
-      <div class="historical-pack-saved">GUARDADO</div>
-    </header>
-    <nav class="historical-pack-tabs simplified v302-keys-tabs">
-      <button data-historical-tab="summary" class="${tab==="summary"?"active":""}"><b>01</b><span>APUNTES</span></button>
-      <button data-historical-tab="keypoints" class="${tab==="keypoints"?"active":""}"><b>02</b><span>PRIORIDADES</span></button>
-      <button data-historical-tab="practice" class="${tab==="practice"?"active":""}"><b>03</b><span>PRÁCTICA CALIFICADA</span></button>
-    </nav>
-    <main id="historical-pack-content"></main>
-  </section>`;
-
-  $("#historical-pack-back").onclick=()=>openHistoricalKeysStudio();
-  $$('.historical-pack-tabs button').forEach(b=>b.onclick=()=>renderHistoricalKeysPack(b.dataset.historicalTab));
-  const area=$("#historical-pack-content");
-
-  if(tab==="summary"){
-    area.innerHTML=`<article class="v302-paper v302-keys-paper">
-      <header class="v302-paper-head">
-        <div class="v302-paper-label">MED AI DALTON · REPASO DESDE CLAVES</div>
-        <h1>${escapeHtml(academicTextV302(p.title||"Apuntes de repaso"))}</h1>
-        <div class="v302-paper-source"><span><b>Materia:</b> ${escapeHtml(academicTextV302(p.subject||""))}</span><span><b>Archivos analizados:</b> ${sourceCount}</span><span><b>Temas verificados:</b> ${topics.length}</span></div>
-        ${p?.notes?.overview||p.overview?`<div class="v302-paper-intro">${academicParagraphsV302(p?.notes?.overview||p.overview)}</div>`:""}
-      </header>
-      <main class="v302-paper-body">
-        ${noteSections.map((s,i)=>`<section class="v302-paper-section">
-          <div class="v302-paper-section-head"><span>${i+1}</span><div><h2>${escapeHtml(academicTextV302(s.title))}</h2>${s.source_files?.length?`<small>Presente en: ${escapeHtml(s.source_files.slice(0,5).map(academicTextV302).join(", "))}</small>`:""}</div></div>
-          ${s.summary?`<div class="v302-paper-prose">${academicParagraphsV302(s.summary)}</div>`:""}
-          ${s.key_points?.length?`<div class="v302-paper-keypoints"><h3>Conceptos que debes dominar</h3><ul>${s.key_points.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></div>`:""}
-        </section>`).join("")}
-
-        ${academicAidsHtmlV302(p?.study_aids||{},"Fórmulas, compuestos y recursos que conviene reconocer")}
-
-        ${important.length?`<section class="v302-paper-review"><h2>Lo más importante para repasar</h2><p>Estos puntos tienen respaldo en las claves que subiste.</p><ol>${important.slice(0,18).map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ol></section>`:""}
-
-        ${p?.notes?.final_review?`<section class="v302-paper-conclusion"><h2>Cierre del repaso</h2>${academicParagraphsV302(p.notes.final_review)}</section>`:""}
-
-        ${p.limitations?.length?`<section class="v302-paper-limit"><h3>Limitaciones de la fuente</h3><ul>${p.limitations.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></section>`:""}
-      </main>
-      <footer class="v302-paper-footer"><span>Frecuencia histórica, no predicción del siguiente parcial.</span>${p.fallback_mode?`<span>Modo de respaldo: ${escapeHtml(academicTextV302(p.fallback_mode))}</span>`:""}</footer>
-    </article>`;
-    return;
-  }
-
-  if(tab==="keypoints"){
-    area.innerHTML=`<section class="v301-keys-dashboard v302-priorities">
-      <header><span>FRECUENCIA HISTÓRICA · NO ES PREDICCIÓN</span><h2>Qué conviene estudiar primero</h2><p>La barra representa en cuántas de tus claves se encontró evidencia del tema.</p></header>
-      <div>${topics.map((t,i)=>{const pct=sourceCount?Math.round(Number(t.occurrence_count||0)/sourceCount*100):0;return `<article><div class="v301-key-rank">#${i+1}</div><div class="v301-key-main"><div><strong>${escapeHtml(academicTextV302(t.name))}</strong><b>${Number(t.occurrence_count||0)} / ${sourceCount}</b></div><div class="v301-key-bar"><i style="width:${Math.min(100,pct)}%"></i></div><small>${escapeHtml(academicTextV302(t.why_priority||"Tema respaldado por las claves"))}</small>${(t.concepts||[]).length?`<div class="v301-key-tags">${t.concepts.slice(0,7).map(x=>`<span>${escapeHtml(academicTextV302(x))}</span>`).join("")}</div>`:""}</div></article>`}).join("")}</div>
-    </section>
-    ${p.historical_patterns?.length?`<section class="v302-paper v302-mini-paper"><div class="v302-paper-body"><section class="v302-paper-section"><h2>Patrones observados</h2><ul>${p.historical_patterns.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></section></div></section>`:""}
-    ${p.common_traps?.length?`<section class="v302-paper v302-mini-paper"><div class="v302-paper-body"><section class="v302-paper-section"><h2>Confusiones que conviene evitar</h2><ul>${p.common_traps.map(x=>`<li>${escapeHtml(academicTextV302(x))}</li>`).join("")}</ul></section></div></section>`:""}`;
-    return;
-  }
-
-  area.innerHTML=`<section class="v302-practice-intro">
-    <span>PRÁCTICA BASADA EN TUS CLAVES</span>
-    <h2>${Number((p.practice_questions||[]).length)} preguntas para comprobar qué tan bien dominas el repaso</h2>
-    <p>Selecciona una respuesta. MED AI te indicará inmediatamente si es correcta, te explicará el concepto y al final mostrará tu calificación.</p>
-    <button id="historical-start-practice" class="primary-btn">COMENZAR PRÁCTICA</button>
-  </section>`;
-  $("#historical-start-practice").onclick=()=>startHistoricalKeysQuiz("practice");
-}
-
-function startHistoricalKeysQuiz(kind){
-  const p=state.historicalKeysPack;
-  const questions=p.practice_questions||[];kind="practice";
-  if(!questions.length)return toast("Este paquete no tiene preguntas guardadas.",true);
-  state.historicalKeysQuiz={kind,questions,index:0,answers:{},score:0,started_at:new Date().toISOString()};
-  renderHistoricalKeysQuestion();
-}
-function renderHistoricalKeysQuestion(){
-  const st=state.historicalKeysQuiz,q=st?.questions?.[st.index],box=$("#historical-keys-body");
-  if(!q){finishHistoricalKeysQuiz();return}
-  const choice=st.answers[`q${st.index}`];
-  box.innerHTML=`<section class="answer-key-session historical-quiz v302-historical-quiz">
-    <header class="answer-key-session-head"><button id="historical-quiz-exit" class="ghost-btn">← SALIR</button><div><span>MED AI · PRÁCTICA DE CLAVES</span><strong>Pregunta ${st.index+1} de ${st.questions.length}</strong></div><div class="answer-key-session-score">${st.score} correctas</div></header>
-    <div class="master-exam-progress"><i style="width:${(st.index+1)/st.questions.length*100}%"></i></div>
-    <article class="answer-key-question">
-      <div class="answer-key-question-meta"><span>TEMA</span><b>${escapeHtml(academicTextV302(q.topic||"Repaso"))}</b></div>
-      <h1>${escapeHtml(academicTextV302(q.stem||q.question||""))}</h1>
-      <div class="answer-key-options">${(q.options||[]).map((op,i)=>`<button data-i="${i}" class="${choice===i?"selected":""}"><span>${String.fromCharCode(65+i)}</span><strong>${escapeHtml(academicTextV302(op))}</strong></button>`).join("")}</div>
-      ${choice!==undefined?renderHistoricalPracticeFeedback(q,choice):""}
-      <div class="answer-key-question-actions">${st.index>0?`<button id="historical-prev" class="secondary-btn">← ANTERIOR</button>`:"<span></span>"}${choice===undefined?`<small>Selecciona la respuesta que consideres correcta.</small>`:`<button id="historical-next" class="primary-btn">${st.index+1===st.questions.length?"VER MI CALIFICACIÓN":"SIGUIENTE →"}</button>`}</div>
-    </article>
-  </section>`;
-  $("#historical-quiz-exit").onclick=()=>renderHistoricalKeysPack("practice");
-  $$(".answer-key-options button",box).forEach(b=>b.onclick=()=>selectHistoricalKeysAnswer(Number(b.dataset.i)));
-  $("#historical-prev")?.addEventListener("click",()=>{st.index--;renderHistoricalKeysQuestion()});
-  $("#historical-next")?.addEventListener("click",()=>{st.index++;renderHistoricalKeysQuestion()});
-}
-function selectHistoricalKeysAnswer(choice){
-  const st=state.historicalKeysQuiz,q=st.questions[st.index],key=`q${st.index}`,prev=st.answers[key];
-  if(prev===undefined&&choice===Number(q.correctIndex))st.score++;
-  if(prev!==undefined&&prev===Number(q.correctIndex)&&choice!==Number(q.correctIndex))st.score--;
-  if(prev!==undefined&&prev!==Number(q.correctIndex)&&choice===Number(q.correctIndex))st.score++;
-  st.answers[key]=choice;renderHistoricalKeysQuestion();
-}
-function renderHistoricalPracticeFeedback(q,choice){
-  const ok=choice===Number(q.correctIndex),letter=String.fromCharCode(65+Number(q.correctIndex||0));
-  return `<section class="answer-key-feedback ${ok?"correct":"wrong"} v302-ai-feedback"><div class="answer-key-feedback-title"><div><strong>${ok?"MED AI: respuesta correcta":"MED AI: respuesta incorrecta"}</strong><small>La respuesta correcta es ${letter}</small></div></div><p>${escapeHtml(academicTextV302(q.explanation||"Revisa el concepto antes de continuar."))}</p></section>`;
-}
-async function finishHistoricalKeysQuiz(){
-  const st=state.historicalKeysQuiz,p=state.historicalKeysPack;let score=0;
-  const wrong=[];
-  st.questions.forEach((q,i)=>{
-    const chosen=Number(st.answers[`q${i}`]),correct=Number(q.correctIndex),ok=chosen===correct;
-    if(ok)score++;else wrong.push({q,i,chosen,correct});
-  });
-  const pct=Math.round(score/Math.max(1,st.questions.length)*100);
-  $("#historical-keys-body").innerHTML=`<section class="answer-key-result v302-key-result">
-    <div class="answer-key-result-ring"><strong>${pct}%</strong><small>${score}/${st.questions.length}</small></div>
-    <div class="eyebrow">CALIFICACIÓN DE MED AI</div>
-    <h2>${pct>=90?"Dominio excelente del repaso.":pct>=80?"Buen dominio de los temas históricos.":pct>=60?"Vas avanzando; conviene reforzar algunos temas.":"Repasa los apuntes y vuelve a intentarlo."}</h2>
-    <p>Esta calificación corresponde a los ejercicios creados desde los temas encontrados en tus claves.</p>
-    ${wrong.length?`<section class="v302-wrong-review"><h3>Preguntas que conviene revisar</h3>${wrong.map(x=>`<article><strong>${x.i+1}. ${escapeHtml(academicTextV302(x.q.stem))}</strong><p>Tu respuesta: ${Number.isFinite(x.chosen)?String.fromCharCode(65+x.chosen):"Sin responder"} · Correcta: ${String.fromCharCode(65+x.correct)}</p><small>${escapeHtml(academicTextV302(x.q.explanation||""))}</small></article>`).join("")}</section>`:`<section class="v302-perfect-review"><strong>Contestaste correctamente todas las preguntas.</strong></section>`}
-    <div class="answer-key-result-actions"><button id="historical-result-back" class="secondary-btn">VOLVER A LOS APUNTES</button><button id="historical-result-repeat" class="primary-btn">REPETIR PRÁCTICA</button></div>
-  </section>`;
-  $("#historical-result-back").onclick=()=>renderHistoricalKeysPack("summary");
-  $("#historical-result-repeat").onclick=()=>startHistoricalKeysQuiz("practice");
-}
-
 async function renderMistakes(){
   const d=await api("/api/mistakes");
   root.innerHTML=`<div class="page-head"><div><div class="eyebrow">CUADERNO DE ERRORES</div><h2>Errores que debes dominar</h2><p>Tu aprendizaje mejora cuando conviertes cada fallo en una fortaleza.</p></div></div>
@@ -5375,7 +5032,7 @@ async function renderSemesterV30(){
 
         <article class="card">
           <div class="smart-section-head"><div><span>CALENDARIO ACADÉMICO</span><h2>Fechas registradas</h2></div><button id="semester-add-date" class="ghost-btn">＋ AGREGAR FECHA</button></div>
-          <div class="v30-semester-deadlines">${(deadlines.deadlines||[]).length?(deadlines.deadlines||[]).slice(0,20).map(d=>`<div><b>${examPrepDaysLabel(d.due_at)}</b><span><strong>${escapeHtml(d.title)}</strong><small>${escapeHtml(d.subject_name||d.deadline_type||"Académico")} · ${formatDate(d.due_at)}</small></span><em>P${Number(d.importance||3)}</em></div>`).join(""):`<div class="system-empty">Aún no hay parciales, tareas o finales registrados.</div>`}</div>
+          <div class="v30-semester-deadlines">${(deadlines.deadlines||[]).length?(deadlines.deadlines||[]).slice(0,20).map(d=>`<div><b>${deadlineDaysLabel(d.due_at)}</b><span><strong>${escapeHtml(d.title)}</strong><small>${escapeHtml(d.subject_name||d.deadline_type||"Académico")} · ${formatDate(d.due_at)}</small></span><em>P${Number(d.importance||3)}</em></div>`).join(""):`<div class="system-empty">Aún no hay parciales, tareas o finales registrados.</div>`}</div>
         </article>
       </section>
 
@@ -5416,7 +5073,7 @@ async function renderPlan(){
       <button id="save-deadline" class="primary-btn wide">GUARDAR EN CALENDARIO</button>
     </div>
     <div class="card"><div class="smart-section-head"><div><span>AGENDA</span><h2>Próximas fechas</h2></div><b>${(d.deadlines||[]).filter(x=>!Number(x.completed)).length}</b></div>
-      <div class="v30-plan-deadlines">${(d.deadlines||[]).length?(d.deadlines||[]).slice(0,30).map(x=>`<article class="${Number(x.completed)?"done":""}"><b>${examPrepDaysLabel(x.due_at)}</b><div><span>${escapeHtml(typeLabel[x.deadline_type]||x.deadline_type||"Académico")}</span><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.subject_name||"Sin materia")} · ${formatDate(x.due_at)}${x.notes?` · ${escapeHtml(x.notes)}`:""}</small></div><em>P${Number(x.importance||3)}</em></article>`).join(""):`<div class="empty">Sin fechas registradas.</div>`}</div>
+      <div class="v30-plan-deadlines">${(d.deadlines||[]).length?(d.deadlines||[]).slice(0,30).map(x=>`<article class="${Number(x.completed)?"done":""}"><b>${deadlineDaysLabel(x.due_at)}</b><div><span>${escapeHtml(typeLabel[x.deadline_type]||x.deadline_type||"Académico")}</span><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.subject_name||"Sin materia")} · ${formatDate(x.due_at)}${x.notes?` · ${escapeHtml(x.notes)}`:""}</small></div><em>P${Number(x.importance||3)}</em></article>`).join(""):`<div class="empty">Sin fechas registradas.</div>`}</div>
     </div>
   </div>`;
   $("#plan-open-semester").onclick=()=>navigate("semester");
@@ -5659,7 +5316,7 @@ async function hardRefreshApplication(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.2.3",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.2.5",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
@@ -5693,7 +5350,7 @@ async function api(url,opts={}){
   if(opts.body && typeof opts.body!=="string") config.body=JSON.stringify(opts.body);
   const cacheKey=offlineApiKey(url);
   try{
-    const timeoutMs=url.includes("/api/library/study-pack/summary")?55000:url.includes("/api/library/study-pack")?75000:90000;
+    const timeoutMs=url.includes("case_solver=1")?125000:url.includes("/api/library/study-pack/summary")?55000:url.includes("/api/library/study-pack")?75000:90000;
     const res=await fetchWithTimeout(url,config,timeoutMs);
     const data=await res.json().catch(()=>({}));
     if(!res.ok){

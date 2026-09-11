@@ -2750,3 +2750,367 @@ pre,code{max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywh
   .v302-notes-toolbar>div:first-child span{white-space:normal}
   .v302-notes-toolbar>div:last-child{width:100%;display:grid;grid-template-columns:1fr}
 }
+
+/* ==========================================================
+   V30.2.5 · INSTITUTIONAL GRAPHITE / STEEL / GOLD
+   Serious, square academic-clinical visual system
+   ========================================================== */
+:root{
+  --bg:#090d12;
+  --bg2:#0c1117;
+  --bg3:#101720;
+  --surface:#111820;
+  --surface2:#151e27;
+  --surface3:#1a2631;
+  --surface4:#202e3a;
+  --sidebar:#070b0f;
+  --topbar:rgba(9,13,18,.94);
+  --border:#263441;
+  --border2:#374958;
+  --border3:#506474;
+  --text:#d6dde4;
+  --text2:#a5b0ba;
+  --heading:#f4efe5;
+  --muted:#7d8994;
+  --accent:#c49643;
+  --accent2:#e0b861;
+  --accent3:#6f8ea6;
+  --accentSoft:rgba(196,150,67,.13);
+  --accentSofter:rgba(196,150,67,.065);
+  --success:#83a895;
+  --warn:#d0a45c;
+  --danger:#c57a70;
+  --shadow:0 16px 34px rgba(0,0,0,.25);
+  --shadow-sm:0 5px 14px rgba(0,0,0,.18);
+  --r:4px;
+  --rs:3px;
+  --violet:#958aa2;
+  --cyan:#7895a8;
+  --coral:#b77970;
+  --gold:#d5b56b;
+  --v17-green:#c99a49;
+  --v17-green2:#a87a31;
+  --v17-blue:#718fa7;
+  --v17-violet:#91869d;
+  --v17-coral:#b66f64;
+  --v17-yellow:#d4b266;
+  --v17-pink:#9f7f94;
+  --v17-navy:#0b1118;
+  --v17-card:#131c25;
+  --institution-accent:#d2a34c;
+  --institution-line:#30404d;
+  --institution-panel:#10171f;
+}
+:root[data-theme="light"]{
+  --bg:#ecebe7;
+  --bg2:#e5e5e1;
+  --bg3:#dfe1e1;
+  --surface:#f7f6f1;
+  --surface2:#efeee9;
+  --surface3:#e6e7e4;
+  --surface4:#dce0df;
+  --sidebar:#e2e2de;
+  --topbar:rgba(247,246,241,.96);
+  --border:#c7cbc9;
+  --border2:#adb5b6;
+  --border3:#87959a;
+  --text:#34404a;
+  --text2:#596772;
+  --heading:#171d22;
+  --muted:#707c84;
+  --accent:#9b712d;
+  --accent2:#b88635;
+  --accent3:#58768d;
+  --accentSoft:rgba(155,113,45,.12);
+  --accentSofter:rgba(155,113,45,.055);
+  --success:#577d68;
+  --warn:#986e31;
+  --danger:#a45f57;
+  --institution-accent:#9b712d;
+  --institution-line:#bfc5c4;
+  --institution-panel:#f7f6f1;
+}
+
+html,body{background:var(--bg)!important}
+body{
+  background:
+    linear-gradient(90deg,rgba(255,255,255,.012) 1px,transparent 1px),
+    linear-gradient(180deg,var(--bg),var(--bg2) 56%,var(--bg3))!important;
+  background-size:32px 100%,100% 100%!important;
+}
+.auth-backdrop{
+  background:linear-gradient(145deg,#070b0f 0%,#0b1118 58%,#111821 100%)!important;
+}
+:root[data-theme="light"] .auth-backdrop{background:linear-gradient(145deg,#e5e5e1,#f7f6f1)!important}
+
+/* Square geometry */
+.card,.auth-card,.sidebar-profile,.global-search,.search-results,
+.metric-card,.record-panel,.academic-summary,.clinical-resume,
+.patient-setup,.patient-workspace,.case-input-panel,.case-output-panel,
+.v30-home-hero,.v30-mission,.v30-semester-strip,.v30-home-metrics article,
+.v30-academic-launcher button,.smart-hero,.smart-metric-grid article,
+.smart-today-card,.smart-weak-card,.smart-rag-card,.smart-health,
+.question-bank-hero,.qb-filter-card,.course-subject-card,.course-step,
+.v302-paper,.system-version-panel,.system-health-grid>*,.system-reset-card{
+  border-radius:3px!important;
+}
+button,.primary-btn,.secondary-btn,.ghost-btn,.icon-btn,.sidebar-action,
+.nav-item,.nav-item span,input,textarea,select,kbd,.sync-badge,.user-chip{
+  border-radius:2px!important;
+}
+
+/* Sidebar */
+.sidebar{
+  background:#070b0f!important;
+  border-right:1px solid #293744!important;
+  box-shadow:10px 0 30px rgba(0,0,0,.16)!important;
+  padding-top:17px!important;
+}
+.sidebar:before{
+  height:3px!important;
+  background:linear-gradient(90deg,var(--accent),transparent 82%)!important;
+}
+.sidebar-brand{border-bottom:1px solid var(--border);padding-bottom:16px!important}
+.brand-mark,.brand-mark.small{
+  border-radius:2px!important;
+  background:var(--accent)!important;
+  color:#11100c!important;
+  box-shadow:none!important;
+  border:1px solid #deb766!important;
+}
+.brand-mark:after{display:none!important}
+.brand-copy strong{font-family:var(--font-head)!important;letter-spacing:.045em!important}
+.brand-copy span{color:var(--accent2)!important;letter-spacing:.17em!important}
+.sidebar-profile{
+  background:#0d1319!important;
+  border-color:#263542!important;
+  box-shadow:none!important;
+}
+.profile-dot{border-radius:1px!important;box-shadow:none!important;width:8px!important;height:8px!important}
+.nav-group{gap:3px!important}
+.nav-group-title{color:#6e7a85!important;font-size:9px!important;letter-spacing:.20em!important;padding-bottom:7px!important}
+.nav-item{
+  min-height:42px!important;
+  border-left:3px solid transparent!important;
+  color:#9aa6b0!important;
+  transition:background .14s ease,border-color .14s ease,color .14s ease!important;
+}
+.nav-item:hover{
+  transform:none!important;
+  background:#101820!important;
+  border-color:#2c3b48!important;
+  border-left-color:#546878!important;
+  color:var(--heading)!important;
+}
+.nav-item.active{
+  background:linear-gradient(90deg,rgba(196,150,67,.14),rgba(196,150,67,.025))!important;
+  border-color:#3b4038!important;
+  border-left-color:var(--accent)!important;
+  color:var(--heading)!important;
+  box-shadow:none!important;
+}
+.nav-item span,.nav-item:nth-of-type(n) span{
+  color:var(--accent2)!important;
+  background:transparent!important;
+  border-color:#34414a!important;
+  border-radius:2px!important;
+}
+.nav-item.active span{background:rgba(196,150,67,.09)!important;border-color:rgba(224,184,97,.34)!important}
+.sidebar-bottom{border-color:#263440!important}
+.sidebar-action{background:#0d141a!important;border-color:#2b3945!important}
+
+/* Topbar and controls */
+.topbar{
+  height:76px!important;
+  background:var(--topbar)!important;
+  border-bottom:1px solid #2a3742!important;
+  backdrop-filter:blur(14px)!important;
+}
+.global-search{background:var(--surface)!important;box-shadow:none!important;border-color:#31414e!important}
+.global-search:focus-within{border-color:var(--accent)!important;box-shadow:inset 3px 0 0 var(--accent)!important}
+.search-icon{color:var(--accent2)!important}
+.sync-badge{background:transparent!important;border-color:#34444f!important;padding:8px 10px!important;border-radius:2px!important}
+.icon-btn,.user-chip{box-shadow:none!important;background:var(--surface)!important}
+.user-chip{border-radius:2px!important;color:var(--accent2)!important}
+
+/* Buttons */
+.primary-btn,.v17-continue-btn{
+  background:var(--accent)!important;
+  color:#12100c!important;
+  border:1px solid #d9b05e!important;
+  box-shadow:none!important;
+  text-transform:uppercase!important;
+  letter-spacing:.055em!important;
+  font-family:var(--font-head)!important;
+}
+.primary-btn:hover,.v17-continue-btn:hover{transform:none!important;background:var(--accent2)!important;filter:none!important}
+.secondary-btn,.ghost-btn{
+  background:transparent!important;
+  color:var(--text2)!important;
+  border:1px solid var(--border2)!important;
+  box-shadow:none!important;
+  text-transform:uppercase!important;
+  letter-spacing:.045em!important;
+}
+.secondary-btn:hover,.ghost-btn:hover{background:var(--surface2)!important;color:var(--heading)!important;border-color:var(--accent)!important}
+
+/* Panels / cards */
+.card,.record-panel,.academic-summary,.clinical-resume,
+.v30-mission,.v30-semester-strip,.smart-today-card,.smart-weak-card,.smart-rag-card,.smart-health{
+  background:var(--surface)!important;
+  border-color:var(--border)!important;
+  box-shadow:none!important;
+}
+.card:hover{box-shadow:none!important}
+.page-head h2,.page-head h1,.institution-main h1,.v30-home-main h1,.smart-hero h1,.question-bank-hero h1{
+  font-family:var(--font-head)!important;
+  letter-spacing:-.015em!important;
+}
+.eyebrow,.panel-code,.institution-code,.learning-home-chip{
+  color:var(--accent2)!important;
+  letter-spacing:.16em!important;
+}
+.learning-home-chip{
+  border:1px solid rgba(196,150,67,.35)!important;
+  background:rgba(196,150,67,.06)!important;
+  border-radius:2px!important;
+  padding:6px 9px!important;
+  width:max-content;
+}
+.learning-home-chip>span{border-radius:1px!important;background:var(--accent)!important;box-shadow:none!important}
+
+/* Home: clearly more institutional */
+.v30-home-hero{
+  background:linear-gradient(115deg,#0d141b 0%,#121b24 65%,#171b1c 100%)!important;
+  border:1px solid #34414a!important;
+  border-left:4px solid var(--accent)!important;
+  box-shadow:none!important;
+}
+:root[data-theme="light"] .v30-home-hero{background:linear-gradient(115deg,#f7f6f1,#ecece7)!important}
+.v30-home-deadline{border-left:1px solid #3a4853!important}
+.v30-home-metrics article{
+  background:var(--surface)!important;
+  border:1px solid var(--border)!important;
+  box-shadow:none!important;
+}
+.v30-home-metrics article>span{filter:saturate(.45)!important}
+.v30-academic-launcher{
+  gap:8px!important;
+}
+.v30-academic-launcher button{
+  background:var(--surface)!important;
+  border:1px solid var(--border)!important;
+  border-top:2px solid #455764!important;
+  box-shadow:none!important;
+  transform:none!important;
+}
+.v30-academic-launcher button:hover{
+  background:var(--surface2)!important;
+  border-top-color:var(--accent)!important;
+  transform:none!important;
+}
+.v30-academic-launcher button>span{color:var(--accent2)!important}
+
+/* Courses: remove rainbow treatment, keep academic hierarchy */
+.course-subject-card:nth-child(n){
+  border-top:2px solid #405565!important;
+  background:var(--surface)!important;
+}
+.course-subject-card:nth-child(3n+1){border-top-color:var(--accent)!important}
+.course-subject-card:nth-child(3n+2){border-top-color:#6f8ea6!important}
+.course-subject-card:nth-child(3n){border-top-color:#8b8171!important}
+.course-subject-card:hover{transform:none!important;border-color:var(--border2)!important}
+.course-step{background:var(--surface)!important;border-color:var(--border)!important}
+.course-step.active{box-shadow:inset 3px 0 0 var(--accent)!important;border-color:#4b493d!important}
+.course-flow-step.active{background:rgba(196,150,67,.07)!important;border-color:rgba(196,150,67,.35)!important}
+.course-flow-step.active b{background:var(--accent)!important;color:#11100c!important}
+
+/* Clinical modules: square and restrained */
+.clinical-module{
+  background:var(--surface)!important;
+  border-color:var(--border)!important;
+  transform:none!important;
+}
+.clinical-module:before{background:#526879!important}
+.clinical-module:nth-child(3n+1):before{background:var(--accent)!important}
+.clinical-module:hover{transform:none!important;background:var(--surface2)!important;border-color:var(--border2)!important}
+.clinical-module .module-symbol,.clinical-module:nth-child(n) .module-symbol{
+  color:var(--accent2)!important;
+  background:rgba(196,150,67,.055)!important;
+  border-color:#394954!important;
+  border-radius:2px!important;
+  transform:none!important;
+}
+
+/* Smart study cleanup */
+.smart-hero{
+  background:linear-gradient(115deg,#0d141b,#121a22)!important;
+  border:1px solid var(--border)!important;
+  border-left:4px solid var(--accent)!important;
+}
+.smart-brain-core{background:var(--accent)!important;color:#17120b!important;box-shadow:none!important}
+.smart-brain .node{background:#131c24!important;border-color:#3b4a56!important;color:var(--text2)!important}
+.smart-metric-grid article{background:var(--surface)!important;border-color:var(--border)!important}
+.smart-metric-grid article>span{color:var(--accent2)!important;background:rgba(196,150,67,.06)!important}
+.clean-smart-health{margin-top:16px!important}
+
+/* Question bank and exam surfaces */
+.question-bank-hero{background:linear-gradient(115deg,#0f161e,#151d25)!important;border-left:4px solid var(--accent)!important}
+.qb-metrics article{border-radius:3px!important;background:var(--surface)!important;border-color:var(--border)!important}
+
+/* Case solver v30.2.5 */
+.case-solver-grid{gap:14px!important}
+.case-input-panel,.case-output-panel{
+  border:1px solid var(--border2)!important;
+  background:var(--surface)!important;
+}
+.case-output-panel{border-top:3px solid var(--accent)!important}
+.case-textarea{background:#0c1218!important;border-color:#354652!important}
+:root[data-theme="light"] .case-textarea{background:#fbfaf6!important}
+.case-answer{height:570px!important}
+.case-solving-state,.case-error-state{
+  min-height:280px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  text-align:center;
+  gap:10px;
+  border:1px solid var(--border);
+  background:var(--surface2);
+  padding:24px;
+}
+.case-solving-state strong,.case-error-state strong{font-family:var(--font-head);font-size:20px;color:var(--heading)}
+.case-solving-state small,.case-error-state p{max-width:580px;color:var(--muted);margin:0;line-height:1.6}
+.case-resolution{border-left:3px solid var(--accent)!important;background:var(--surface2)!important}
+.case-resolution .rich-response h2{border-bottom:1px solid var(--border)!important;padding-bottom:8px!important;color:var(--heading)!important}
+.case-resolution .rich-response h3{color:var(--accent2)!important}
+
+/* Inputs and reading surfaces */
+input,textarea,select{
+  background:var(--surface2)!important;
+  border-color:var(--border2)!important;
+  color:var(--heading)!important;
+}
+input:focus,textarea:focus,select:focus{border-color:var(--accent)!important;box-shadow:0 0 0 2px rgba(196,150,67,.09)!important}
+.notice,.info-box{border-radius:2px!important}
+.rich-response blockquote{border-left-color:var(--accent)!important;background:rgba(196,150,67,.045)!important}
+
+/* Progress / status accents */
+.smart-health-ok,.sync-badge:not(.offline),.status-ok{color:var(--success)!important}
+.v17-loading-orb i{border-radius:1px!important;background:var(--accent)!important}
+.v17-loading-orb i:nth-child(2){background:#718fa7!important}
+.v17-loading-orb i:nth-child(3){background:#9a8561!important}
+
+/* Strip out old playful hover rotation / jumping globally on core academic cards */
+.clinical-module:hover .module-symbol,.course-subject-card:hover,.v30-academic-launcher button:hover,
+.smart-metric-grid article:hover,.v30-home-metrics article:hover{transform:none!important}
+
+@media(max-width:900px){
+  .topbar{height:70px!important}
+  .sidebar{background:#070b0f!important}
+}
+@media(max-width:560px){
+  .v30-home-hero,.smart-hero,.question-bank-hero{border-left-width:3px!important}
+  .case-answer{height:auto!important;min-height:430px!important}
+}

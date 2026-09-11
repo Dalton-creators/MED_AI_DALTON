@@ -1,9 +1,9 @@
-const CACHE = "med-ai-dalton-v30-2-3-universal-notes-fresh-start";
+const CACHE = "med-ai-dalton-v30-2-5-clinical-clean-ui";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=30.2.3",
-  "/app.js?v=30.2.3",
+  "/styles.css?v=30.2.5",
+  "/app.js?v=30.2.5",
   "/manifest.webmanifest",
   "/icons/icon.svg"
 ];
