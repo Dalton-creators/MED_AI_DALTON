@@ -67,6 +67,14 @@ export default {
         return systemExportApi(env, user);
       }
 
+      if (url.pathname === "/api/system/reset-status" && request.method === "GET") {
+        return systemResetStatusApi(env, user);
+      }
+
+      if (url.pathname === "/api/system/reset-once" && request.method === "POST") {
+        return systemResetOnceApi(request, env, user);
+      }
+
       if (url.pathname === "/api/me" && request.method === "GET") {
         return getMe(env, user);
       }
@@ -449,7 +457,7 @@ async function ensurePersonalUser(env) {
 // V26 · STABILITY & RELIABILITY BACKEND
 // ============================================================
 
-const SYSTEM_VERSION="30.2.2";
+const SYSTEM_VERSION="30.2.3";
 const SYSTEM_BACKUP_PREFIX="_system_backups";
 const SYSTEM_BACKUP_TABLES=[
   "profiles","user_preferences","study_resume_state",
@@ -460,6 +468,124 @@ const SYSTEM_BACKUP_TABLES=[
   "ai_conversations","ai_messages",
   "case_sessions","daily_metrics"
 ];
+
+
+
+// ============================================================
+// V30.2.3 · ONE-TIME FRESH START
+// Erases personal study/test data but preserves MED AI itself,
+// base curriculum, Cloudflare bindings and the personal account.
+// ============================================================
+const SYSTEM_RESET_FLAG_PREFIX="_system_flags";
+function systemResetFlagKey(user){
+  return `${SYSTEM_RESET_FLAG_PREFIX}/${user.id}/fresh-start-v3023.json`;
+}
+async function systemResetAlreadyUsed(env,user){
+  try{
+    if(env.LIBRARY){
+      const h=await env.LIBRARY.head(systemResetFlagKey(user));
+      if(h)return true;
+    }
+  }catch{}
+  return false;
+}
+async function systemResetStatusApi(env,user){
+  const used=await systemResetAlreadyUsed(env,user);
+  return json({
+    ok:true,
+    available:!used,
+    used,
+    label:"REINICIAR MED AI · EMPEZAR DE CERO",
+    preserves:["programa","cuenta personal","materias base","Cloudflare","D1","R2","AI Gateway","bindings"],
+    clears:["archivos de Biblioteca","resúmenes y apuntes","claves","prácticas","banco generado","progreso","errores locales","datos offline","calendario y sesiones de prueba"]
+  });
+}
+async function deleteR2PrefixV3023(bucket,prefix){
+  if(!bucket)return 0;
+  let cursor=undefined,deleted=0;
+  do{
+    const page=await bucket.list({prefix,limit:1000,cursor});
+    const keys=(page.objects||[]).map(x=>x.key);
+    for(let i=0;i<keys.length;i+=500){
+      const part=keys.slice(i,i+500);
+      if(part.length){await bucket.delete(part);deleted+=part.length}
+    }
+    cursor=page.truncated?page.cursor:undefined;
+  }while(cursor);
+  return deleted;
+}
+async function systemResetOnceApi(request,env,user){
+  requireLibraryR2(env);
+  const body=await readJson(request);
+  if(body.confirm!=="REINICIAR MED AI")return json({error:"Confirmación inválida."},400);
+  if(await systemResetAlreadyUsed(env,user))return json({error:"El reinicio de uso único ya fue utilizado.",used:true},409);
+
+  const now=new Date().toISOString();
+
+  // Remove private test/study objects and old backup snapshots.
+  let r2Deleted=0;
+  r2Deleted+=await deleteR2PrefixV3023(env.LIBRARY,`${user.id}/`).catch(()=>0);
+  r2Deleted+=await deleteR2PrefixV3023(env.LIBRARY,`${SYSTEM_BACKUP_PREFIX}/${user.id}/`).catch(()=>0);
+
+  // Child tables first to respect possible foreign keys.
+  const tables=[
+    "ai_messages","question_attempts","flashcard_reviews",
+    "user_lesson_progress","user_topic_progress",
+    "mistakes","exams","flashcards","case_sessions","study_sessions",
+    "academic_deadlines","daily_metrics","notes","ai_conversations",
+    "study_resume_state","user_preferences"
+  ];
+  let rowsDeleted=0;
+  for(const table of tables){
+    try{
+      const r=await env.DB.prepare(`DELETE FROM ${table} WHERE user_id=?`).bind(user.id).run();
+      rowsDeleted+=Number(r?.meta?.changes||0);
+    }catch{}
+  }
+
+  // Preserve identity/profile, but return learning counters to zero.
+  try{
+    await env.DB.prepare("UPDATE profiles SET total_xp=0,current_medical_level=1,updated_at=? WHERE user_id=?")
+      .bind(now,user.id).run();
+  }catch{}
+
+  // Recreate the minimal clean personal state.
+  try{
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO user_preferences (user_id,created_at,updated_at)
+      VALUES (?,?,?)
+    `).bind(user.id,now,now).run();
+  }catch{}
+  try{
+    await env.DB.prepare(`
+      INSERT OR REPLACE INTO study_resume_state
+      (user_id,route,progress_percent,context_json,sync_version,updated_at)
+      VALUES (?,'/',0,?,1,?)
+    `).bind(user.id,JSON.stringify({fresh_start_v3023:true,reset_at:now}),now).run();
+  }catch{}
+
+  // Permanent server-side marker outside the user's ordinary Library prefix.
+  const marker=JSON.stringify({
+    med_ai:"MED AI DALTON",
+    fresh_start_used:true,
+    used_at:now,
+    app_version:SYSTEM_VERSION,
+    user_id:user.id
+  });
+  await env.LIBRARY.put(systemResetFlagKey(user),marker,{
+    httpMetadata:{contentType:"application/json; charset=utf-8"},
+    customMetadata:{medai:"one-time-fresh-start",used_at:now}
+  });
+
+  return json({
+    ok:true,
+    used:true,
+    reset_at:now,
+    d1_rows_deleted:rowsDeleted,
+    r2_objects_deleted:r2Deleted,
+    message:"MED AI quedó limpio para comenzar tu estudio real."
+  });
+}
 
 async function systemHealthApi(env,user){
   let db=false,dbDetail="",r2=false,r2Detail="";
@@ -3399,7 +3525,7 @@ function sanitizeSourceMapAgainstText(map,sourceText){
 
   return {
     topics:dedup.slice(0,20),
-    headings:headings.slice(0,24),
+    headings:headings.slice(0,30),
     excluded:Array.isArray(map?.excluded)?map.excluded.map(x=>cleanText(x,300)).filter(Boolean).slice(0,20):[],
     source_summary:cleanText(map?.source_summary,2200),
     domain:cleanText(map?.domain,180)||"General",
@@ -3545,11 +3671,30 @@ async function buildLibrarySourceMap(env,{material,studyScope,fileTitle}){
   const direct=deterministicLibrarySourceMapV3021(material,fileTitle,studyScope);
 
   const prompt=`Analiza EXCLUSIVAMENTE el fragmento seleccionado y detecta su estructura REAL.
-No presupongas ninguna carrera o asignatura. No enseñes todavía. No uses conocimiento externo.
-Devuelve SOLO JSON con domain, material_type, language, headings, topics, excluded y source_summary.
-Conserva únicamente títulos, subtítulos y temas demostrables en la fuente.
-No inventes encabezados. page_refs solo usa números de ===== PÁGINA N =====.
-Máximo 24 headings y 20 topics.
+No presupongas Medicina ni ninguna otra asignatura: este sistema debe servir para CUALQUIER PDF académico.
+No enseñes todavía y no uses conocimiento externo.
+
+OBJETIVO PRINCIPAL:
+- Detecta TODOS los títulos y subtítulos académicos visibles o claramente identificables en estas páginas.
+- No te quedes solo con 3 o 4 si el fragmento tiene más.
+- Conserva subtítulos como unidades separadas aunque luego puedan agruparse en el resumen.
+- Distingue títulos reales de números de página, encabezados editoriales, pies de figura, copyright y texto corrido.
+- Si hay un subtítulo real como "Periodo refractario absoluto", "Acomodación", "Sinapsis químicas", etc., debe aparecer en headings.
+- Funciona igual para Medicina, Química, Física, Matemática, Biología, Historia, Psicología, Derecho, Idiomas, Computación u otra materia.
+- page_refs solo usa números presentes en ===== PÁGINA N =====.
+- No inventes encabezados.
+
+Devuelve SOLO JSON:
+{
+ "domain":"materia detectada o General",
+ "material_type":"tipo de material",
+ "language":"es",
+ "headings":[{"title":"subtítulo exacto o limpiamente normalizado","level":2,"page_refs":[34],"subheadings":[]}],
+ "topics":[{"name":"tema demostrable","aliases":[],"page_refs":[34],"evidence":[],"subtopics":[]}],
+ "excluded":[],
+ "source_summary":"qué cubre el fragmento en términos generales"
+}
+Máximo 30 headings y 24 topics.
 
 ARCHIVO: ${fileTitle}
 RANGO: ${studyScope}
@@ -3560,32 +3705,35 @@ ${material}
 
   try{
     const result=await callLibraryPartJson(env,{
-      task:"library_source_structure_v3021",
+      task:"library_source_structure_v3023",
       model:PREMIUM_FLASH_LITE_MODEL,
-      system:"Extrae estructura académica real. No inventes contenido ni uses conocimiento externo.",
+      system:"Extrae todos los títulos y subtítulos reales del fragmento. Universal para cualquier materia. No inventes ni uses conocimiento externo.",
       prompt,
-      maxOutputTokens:1700,
+      maxOutputTokens:2400,
       temperature:0.01,
-      providerTimeout:10000,
+      providerTimeout:11000,
       fallbackTimeout:6000
     });
-    const cleaned=sanitizeSourceMapAgainstText(result?.parsed,material);
+    let cleaned=sanitizeSourceMapAgainstText(result?.parsed,material);
+    // Preserve reliable direct headings that the fast AI may have omitted.
+    const known=new Set((cleaned.headings||[]).map(x=>libraryHeadingKey(x.title)));
+    for(const h of (direct.headings||[])){
+      const k=libraryHeadingKey(h.title);
+      if(k&&!known.has(k)&&(cleaned.headings||[]).length<30){
+        cleaned.headings.push(h);known.add(k);
+      }
+    }
+    cleaned.headings=(cleaned.headings||[]).slice(0,30);
     if(sourceLockMapValid(cleaned)){
-      return {...result,parsed:cleaned,detector_mode:"ai_verified"};
+      return {...result,parsed:cleaned,detector_mode:"ai_plus_direct_v3023"};
     }
   }catch(err){
-    // El reconocimiento previo jamás debe bloquear el estudio.
+    // El reconocimiento previo nunca bloquea el estudio.
   }
 
   if(sourceLockMapValid(direct)){
-    return {
-      parsed:direct,
-      model:"direct-source-v30.2.1",
-      detector_mode:"direct_source",
-      fallback:true
-    };
+    return {parsed:direct,model:"direct-source-v30.2.3",detector_mode:"direct_source",fallback:true};
   }
-
   const e=new Error("El fragmento no contiene suficiente texto legible para identificar un tema.");
   e.code="SOURCE_TEXT_TOO_WEAK";
   throw e;
@@ -3608,8 +3756,8 @@ async function librarySourceMapApi(request,env,user){
       ok:true,
       source_map:result.parsed,
       source_topics:sourceLockNames(result.parsed),
-      model:result.model||"direct-source-v30.2.1",
-      detector_mode:result.detector_mode||"direct_source",
+      model:result.model||"direct-source-v30.2.3",
+      detector_mode:result.detector_mode||"direct_source_v3023",
       fallback:!!result.fallback
     });
   }catch(err){
@@ -3875,13 +4023,39 @@ function librarySummaryQualityV301(parsed,map,sourceText){
   return {ok,coverage_percent:Math.round(coverage*100),headings_total:headings.length,headings_covered:covered,missing_headings:missing,summary_chars:chars,repeated_ratio:Number(repeated.toFixed(3)),source_overlap:Number(sourceOverlap.toFixed(3)),status:ok?"verified":"repaired_or_fallback"};
 }
 async function libraryRepairMissingHeadingsV301(env,parsed,map,material){
-  const missing=libraryMissingSummaryHeadings(parsed,map);
-  if(!missing.length)return parsed;
-  const prompt=`El resumen ya existe pero faltan estos subtítulos reales:\n${missing.map((x,i)=>`${i+1}. ${x}`).join("\n")}\n\nUsa EXCLUSIVAMENTE el material proporcionado. Devuelve SOLO JSON: {"sections":[{"title":"subtítulo exacto","page_refs":[1],"summary":"explicación completa","key_points":["..."],"important_data":["..."]}]}\n\nMATERIAL:\n${material}`;
-  try{
-    const r=await callLibraryPartJson(env,{task:"library_heading_repair_v301",model:PREMIUM_FLASH_LITE_MODEL,system:"Completa únicamente subtítulos omitidos sin agregar conocimiento externo.",prompt,maxOutputTokens:2400,temperature:0.02,providerTimeout:14000,fallbackTimeout:8000});
-    return mergeLibrarySummaryRepair(parsed,r.parsed||{});
-  }catch{return parsed}
+  let current=parsed;
+  for(let pass=0;pass<3;pass++){
+    const missing=libraryMissingSummaryHeadings(current,map).slice(0,18);
+    if(!missing.length)break;
+    const batch=missing.slice(0,6);
+    const prompt=`Estos apuntes ya existen, pero todavía faltan subtítulos REALES del fragmento.
+
+SUBTÍTULOS QUE DEBES INCORPORAR EN ESTA REPARACIÓN:
+${batch.map((x,i)=>`${i+1}. ${x}`).join("\n")}
+
+REGLAS:
+- Usa EXCLUSIVAMENTE el MATERIAL.
+- Puedes agrupar dos subtítulos en un mismo apartado si son parte de la misma explicación, pero source_headings DEBE enumerar exactamente cuáles cubre.
+- No copies texto roto del PDF: redacta prosa académica natural.
+- Corrige notación científica cuando la fuente la muestre: Na⁺, K⁺, Ca²⁺, Cl⁻, etc.
+- No inventes conocimiento.
+- Devuelve SOLO JSON.
+
+{"sections":[{"title":"subtítulo o título agrupador claro","source_headings":["subtítulo real 1"],"page_refs":[1],"summary":"explicación coherente y resumida","key_points":["..."],"important_data":["..."]}]}
+
+MATERIAL:
+${material}`;
+    try{
+      const r=await callLibraryPartJson(env,{
+        task:"library_heading_repair_v3023",
+        model:PREMIUM_FLASH_LITE_MODEL,
+        system:"Completa todos los subtítulos omitidos con prosa limpia y fiel. Universal para cualquier materia.",
+        prompt,maxOutputTokens:2600,temperature:0.02,providerTimeout:13000,fallbackTimeout:7000
+      });
+      current=mergeLibrarySummaryRepair(current,r.parsed||{});
+    }catch{break}
+  }
+  return current;
 }
 function libraryStudyMaterialFromPackV301(pack){
   const s=pack?.summary||{};
@@ -3898,6 +4072,39 @@ function libraryPersonalizationV301(pack){
 }
 
 
+
+function superscriptChargeV3023(char){
+  return char==="+"?"⁺":char==="-"?"⁻":char;
+}
+function superscriptDigitsV3023(value){
+  const m={"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"};
+  return String(value||"").split("").map(x=>m[x]||x).join("");
+}
+function normalizeScientificNotationV3023(value){
+  let s=String(value??"");
+  // Common ionic notation: Na + -> Na⁺, Ca 2+ -> Ca²⁺, Cl - -> Cl⁻.
+  s=s.replace(/\b([A-Z][a-z]?)(?:\s*)([1-9]?)(?:\s*)([+-])(?=\s|[.,;:)\]}]|$)/g,(all,el,n,charge)=>{
+    // Protect ordinary prose/math: only element-looking symbols.
+    const elements=new Set(["H","Li","Na","K","Mg","Ca","Al","Cl","Fe","Cu","Zn","Ag","Ba","Mn","Co","Ni"]);
+    if(!elements.has(el))return all;
+    return `${el}${n?superscriptDigitsV3023(n):""}${superscriptChargeV3023(charge)}`;
+  });
+  // Frequent biomedical ions when punctuation is immediately after the sign.
+  s=s.replace(/\b(Na|K|H|Cl)\s*\+(?=[,.;:)\]}]|$)/g,"$1⁺");
+  s=s.replace(/\b(Cl)\s*-(?=[,.;:)\]}]|$)/g,"$1⁻");
+  s=s.replace(/\b(Ca|Mg)\s*2\s*\+(?=[,.;:)\]}]|$)/g,"$1²⁺");
+  // Remove extraction-only '+' used as a stray bullet before normal prose.
+  s=s.replace(/([,.;:])\s*\+\s+(?=(?:el|la|los|las|un|una|en|por|para|con|sin|y|se|durante|cuando|pero)\b)/gi,"$1 ");
+  s=s.replace(/\b(de|del|la|el|las|los|una|un|y|que|durante|pero)\s+\+\s+(?=[a-záéíóúüñ])/gi,"$1 ");
+  return s;
+}
+function cleanHeadingTitleV3023(value,max=420){
+  let s=cleanAcademicTextV302(value,max);
+  s=s.replace(/^\s*\d+\s*[•·]\s*/,"");
+  s=s.replace(/^\s*(?:p[áa]gina|page)\s+\d+\s*[:\-–—]?\s*/i,"");
+  s=s.replace(/^\s*[•·▪◦]\s*/,"").trim();
+  return s||"Apartado";
+}
 function cleanAcademicTextV302(value,max=7000){
   let s=cleanText(value,Math.max(max*2,1200));
   try{s=s.normalize("NFC")}catch{}
@@ -3909,6 +4116,9 @@ function cleanAcademicTextV302(value,max=7000){
   ];
   for(const [bad,good] of fixes)s=s.split(bad).join(good);
   s=s.replace(/\uFFFD/g,"").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g," ");
+  // Repair words broken by a PDF line ending: electro-\nquímico -> electroquímico.
+  s=s.replace(/([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,})-\s*\n\s*([a-záéíóúüñ]{2,})/g,"$1$2");
+  s=normalizeScientificNotationV3023(s);
   s=s.replace(/[ \t]{2,}/g," ").replace(/[ \t]+\n/g,"\n").replace(/\n[ \t]+/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
   return s.slice(0,max);
 }
@@ -3943,31 +4153,34 @@ function sanitizeAcademicStudyAidsV302(parsed){
 }
 function sanitizeLibraryNotesPackV302(parsed,{studyFocus,sourceName,sourceType,mimeType}={}){
   const secRaw=Array.isArray(parsed?.summary?.sections)?parsed.summary.sections:Array.isArray(parsed?.sections)?parsed.sections:[];
-  const sections=secRaw.slice(0,16).map((s,i)=>({
-    title:cleanAcademicTextV302(s?.title,420)||`Apartado ${i+1}`,
+  const sections=secRaw.slice(0,24).map((s,i)=>({
+    title:cleanHeadingTitleV3023(s?.title,420)||`Apartado ${i+1}`,
     page_refs:academicPageRefsV302(s?.page_refs),
-    summary:cleanAcademicTextV302(s?.summary||s?.content||s?.explanation,3600),
+    source_headings:Array.isArray(s?.source_headings)?s.source_headings.slice(0,12).map(x=>cleanHeadingTitleV3023(x,420)).filter(Boolean):[],
+    summary:cleanAcademicTextV302(s?.summary||s?.content||s?.explanation,4200),
     key_points:Array.isArray(s?.key_points)?s.key_points.slice(0,7).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
     important_data:Array.isArray(s?.important_data)?s.important_data.slice(0,6).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[]
   })).filter(s=>s.summary||s.key_points.length||s.important_data.length);
+
   const summary={
     overview:cleanAcademicTextV302(parsed?.summary?.overview||parsed?.overview,3800),
     sections,
-    must_remember:Array.isArray(parsed?.summary?.must_remember)?parsed.summary.must_remember.slice(0,12).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
+    must_remember:Array.isArray(parsed?.summary?.must_remember)?parsed.summary.must_remember.slice(0,14).map(x=>cleanAcademicTextV302(x,850)).filter(Boolean):[],
     final_synthesis:cleanAcademicTextV302(parsed?.summary?.final_synthesis||parsed?.final_synthesis,2200)
   };
   if(!summary.overview||!sections.length)return null;
   return {
-    version:30.21,
+    version:30.23,
     university_source:true,
     library_study_pack:true,
     library_notes_only_v302:true,
+    library_universal_notes_v3023:true,
     library_simple_v30:true,
-    title:cleanAcademicTextV302(parsed?.title,420)||cleanAcademicTextV302(studyFocus,420)||cleanAcademicTextV302(sourceName,420)||"Apuntes de estudio",
+    title:cleanHeadingTitleV3023(parsed?.title,420)||cleanHeadingTitleV3023(studyFocus,420)||cleanHeadingTitleV3023(sourceName,420)||"Apuntes de estudio",
     overview:cleanAcademicTextV302(parsed?.overview,2800)||summary.overview,
     estimated_minutes:clamp(Number(parsed?.estimated_minutes||20),5,90),
     source_digest:cleanAcademicTextV302(parsed?.source_digest,15000),
-    key_terms:Array.isArray(parsed?.key_terms)?parsed.key_terms.slice(0,22).map(x=>cleanAcademicTextV302(x,360)).filter(Boolean):[],
+    key_terms:Array.isArray(parsed?.key_terms)?parsed.key_terms.slice(0,24).map(x=>cleanAcademicTextV302(x,360)).filter(Boolean):[],
     summary,
     study_aids:sanitizeAcademicStudyAidsV302(parsed),
     diagrams:[],diagram:null,concept_map:null,
@@ -3976,40 +4189,91 @@ function sanitizeLibraryNotesPackV302(parsed,{studyFocus,sourceName,sourceType,m
     source_reference:{type:cleanAcademicTextV302(sourceType,30),name:cleanAcademicTextV302(sourceName,300),mime_type:cleanAcademicTextV302(mimeType,120),imported_at:new Date().toISOString()}
   };
 }
+
+function librarySectionCoverageTextV3023(section){
+  return [
+    section?.title,
+    ...(section?.source_headings||[]),
+    section?.summary,
+    ...(section?.key_points||[]),
+    ...(section?.important_data||[])
+  ].filter(Boolean).join(" ");
+}
+function libraryMissingPackHeadingsV3023(pack,map){
+  const headings=(map?.headings||[]).map(x=>cleanHeadingTitleV3023(x?.title,420)).filter(Boolean);
+  const sections=pack?.summary?.sections||[];
+  return headings.filter(h=>{
+    const hn=libraryHeadingKey(h);
+    return !sections.some(s=>{
+      const exact=(s.source_headings||[]).some(x=>libraryHeadingKey(x)===hn);
+      if(exact)return true;
+      const text=normalizeSourceLockText(librarySectionCoverageTextV3023(s));
+      return text.includes(hn)||sourceLockTopicSupported(h,[],text);
+    });
+  });
+}
+function augmentLibraryNotesCoverageV3023(pack,map,sourceText){
+  if(!pack?.summary)return pack;
+  const missing=libraryMissingPackHeadingsV3023(pack,map).slice(0,20);
+  const allHeadings=(map?.headings||[]).map(x=>x.title).filter(Boolean);
+  for(const heading of missing){
+    if((pack.summary.sections||[]).length>=24)break;
+    const idx=allHeadings.findIndex(x=>libraryHeadingKey(x)===libraryHeadingKey(heading));
+    const next=idx>=0?allHeadings[idx+1]:null;
+    const chunk=libraryFallbackSectionText(sourceText,heading,next);
+    const sents=libraryFallbackSentences(chunk).map(x=>cleanAcademicTextV302(x,1200)).filter(Boolean);
+    if(!sents.length)continue;
+    const ref=(map?.headings||[]).find(x=>libraryHeadingKey(x.title)===libraryHeadingKey(heading));
+    pack.summary.sections.push({
+      title:cleanHeadingTitleV3023(heading,420),
+      source_headings:[cleanHeadingTitleV3023(heading,420)],
+      page_refs:academicPageRefsV302(ref?.page_refs),
+      summary:cleanAcademicTextV302(sents.slice(0,5).join(" "),2600),
+      key_points:sents.slice(0,3).map(x=>cleanAcademicTextV302(x,700)),
+      important_data:sents.filter(x=>/\d|%|=|→|↔|mol|mg|ml|mmhg|hz|ph\b|Na⁺|K⁺|Ca²⁺|Cl⁻/i.test(x)).slice(0,3).map(x=>cleanAcademicTextV302(x,700))
+    });
+  }
+  return pack;
+}
 function libraryNotesQualityV302(pack,sourceMap,sourceText){
-  const headings=(sourceMap?.headings||[]).map(x=>cleanAcademicTextV302(x?.title,420)).filter(Boolean);
+  const headings=(sourceMap?.headings||[]).map(x=>cleanHeadingTitleV3023(x?.title,420)).filter(Boolean);
   const generated=[
     pack?.title,pack?.overview,pack?.summary?.overview,pack?.summary?.final_synthesis,
     ...(pack?.summary?.must_remember||[]),
-    ...(pack?.summary?.sections||[]).flatMap(s=>[s.title,s.summary,...(s.key_points||[]),...(s.important_data||[])]),
+    ...(pack?.summary?.sections||[]).flatMap(s=>[s.title,...(s.source_headings||[]),s.summary,...(s.key_points||[]),...(s.important_data||[])]),
     ...(pack?.study_aids?.equations||[]).flatMap(x=>[x.expression,x.meaning]),
     ...(pack?.study_aids?.compounds||[]).flatMap(x=>[x.formula,x.name,x.importance])
   ].filter(Boolean).join(" ");
-  const norm=normalizeSourceLockText(generated);
-  const hNorm=headings.map(normalizeSourceLockText).filter(Boolean);
-  const covered=hNorm.filter(h=>norm.includes(h)||sourceLockTopicSupported(h,[],norm));
+
   const sourceWords=normalizeSourceLockText(sourceText).split(/\s+/).filter(Boolean).length;
   const noteWords=normalizeSourceLockText(generated).split(/\s+/).filter(Boolean).length;
-  const coveragePercent=hNorm.length?Math.round(covered.length/hNorm.length*100):100;
+  const missing=libraryMissingPackHeadingsV3023(pack,sourceMap);
+  const covered=Math.max(0,headings.length-missing.length);
+  const coveragePercent=headings.length?Math.round(covered/headings.length*100):100;
   const ratio=sourceWords?noteWords/sourceWords:0;
   const weird=(generated.match(/\uFFFD|Ã.|â€|Â/g)||[]).length;
+  const strayPlus=(generated.match(/(?:[,.;:]\s*\+\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]|\b(?:de|del|la|el|las|los)\s+\+\s+[a-záéíóúüñ])/gi)||[]).length;
+
   return {
-    ok:noteWords>=90 && weird===0 && (hNorm.length===0||coveragePercent>=Math.max(70,hNorm.length<=5?80:70)) && (sourceWords<500||ratio<=0.72),
+    ok:noteWords>=100 && weird===0 && strayPlus===0 &&
+       (headings.length===0||coveragePercent>=95) &&
+       (sourceWords<450||ratio<=0.68),
     coverage_percent:coveragePercent,
-    headings_total:hNorm.length,
-    headings_covered:covered.length,
-    missing_headings:hNorm.filter(h=>!covered.includes(h)).slice(0,10),
+    headings_total:headings.length,
+    headings_covered:covered,
+    missing_headings:missing.slice(0,20),
     source_words:sourceWords,
     notes_words:noteWords,
     compression_percent:sourceWords?Math.round((1-Math.min(1,ratio))*100):null,
     weird_characters:weird,
-    status:"checked_v302"
+    stray_plus_artifacts:strayPlus,
+    status:"checked_v3023"
   };
 }
 function buildDeterministicLibraryNotesV302({sourceText,sourceMap,title,scope}){
   const headings=(sourceMap?.headings||[]).map(x=>x.title).filter(Boolean);
   const topics=sourceLockNames(sourceMap);
-  const units=(headings.length?headings:topics).slice(0,10);
+  const units=(headings.length?headings:topics).slice(0,20);
   const allSent=libraryFallbackSentences(sourceText);
   const sections=[];
   for(let i=0;i<units.length;i++){
@@ -4024,7 +4288,8 @@ function buildDeterministicLibraryNotesV302({sourceText,sourceMap,title,scope}){
     if(body.length<70)continue;
     const src=(sourceMap?.headings||[]).find(h=>h.title===unit)||(sourceMap?.topics||[]).find(t=>t.name===unit);
     sections.push({
-      title:cleanAcademicTextV302(unit,420),
+      title:cleanHeadingTitleV3023(unit,420),
+      source_headings:[cleanHeadingTitleV3023(unit,420)],
       page_refs:academicPageRefsV302(src?.page_refs),
       summary:body,
       key_points:sents.slice(0,4).map(x=>cleanAcademicTextV302(x,750)),
@@ -4070,7 +4335,7 @@ async function createLibraryStudySummaryV301(request,env,user){
   const exactPageRange=pageStart>0&&pageEnd>=pageStart;
   const ocrPages=Array.isArray(body.ocr_pages)?body.ocr_pages.map(Number).filter(n=>Number.isInteger(n)&&n>0).slice(0,20):[];
 
-  const sourceSignature=await sha256(["library-notes-v30.2.0",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
+  const sourceSignature=await sha256(["library-notes-v30.2.3",user.id,fileId,studyScope,studyFocus,exactPageRange?`${pageStart}-${pageEnd}`:"",extracted].join("|"));
   const existing=await env.DB.prepare(`SELECT id,title,body,metadata_json FROM notes WHERE user_id=? AND tags_json LIKE '%library_study_pack%' ORDER BY datetime(updated_at) DESC LIMIT 180`).bind(user.id).all();
   for(const row of (existing.results||[])){
     const m=parseJsonLoose(row.metadata_json)||{};
@@ -4099,7 +4364,7 @@ async function createLibraryStudySummaryV301(request,env,user){
 
   const topicNames=sourceLockNames(sourceMap);
   const headingNames=(sourceMap.headings||[]).map(h=>cleanAcademicTextV302(h.title,420)).filter(Boolean);
-  const units=(headingNames.length?headingNames:topicNames).slice(0,14);
+  const units=(headingNames.length?headingNames:topicNames).slice(0,24);
   const unitBlock=units.map((x,i)=>`${i+1}. ${x}`).join("\n");
   const selectedPageCount=exactPageRange?(pageEnd-pageStart+1):null;
 
@@ -4114,23 +4379,29 @@ async function createLibraryStudySummaryV301(request,env,user){
     `===== MATERIAL =====\n${extracted}\n===== FIN DEL MATERIAL =====`
   ].filter(Boolean).join("\n\n");
 
-  const prompt=`Convierte estas páginas en APUNTES DE ESTUDIO claros, coherentes y agradables de leer.
+  const prompt=`Convierte estas páginas en APUNTES DE ESTUDIO UNIVERSALES, claros, coherentes y agradables de leer.
 
 OBJETIVO:
 - Debe parecer un resumen académico normal de un tema, como un PDF de apuntes bien redactado.
 - El lector debe entender desde el título qué tema está estudiando.
-- Usa un título natural y subtítulos lógicos.
+- Sirve para CUALQUIER materia. No presupongas Medicina: adapta el vocabulario a lo que realmente contenga la fuente.
+- Usa un título natural que indique con claridad qué tema se estudia.
+- TODOS los subtítulos reales listados en UNIDADES REALES DETECTADAS deben quedar cubiertos.
+- Puedes combinar subtítulos relacionados dentro de una misma sección para evitar repetición, pero cada sección debe declarar source_headings con los subtítulos reales que cubrió.
+- Si dos subtítulos no son equivalentes o no se explican juntos con naturalidad, mantenlos en apartados separados.
 - Explica con prosa continua y clara; no hagas frases cortadas ni listas sin contexto.
 - Resume: NO copies todo el PDF. Idealmente conserva aproximadamente 25% a 45% de la extensión conceptual del fragmento, sin perder ideas esenciales.
 - Cada apartado debe explicar qué es, cómo funciona o por qué importa cuando esa información esté en la fuente.
 - Los puntos clave son complementarios; la explicación principal debe poder leerse sola y tener sentido.
 - Si hay ecuaciones, fórmulas, reacciones químicas, compuestos, tablas o figuras relevantes en la fuente, inclúyelos en study_aids.
 - Si no existen, devuelve listas vacías. No inventes fórmulas, compuestos ni figuras.
-- Conserva las fórmulas científicas tal como aparecen. No uses símbolos decorativos, emojis, Markdown ni caracteres extraños.
+- Conserva y NORMALIZA la notación científica sin destruirla: por ejemplo Na⁺, K⁺, Ca²⁺, Cl⁻ cuando esa carga esté presente en la fuente.
+- Repara palabras partidas por salto de línea y evita copiar números de página, pies editoriales o fragmentos de columnas como si fueran parte de una explicación.
+- No uses símbolos decorativos, emojis, Markdown ni caracteres extraños.
 - No mezcles información de otras páginas ni conocimiento externo.
 - Español natural, ortografía correcta, acentos correctos y texto limpio.
 
-${selectedPageCount?`LONGITUD: son ${selectedPageCount} páginas. Prioriza entre 4 y 10 apartados realmente necesarios; no crees un subtítulo artificial por cada párrafo.`:""}
+${selectedPageCount?`LONGITUD: son ${selectedPageCount} páginas. Resume de forma sustancial: normalmente el resultado debería ocupar alrededor de 25% a 45% del contenido conceptual original. El número de apartados depende de la estructura real, no de un límite artificial.`:""}
 
 Devuelve SOLO JSON válido:
 {
@@ -4143,7 +4414,8 @@ Devuelve SOLO JSON válido:
    "overview":"introducción congruente",
    "sections":[
      {
-       "title":"subtítulo claro",
+       "title":"subtítulo claro o título agrupador natural",
+       "source_headings":["subtítulo real cubierto"],
        "page_refs":[34],
        "summary":"explicación coherente de aproximadamente 80 a 220 palabras según importancia",
        "key_points":["solo 2 a 6 ideas que valga la pena memorizar"],
@@ -4169,10 +4441,10 @@ ${material}`;
   let parsed=null,summaryModel=null,fallbackGenerated=false;
   try{
     const r=await callLibraryPartJson(env,{
-      task:"library_notes_only_v302",
+      task:"library_universal_notes_v3023",
       model:PREMIUM_FLASH_MODEL,
-      system:"Redacta apuntes universitarios limpios, coherentes, resumidos y estrictamente fieles a la fuente. Devuelve solo JSON válido.",
-      prompt,maxOutputTokens:3200,temperature:0.02,providerTimeout:26000,fallbackTimeout:12000
+      system:"Redacta apuntes universitarios universales para cualquier materia. Cubre todos los subtítulos reales, limpia artefactos del PDF y conserva notación científica. Devuelve solo JSON válido.",
+      prompt,maxOutputTokens:4800,temperature:0.02,providerTimeout:30000,fallbackTimeout:12000
     });
     parsed=r.parsed;summaryModel=r.model;
   }catch(err){
@@ -4182,7 +4454,7 @@ ${material}`;
   if(parsed){
     parsed=libraryAttachSourcePagesV301(parsed,sourceMap);
     const missing=libraryMissingSummaryHeadings(parsed,sourceMap);
-    if(missing.length && missing.length<=6){
+    if(missing.length){
       try{
         parsed=await libraryRepairMissingHeadingsV301(env,parsed,sourceMap,material);
         parsed=libraryAttachSourcePagesV301(parsed,sourceMap);
@@ -4197,14 +4469,20 @@ ${material}`;
   }):null;
 
   let quality=pack?libraryNotesQualityV302(pack,sourceMap,extracted):null;
-  if(!pack||!quality?.ok){
+  if(pack && quality && quality.coverage_percent<95){
+    pack=augmentLibraryNotesCoverageV3023(pack,sourceMap,extracted);
+    quality=libraryNotesQualityV302(pack,sourceMap,extracted);
+    quality.status=quality.ok?"ai_plus_source_coverage":"ai_plus_source_partial";
+  }
+  if(!pack || !quality || quality.weird_characters>0 || quality.stray_plus_artifacts>0 || quality.notes_words<100){
     pack=buildDeterministicLibraryNotesV302({sourceText:extracted,sourceMap,title:studyFocus,scope:studyScope});
+    pack=augmentLibraryNotesCoverageV3023(pack,sourceMap,extracted);
     fallbackGenerated=true;
     quality=libraryNotesQualityV302(pack,sourceMap,extracted);
-    quality.status="source_direct_fallback";
+    quality.status="source_direct_fallback_v3023";
   }
 
-  pack.version=30.20;
+  pack.version=30.23;
   pack.library_study_pack=true;
   pack.library_notes_only_v302=true;
   pack.library_simple_v30=true;
@@ -4214,7 +4492,7 @@ ${material}`;
   pack.quality=quality;
   pack.user_personalization=libraryPersonalizationV301(pack);
   pack.source_lock={
-    enabled:true,version:"30.2.1",
+    enabled:true,version:"30.2.3",
     domain:sourceMap.domain||"General",
     material_type:sourceMap.material_type||"Material académico",
     topics:sourceMap.topics||[],
@@ -4231,11 +4509,11 @@ ${material}`;
   const id=crypto.randomUUID(),now=new Date().toISOString();
   const metadata={
     university_source:true,library_study_pack:true,library_notes_only_v302:true,library_simple_v30:true,
-    version:30.21,source_type:"library",source_file_id:fileId,source_name:file.title,
+    version:30.23,source_type:"library",source_file_id:fileId,source_name:file.title,
     study_scope:studyScope,study_focus:studyFocus,study_title:pack.title||studyFocus,
     page_start:exactPageRange?pageStart:null,page_end:exactPageRange?pageEnd:null,pdf_page_count:pdfPageCount||null,
     source_signature:sourceSignature,source_lock_v30:true,source_topics:topicNames,source_headings:headingNames,
-    source_domain:sourceMap.domain||"General",fallback_generated:fallbackGenerated,generation_version:"30.2.1",
+    source_domain:sourceMap.domain||"General",fallback_generated:fallbackGenerated,generation_version:"30.2.3",
     generation_models:{summary:summaryModel,visuals:"disabled",source_map:sourceMapModel,fallback:fallbackGenerated?"deterministic_source_only":null},
     generation_ms:Date.now()-started,imported_once:true,quality
   };
@@ -4244,7 +4522,7 @@ ${material}`;
     .bind(
       id,user.id,null,null,`LIB · ${file.title} · ${studyScope}`,
       JSON.stringify(pack),
-      JSON.stringify(["university_source","study_pack","library_study_pack","library_notes_only_v302","source_locked","v30_2_1"]),
+      JSON.stringify(["university_source","study_pack","library_study_pack","library_notes_only_v302","source_locked","v30_2_3"]),
       JSON.stringify(metadata),now,now
     ).run();
 

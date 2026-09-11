@@ -1,4 +1,4 @@
-const APP_VERSION="30.2.2";
+const APP_VERSION="30.2.3";
 
 const state = {
   user:null, subjects:[], currentView:"dashboard", deferredPrompt:null,
@@ -265,10 +265,11 @@ function formatSystemDate(v){
 async function renderSystemCenter(){
   root.innerHTML=`<div class="system-center-loading"><div class="v17-loading-orb"><i></i><i></i><i></i></div><strong>Revisando MED AI…</strong><small>El diagnóstico no utiliza Gemini.</small></div>`;
   const storage=await systemStorageEstimate();
-  let health=null,backups=[];
+  let health=null,backups=[],resetStatus={available:false,used:false};
   if(navigator.onLine){
     try{health=await api("/api/system/health?fresh=1");state.systemHealth=health}catch(err){logSystemError("system_health",err);health=null}
     try{const d=await api("/api/system/backups");backups=d.backups||[];state.systemBackups=backups}catch{}
+    try{resetStatus=await api("/api/system/reset-status");state.systemResetStatus=resetStatus}catch{}
   }else{
     health=state.systemHealth||await offlineGetJson(offlineApiKey("/api/system/health?fresh=1"));
     backups=state.systemBackups||[];
@@ -342,6 +343,22 @@ async function renderSystemCenter(){
         <div class="system-storage-meta"><span>Usado <strong>${formatBytes(storage.usage)}</strong></span><span>Disponible aprox. <strong>${storage.quota?formatBytes(Math.max(0,storage.quota-storage.usage)):"—"}</strong></span><span>Persistente <strong>${storage.persisted?"Sí":"Según navegador"}</strong></span></div>
         <p class="system-help">Los archivos que marcaste OFFLINE ocupan espacio solo en este dispositivo. Los originales siguen en R2.</p>
       </article>
+    </section>
+
+    <section class="system-reset-zone">
+      <article class="card system-reset-card ${resetStatus.used?"used":""}">
+        <div class="system-section-head">
+          <div><span>INICIO LIMPIO · USO ÚNICO</span><h2>${resetStatus.used?"Reinicio inicial ya utilizado":"Empezar MED AI desde cero"}</h2></div>
+          <b>${resetStatus.used?"USADO":"1 VEZ"}</b>
+        </div>
+        <p class="system-help">${resetStatus.used
+          ?"Este reinicio ya fue utilizado y no puede ejecutarse otra vez."
+          :"Úsalo únicamente cuando termines las pruebas. Borra tus PDF de Biblioteca, resúmenes, claves, ejercicios, banco generado, progreso, calendario de prueba, errores locales y contenido offline. Conserva MED AI, tu cuenta personal, materias base y toda la configuración de Cloudflare."}</p>
+        ${resetStatus.used
+          ?`<div class="system-reset-used">✓ MED AI ya inició su etapa de estudio real.</div>`
+          :`<button id="system-reset-once" class="system-reset-danger">REINICIAR MED AI · EMPEZAR DE CERO</button>
+             <small class="system-reset-note">Requiere dos confirmaciones y escribir exactamente “REINICIAR MED AI”. Después desaparece para siempre.</small>`}
+      </article>
     </section>`;
 
   $("#system-run-diagnostic").onclick=renderSystemCenter;
@@ -356,6 +373,51 @@ async function renderSystemCenter(){
   $("#system-download-course").onclick=downloadExistingCourseOffline;
   $("#system-copy-diagnostic").onclick=copySystemDiagnostic;
   $("#system-clear-errors").onclick=()=>{if(confirm("¿Limpiar el registro local de errores de este dispositivo?")){clearSystemErrors();renderSystemCenter()}};
+  $("#system-reset-once")?.addEventListener("click",runOneTimeFreshStartV3023);
+}
+
+
+async function clearLocalMedAIForFreshStartV3023(){
+  try{
+    if(state.offlineDb){state.offlineDb.close();state.offlineDb=null}
+    await new Promise(resolve=>{
+      if(!("indexedDB" in window))return resolve();
+      const req=indexedDB.deleteDatabase(OFFLINE_DB_NAME);
+      req.onsuccess=req.onerror=req.onblocked=()=>resolve();
+    });
+  }catch{}
+  try{
+    const keys=await caches.keys();
+    await Promise.all(keys.map(k=>caches.delete(k)));
+  }catch{}
+  try{localStorage.clear()}catch{}
+  try{sessionStorage.clear()}catch{}
+}
+async function runOneTimeFreshStartV3023(){
+  if(!navigator.onLine)return toast("Conéctate a internet para ejecutar el reinicio único.",true);
+  if(!confirm("Este botón es de USO ÚNICO.\n\nBorrará tus pruebas, PDF de Biblioteca, resúmenes, claves, prácticas, progreso y datos offline. MED AI y su configuración permanecerán instalados.\n\n¿Deseas continuar?"))return;
+  if(!confirm("Última confirmación: después de usarlo no volverá a estar disponible.\n\n¿Seguro que quieres comenzar desde cero?"))return;
+  const typed=prompt('Escribe exactamente: REINICIAR MED AI');
+  if(typed!=="REINICIAR MED AI")return toast("Texto incorrecto. No se borró nada.",true);
+
+  const btn=$("#system-reset-once");
+  if(btn){btn.disabled=true;btn.textContent="REINICIANDO MED AI…"}
+  try{
+    const res=await fetchWithTimeout("/api/system/reset-once",{
+      method:"POST",
+      credentials:"include",
+      headers:{"content-type":"application/json","x-medai-app-version":APP_VERSION},
+      body:JSON.stringify({confirm:"REINICIAR MED AI"})
+    },90000);
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(data.error||`Error ${res.status}`);
+    await clearLocalMedAIForFreshStartV3023();
+    location.replace(`${location.origin}${location.pathname}?fresh=${Date.now()}`);
+  }catch(err){
+    logSystemError("fresh_start_once",err,{url:"/api/system/reset-once",method:"POST"});
+    toast(err.message||"No pude completar el reinicio.",true);
+    if(btn){btn.disabled=false;btn.textContent="REINICIAR MED AI · EMPEZAR DE CERO"}
+  }
 }
 
 function renderSystemIntegrityResult(d){
@@ -1621,6 +1683,22 @@ async function openSavedUniversitySource(id,justCreated=false){
 
 
 
+
+function academicSuperscriptDigitsV3023(value){
+  const m={"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"};
+  return String(value||"").split("").map(x=>m[x]||x).join("");
+}
+function academicScientificTextV3023(value){
+  let s=String(value??"");
+  const elements=new Set(["H","Li","Na","K","Mg","Ca","Al","Cl","Fe","Cu","Zn","Ag","Ba","Mn","Co","Ni"]);
+  s=s.replace(/\b([A-Z][a-z]?)(?:\s*)([1-9]?)(?:\s*)([+-])(?=\s|[.,;:)\]}]|$)/g,(all,el,n,ch)=>{
+    if(!elements.has(el))return all;
+    return `${el}${n?academicSuperscriptDigitsV3023(n):""}${ch==="+"?"⁺":"⁻"}`;
+  });
+  s=s.replace(/([,.;:])\s*\+\s+(?=(?:el|la|los|las|un|una|en|por|para|con|sin|y|se|durante|cuando|pero)\b)/gi,"$1 ");
+  s=s.replace(/\b(de|del|la|el|las|los|una|un|y|que|durante|pero)\s+\+\s+(?=[a-záéíóúüñ])/gi,"$1 ");
+  return s;
+}
 function academicTextV302(value){
   let s=String(value??"");
   try{s=s.normalize("NFC")}catch{}
@@ -1631,7 +1709,10 @@ function academicTextV302(value){
     ["â€œ","“"],["â€","”"],["â†’","→"],["â†”","↔"],["â‰¥","≥"],["â‰¤","≤"],["â‰ ","≠"]
   ];
   for(const [bad,good] of fixes)s=s.split(bad).join(good);
-  return s.replace(/\uFFFD/g,"").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g," ").replace(/[ \t]{2,}/g," ").replace(/\n{3,}/g,"\n\n").trim();
+  s=s.replace(/\uFFFD/g,"").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g," ");
+  s=s.replace(/([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,})-\s*\n\s*([a-záéíóúüñ]{2,})/g,"$1$2");
+  s=academicScientificTextV3023(s);
+  return s.replace(/[ \t]{2,}/g," ").replace(/\n{3,}/g,"\n\n").trim();
 }
 function academicParagraphsV302(value){
   const s=academicTextV302(value);
@@ -5578,7 +5659,7 @@ async function hardRefreshApplication(){
 }
 
 function setupPWA(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.2.2",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=30.2.3",{updateViaCache:"none"}).catch(err=>logSystemError("service_worker_register",err));
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();state.deferredPrompt=e;$("#install-btn").classList.remove("hidden")});
   $("#install-btn").onclick=async()=>{if(state.deferredPrompt){state.deferredPrompt.prompt();await state.deferredPrompt.userChoice;state.deferredPrompt=null;$("#install-btn").classList.add("hidden")}};
 }
